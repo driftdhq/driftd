@@ -114,7 +114,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	log.Printf("Job %s completed: drifted=%v added=%d changed=%d destroyed=%d",
 		job.ID, result.Drifted, result.Added, result.Changed, result.Destroyed)
 
-	if completeErr := w.queue.Complete(w.ctx, job); completeErr != nil {
+	if completeErr := w.queue.Complete(w.ctx, job, result.Drifted); completeErr != nil {
 		log.Printf("Failed to mark job %s as completed: %v", job.ID, completeErr)
 	}
 }
