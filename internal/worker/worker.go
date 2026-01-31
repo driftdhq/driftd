@@ -15,14 +15,18 @@ import (
 type Worker struct {
 	id          string
 	queue       *queue.Queue
-	runner      *runner.Runner
+	runner      Runner
 	concurrency int
 	wg          sync.WaitGroup
 	ctx         context.Context
 	cancel      context.CancelFunc
 }
 
-func New(q *queue.Queue, r *runner.Runner, concurrency int) *Worker {
+type Runner interface {
+	Run(ctx context.Context, repoName, repoURL, stackPath string) (*runner.RunResult, error)
+}
+
+func New(q *queue.Queue, r Runner, concurrency int) *Worker {
 	hostname, _ := os.Hostname()
 	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 

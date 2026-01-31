@@ -60,13 +60,13 @@ func Load(path string) (*Config, error) {
 	}
 
 	if path == "" {
-		return cfg, nil
+		return applyDefaults(cfg)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return applyDefaults(cfg)
 		}
 		return nil, err
 	}
@@ -75,6 +75,19 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	return applyDefaults(cfg)
+}
+
+func (c *Config) GetRepo(name string) *RepoConfig {
+	for i := range c.Repos {
+		if c.Repos[i].Name == name {
+			return &c.Repos[i]
+		}
+	}
+	return nil
+}
+
+func applyDefaults(cfg *Config) (*Config, error) {
 	// Apply defaults for unset values
 	if cfg.DataDir == "" {
 		cfg.DataDir = "./data"
@@ -108,13 +121,4 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func (c *Config) GetRepo(name string) *RepoConfig {
-	for i := range c.Repos {
-		if c.Repos[i].Name == name {
-			return &c.Repos[i]
-		}
-	}
-	return nil
 }
