@@ -25,6 +25,8 @@ type WorkerConfig struct {
 	Concurrency int           `yaml:"concurrency"`
 	LockTTL     time.Duration `yaml:"lock_ttl"`
 	RetryOnce   bool          `yaml:"retry_once"`
+	TaskMaxAge  time.Duration `yaml:"task_max_age"`
+	RenewEvery  time.Duration `yaml:"renew_every"`
 }
 
 type RepoConfig struct {
@@ -46,6 +48,8 @@ func Load(path string) (*Config, error) {
 			Concurrency: 5,
 			LockTTL:     30 * time.Minute,
 			RetryOnce:   true,
+			TaskMaxAge:  6 * time.Hour,
+			RenewEvery:  0,
 		},
 	}
 
@@ -80,6 +84,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Worker.LockTTL == 0 {
 		cfg.Worker.LockTTL = 30 * time.Minute
+	}
+	if cfg.Worker.TaskMaxAge == 0 {
+		cfg.Worker.TaskMaxAge = 6 * time.Hour
+	}
+	if cfg.Worker.RenewEvery == 0 {
+		cfg.Worker.RenewEvery = cfg.Worker.LockTTL / 3
 	}
 
 	return cfg, nil

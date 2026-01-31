@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -58,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
 		r.Get("/jobs/{jobID}", s.handleGetJob)
+		r.Get("/tasks/{taskID}", s.handleGetTask)
 		r.Get("/repos/{repo}/jobs", s.handleListRepoJobs)
 		r.Post("/repos/{repo}/scan", s.handleScanRepo)
 		r.Post("/repos/{repo}/stacks/*/scan", s.handleScanStack)
@@ -210,9 +212,11 @@ type scanRequest struct {
 }
 
 type scanResponse struct {
-	Jobs    []string `json:"jobs,omitempty"`
-	Message string   `json:"message,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	Jobs       []string    `json:"jobs,omitempty"`
+	Task       *queue.Task `json:"task,omitempty"`
+	ActiveTask *queue.Task `json:"active_task,omitempty"`
+	Message    string      `json:"message,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
 
 func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
@@ -233,21 +237,48 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		req.Trigger = "manual"
 	}
 
+	maxRetries := 0
+	if s.cfg.Worker.RetryOnce {
+		maxRetries = 1
+	}
+
+	task, err := s.queue.StartTask(r.Context(), repoName, req.Trigger, req.Commit, req.Actor, len(repoCfg.Stacks))
+	if err != nil {
+		if err == queue.ErrRepoLocked {
+			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
+			if activeErr != nil {
+				http.Error(w, "Repository scan already in progress", http.StatusConflict)
+				return
+			}
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(scanResponse{
+				Error:      "Repository scan already in progress",
+				ActiveTask: activeTask,
+			})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+
 	var jobIDs []string
 	var errors []string
 
 	for _, stackPath := range repoCfg.Stacks {
 		job := &queue.Job{
+			TaskID:     task.ID,
 			RepoName:   repoName,
 			RepoURL:    repoCfg.URL,
 			StackPath:  stackPath,
-			MaxRetries: 1,
+			MaxRetries: maxRetries,
 			Trigger:    req.Trigger,
 			Commit:     req.Commit,
 			Actor:      req.Actor,
 		}
 
 		if err := s.queue.Enqueue(r.Context(), job); err != nil {
+			_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
 			if err == queue.ErrRepoLocked {
 				errors = append(errors, fmt.Sprintf("%s: repo locked", stackPath))
 			} else {
@@ -271,6 +302,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 
 	resp := scanResponse{
 		Jobs:    jobIDs,
+		Task:    task,
 		Message: fmt.Sprintf("Enqueued %d jobs", len(jobIDs)),
 	}
 	if len(errors) > 0 {
@@ -300,17 +332,44 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		req.Trigger = "manual"
 	}
 
+	maxRetries := 0
+	if s.cfg.Worker.RetryOnce {
+		maxRetries = 1
+	}
+
+	task, err := s.queue.StartTask(r.Context(), repoName, req.Trigger, req.Commit, req.Actor, 1)
+	if err != nil {
+		if err == queue.ErrRepoLocked {
+			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
+			if activeErr != nil {
+				http.Error(w, "Repository scan already in progress", http.StatusConflict)
+				return
+			}
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(scanResponse{
+				Error:      "Repository scan already in progress",
+				ActiveTask: activeTask,
+			})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+
 	job := &queue.Job{
+		TaskID:     task.ID,
 		RepoName:   repoName,
 		RepoURL:    repoCfg.URL,
 		StackPath:  stackPath,
-		MaxRetries: 1,
+		MaxRetries: maxRetries,
 		Trigger:    req.Trigger,
 		Commit:     req.Commit,
 		Actor:      req.Actor,
 	}
 
 	if err := s.queue.Enqueue(r.Context(), job); err != nil {
+		_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
 		w.Header().Set("Content-Type", "application/json")
 		if err == queue.ErrRepoLocked {
 			w.WriteHeader(http.StatusConflict)
@@ -325,8 +384,26 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scanResponse{
 		Jobs:    []string{job.ID},
+		Task:    task,
 		Message: "Job enqueued",
 	})
+}
+
+func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskID")
+
+	task, err := s.queue.GetTask(r.Context(), taskID)
+	if err != nil {
+		if err == queue.ErrTaskNotFound {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
 }
 
 func timeAgo(t time.Time) string {

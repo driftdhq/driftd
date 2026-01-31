@@ -56,21 +56,35 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) enqueueRepoScans(repoName, repoURL string, stacks []string) {
 	ctx := context.Background()
 
+	maxRetries := 0
+	if s.cfg.Worker.RetryOnce {
+		maxRetries = 1
+	}
+
+	task, err := s.queue.StartTask(ctx, repoName, "scheduled", "", "", len(stacks))
+	if err != nil {
+		if err == queue.ErrRepoLocked {
+			log.Printf("Skipping scheduled scan for %s: repo already running", repoName)
+			return
+		}
+		log.Printf("Failed to start task for %s: %v", repoName, err)
+		return
+	}
+	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+
 	for _, stackPath := range stacks {
 		job := &queue.Job{
+			TaskID:     task.ID,
 			RepoName:   repoName,
 			RepoURL:    repoURL,
 			StackPath:  stackPath,
-			MaxRetries: 1,
+			MaxRetries: maxRetries,
 			Trigger:    "scheduled",
 		}
 
 		if err := s.queue.Enqueue(ctx, job); err != nil {
-			if err == queue.ErrRepoLocked {
-				log.Printf("Skipping scheduled scan for %s/%s: repo locked", repoName, stackPath)
-			} else {
-				log.Printf("Failed to enqueue scheduled scan for %s/%s: %v", repoName, stackPath, err)
-			}
+			_ = s.queue.MarkTaskEnqueueFailed(ctx, task.ID)
+			log.Printf("Failed to enqueue scheduled scan for %s/%s: %v", repoName, stackPath, err)
 			continue
 		}
 

@@ -20,6 +20,9 @@ const (
 	keyJobPrefix  = "driftd:job:"
 	keyLockPrefix = "driftd:lock:repo:"
 	keyRepoJobs   = "driftd:jobs:repo:"
+	keyTaskPrefix = "driftd:task:"
+	keyTaskRepo   = "driftd:task:repo:"
+	keyTaskJobs   = "driftd:task:jobs:"
 
 	jobRetention = 7 * 24 * time.Hour // 7 days
 )
@@ -31,6 +34,7 @@ var (
 
 type Job struct {
 	ID          string    `json:"id"`
+	TaskID      string    `json:"task_id"`
 	RepoName    string    `json:"repo_name"`
 	RepoURL     string    `json:"repo_url"`
 	StackPath   string    `json:"stack_path"`
@@ -78,18 +82,8 @@ func (q *Queue) Close() error {
 	return q.client.Close()
 }
 
-// Enqueue adds a job to the queue. Returns ErrRepoLocked if repo is already being scanned.
+// Enqueue adds a job to the queue.
 func (q *Queue) Enqueue(ctx context.Context, job *Job) error {
-	// Check if repo is locked
-	lockKey := keyLockPrefix + job.RepoName
-	locked, err := q.client.Exists(ctx, lockKey).Result()
-	if err != nil {
-		return fmt.Errorf("failed to check lock: %w", err)
-	}
-	if locked > 0 {
-		return ErrRepoLocked
-	}
-
 	// Set job defaults
 	job.Status = StatusPending
 	job.CreatedAt = time.Now()
@@ -107,6 +101,9 @@ func (q *Queue) Enqueue(ctx context.Context, job *Job) error {
 	pipe := q.client.Pipeline()
 	pipe.Set(ctx, jobKey, jobData, jobRetention)
 	pipe.SAdd(ctx, keyRepoJobs+job.RepoName, job.ID)
+	if job.TaskID != "" {
+		pipe.SAdd(ctx, keyTaskJobs+job.TaskID, job.ID)
+	}
 	pipe.LPush(ctx, keyQueue, job.ID)
 
 	if _, err := pipe.Exec(ctx); err != nil {
@@ -136,25 +133,18 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*Job, error) {
 			continue
 		}
 
-		// Try to acquire repo lock
-		lockKey := keyLockPrefix + job.RepoName
-		acquired, err := q.client.SetNX(ctx, lockKey, workerID, q.lockTTL).Result()
-		if err != nil {
-			return nil, fmt.Errorf("failed to acquire lock: %w", err)
-		}
-		if !acquired {
-			// Repo is locked, re-queue the job and try another
-			q.client.LPush(ctx, keyQueue, jobID)
-			continue
-		}
-
 		// Update job status
 		job.Status = StatusRunning
 		job.StartedAt = time.Now()
 		job.WorkerID = workerID
 		if err := q.updateJob(ctx, job); err != nil {
-			q.releaseLock(ctx, job.RepoName)
 			return nil, err
+		}
+
+		if job.TaskID != "" {
+			if err := q.markTaskJobRunning(ctx, job.TaskID); err != nil {
+				return nil, err
+			}
 		}
 
 		return job, nil
@@ -162,13 +152,16 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*Job, error) {
 }
 
 // Complete marks a job as completed and releases the repo lock.
-func (q *Queue) Complete(ctx context.Context, job *Job) error {
+func (q *Queue) Complete(ctx context.Context, job *Job, drifted bool) error {
 	job.Status = StatusCompleted
 	job.CompletedAt = time.Now()
 	if err := q.updateJob(ctx, job); err != nil {
 		return err
 	}
-	return q.releaseLock(ctx, job.RepoName)
+	if job.TaskID != "" {
+		return q.markTaskJobCompleted(ctx, job.TaskID, drifted)
+	}
+	return nil
 }
 
 // Fail marks a job as failed. If retries remain, re-queues it.
@@ -184,7 +177,11 @@ func (q *Queue) Fail(ctx context.Context, job *Job, errMsg string) error {
 		if err := q.updateJob(ctx, job); err != nil {
 			return err
 		}
-		q.releaseLock(ctx, job.RepoName)
+		if job.TaskID != "" {
+			if err := q.markTaskJobRetry(ctx, job.TaskID); err != nil {
+				return err
+			}
+		}
 		return q.client.LPush(ctx, keyQueue, job.ID).Err()
 	}
 
@@ -193,7 +190,10 @@ func (q *Queue) Fail(ctx context.Context, job *Job, errMsg string) error {
 	if err := q.updateJob(ctx, job); err != nil {
 		return err
 	}
-	return q.releaseLock(ctx, job.RepoName)
+	if job.TaskID != "" {
+		return q.markTaskJobFailed(ctx, job.TaskID)
+	}
+	return nil
 }
 
 // GetJob retrieves a job by ID.
