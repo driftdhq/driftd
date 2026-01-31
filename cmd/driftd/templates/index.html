@@ -1,0 +1,32 @@
+{{define "title"}}Dashboard{{end}}
+
+{{define "content"}}
+<h1>Repositories</h1>
+
+{{if .ConfigRepos}}
+<section class="repos">
+    {{range .ConfigRepos}}
+    <div class="repo-card">
+        <div class="repo-header">
+            {{$status := false}}
+            {{range $.Repos}}
+                {{if eq .Name $.Name}}
+                    {{$status = .Drifted}}
+                {{end}}
+            {{end}}
+            <span class="status-indicator {{if $status}}drifted{{else}}ok{{end}}"></span>
+            <a href="/repos/{{.Name}}">{{.Name}}</a>
+        </div>
+        <div class="repo-meta">
+            <span>{{len .Stacks}} stacks configured</span>
+        </div>
+        <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
+            <button type="submit" class="btn btn-scan">Scan All</button>
+        </form>
+    </div>
+    {{end}}
+</section>
+{{else}}
+<p class="empty-state">No repositories configured. Add repos to your config file.</p>
+{{end}}
+{{end}}

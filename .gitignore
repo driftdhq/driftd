@@ -1,0 +1,10 @@
+# Data directory
+/data/
+
+# Binary
+/driftd
+
+# OS
+.DS_Store
+
+.idea

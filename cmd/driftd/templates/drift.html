@@ -1,0 +1,47 @@
+{{define "title"}}{{.Path}}{{end}}
+
+{{define "content"}}
+<nav class="breadcrumb">
+    <a href="/">Repositories</a> /
+    <a href="/repos/{{.RepoName}}">{{.RepoName}}</a> /
+    <span>{{.Path}}</span>
+</nav>
+
+<div class="stack-header">
+    <h1>{{.Path}}</h1>
+    <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}/scan" class="scan-form">
+        <button type="submit" class="btn btn-scan">Rescan</button>
+    </form>
+</div>
+
+{{if .Result}}
+<div class="drift-summary">
+    <div class="status-box {{if .Result.Error}}error{{else if .Result.Drifted}}drifted{{else}}ok{{end}}">
+        {{if .Result.Error}}
+        <h2>Error</h2>
+        <p>{{.Result.Error}}</p>
+        {{else if .Result.Drifted}}
+        <h2>Drift Detected</h2>
+        <p class="changes-summary">
+            {{if .Result.Added}}<span class="add">+{{.Result.Added}} to add</span>{{end}}
+            {{if .Result.Changed}}<span class="change">~{{.Result.Changed}} to change</span>{{end}}
+            {{if .Result.Destroyed}}<span class="destroy">-{{.Result.Destroyed}} to destroy</span>{{end}}
+        </p>
+        {{else}}
+        <h2>No Drift</h2>
+        <p>Infrastructure matches the declared state.</p>
+        {{end}}
+    </div>
+    <p class="run-time">Last run: {{timeAgo .Result.RunAt}}</p>
+</div>
+
+{{if .Result.PlanOutput}}
+<section class="plan-output">
+    <h2>Plan Output</h2>
+    <pre>{{.Result.PlanOutput}}</pre>
+</section>
+{{end}}
+{{else}}
+<p class="empty-state">No scan results available. Click "Rescan" to run a drift check.</p>
+{{end}}
+{{end}}

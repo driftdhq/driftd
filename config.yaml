@@ -1,0 +1,21 @@
+data_dir: ./data
+listen_addr: ":8080"
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+worker:
+  concurrency: 5
+  lock_ttl: 30m
+  retry_once: true
+
+repos:
+  # Example repository configuration
+  # - name: my-infra
+  #   url: https://github.com/myorg/terraform-infra.git
+  #   schedule: "0 */6 * * *"  # every 6 hours (optional)
+  #   stacks:
+  #     - envs/prod
+  #     - envs/staging

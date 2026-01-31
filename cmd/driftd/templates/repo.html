@@ -1,0 +1,77 @@
+{{define "title"}}{{.Name}}{{end}}
+
+{{define "content"}}
+<nav class="breadcrumb">
+    <a href="/">Repositories</a> / <span>{{.Name}}</span>
+</nav>
+
+<div class="repo-header-section">
+    <h1>{{.Name}}</h1>
+    {{if .Config}}
+    <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
+        <button type="submit" class="btn btn-scan">Scan All Stacks</button>
+    </form>
+    {{end}}
+</div>
+
+{{if .Stacks}}
+<section class="stacks">
+    <table class="stack-table">
+        <thead>
+            <tr>
+                <th>Stack</th>
+                <th>Status</th>
+                <th>Changes</th>
+                <th>Last Run</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Stacks}}
+            <tr>
+                <td>
+                    <a href="/repos/{{$.Name}}/stacks/{{.Path}}">{{.Path}}</a>
+                </td>
+                <td>
+                    {{if .Error}}
+                    <span class="badge badge-error">Error</span>
+                    {{else if .Drifted}}
+                    <span class="badge badge-drift">Drift</span>
+                    {{else}}
+                    <span class="badge badge-ok">OK</span>
+                    {{end}}
+                </td>
+                <td>
+                    {{if or .Added .Changed .Destroyed}}
+                    <span class="changes">
+                        {{if .Added}}<span class="add">+{{.Added}}</span>{{end}}
+                        {{if .Changed}}<span class="change">~{{.Changed}}</span>{{end}}
+                        {{if .Destroyed}}<span class="destroy">-{{.Destroyed}}</span>{{end}}
+                    </span>
+                    {{else}}
+                    -
+                    {{end}}
+                </td>
+                <td>{{timeAgo .RunAt}}</td>
+                <td>
+                    <form method="POST" action="/repos/{{$.Name}}/stacks/{{.Path}}/scan" class="inline-form">
+                        <button type="submit" class="btn btn-small">Scan</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</section>
+{{else if .Config}}
+<p class="empty-state">No scans yet. Click "Scan All Stacks" to start.</p>
+<p class="stack-list">Configured stacks:</p>
+<ul>
+    {{range .Config.Stacks}}
+    <li>{{.}}</li>
+    {{end}}
+</ul>
+{{else}}
+<p class="empty-state">Repository not found in configuration.</p>
+{{end}}
+{{end}}
