@@ -62,6 +62,13 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath string) (
 	}
 
 	tool := detectTool(workDir)
+
+	// Switch to correct terraform/terragrunt version based on repo config
+	if err := switchVersions(ctx, workDir, tool); err != nil {
+		result.Error = fmt.Sprintf("failed to switch versions: %v", err)
+		return result, nil
+	}
+
 	output, err := runPlan(ctx, workDir, tool)
 	result.PlanOutput = output
 
@@ -106,6 +113,44 @@ func detectTool(stackPath string) string {
 		return "terragrunt"
 	}
 	return "terraform"
+}
+
+// switchVersions uses tfswitch/tgswitch to install the correct version
+// based on .terraform-version, required_version, .terragrunt-version, etc.
+// Falls back to latest if no version is specified.
+func switchVersions(ctx context.Context, workDir, tool string) error {
+	// Always run tfswitch - terragrunt also needs terraform
+	if err := runSwitch(ctx, workDir, "tfswitch"); err != nil {
+		return fmt.Errorf("tfswitch failed: %w", err)
+	}
+
+	if tool == "terragrunt" {
+		if err := runSwitch(ctx, workDir, "tgswitch"); err != nil {
+			return fmt.Errorf("tgswitch failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func runSwitch(ctx context.Context, workDir, switchCmd string) error {
+	cmd := exec.CommandContext(ctx, switchCmd)
+	cmd.Dir = workDir
+
+	// Capture output for debugging but don't fail on non-zero exit
+	// tfswitch/tgswitch may return non-zero if already on correct version
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if the binary exists
+		if _, pathErr := exec.LookPath(switchCmd); pathErr != nil {
+			// Switch tool not installed, skip (allows running outside container)
+			return nil
+		}
+		// Log but don't fail - the plan will fail if version is truly incompatible
+		fmt.Printf("%s warning: %v\nOutput: %s\n", switchCmd, err, output)
+	}
+
+	return nil
 }
 
 func runPlan(ctx context.Context, workDir, tool string) (string, error) {

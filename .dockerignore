@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+driftd
+*.exe
+
+# Data
+data/
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# Docs
+*.md
+LICENSE
+
+# Local config
+config.yaml
