@@ -94,10 +94,10 @@ redis:
 
 worker:
   concurrency: 5      # parallel jobs per worker process
-  lock_ttl: 30m       # repo lock timeout (safety net for crashed workers)
+  lock_ttl: 30m       # repo lock timeout (minimum 2m)
   retry_once: true    # retry failed jobs once
   task_max_age: 6h    # max time a repo task may run before it's marked failed
-  renew_every: 10s    # lock renewal interval (0 = lock_ttl/3)
+  renew_every: 10s    # lock renewal interval (0 = lock_ttl/3, minimum 10s, must be <= lock_ttl/2)
 
 repos:
   - name: my-infra

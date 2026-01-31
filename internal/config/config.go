@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -28,6 +29,11 @@ type WorkerConfig struct {
 	TaskMaxAge  time.Duration `yaml:"task_max_age"`
 	RenewEvery  time.Duration `yaml:"renew_every"`
 }
+
+const (
+	minLockTTL    = 2 * time.Minute
+	minRenewEvery = 10 * time.Second
+)
 
 type RepoConfig struct {
 	Name     string   `yaml:"name"`
@@ -90,6 +96,15 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Worker.RenewEvery == 0 {
 		cfg.Worker.RenewEvery = cfg.Worker.LockTTL / 3
+	}
+	if cfg.Worker.LockTTL < minLockTTL {
+		return nil, fmt.Errorf("worker.lock_ttl must be at least %s", minLockTTL)
+	}
+	if cfg.Worker.RenewEvery < minRenewEvery {
+		return nil, fmt.Errorf("worker.renew_every must be at least %s", minRenewEvery)
+	}
+	if cfg.Worker.RenewEvery > cfg.Worker.LockTTL/2 {
+		return nil, fmt.Errorf("worker.renew_every must be <= lock_ttl/2")
 	}
 
 	return cfg, nil

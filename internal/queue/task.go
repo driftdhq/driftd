@@ -109,8 +109,10 @@ func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxA
 	if interval <= 0 {
 		interval = q.lockTTL / 3
 	}
-	if interval < taskRenewIntervalMin {
-		interval = taskRenewIntervalMin
+
+	minInterval := taskRenewIntervalMin
+	if interval < minInterval {
+		interval = minInterval
 	}
 
 	ticker := time.NewTicker(interval)
