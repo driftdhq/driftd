@@ -70,6 +70,7 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string, stacks []string) 
 		log.Printf("Failed to start task for %s: %v", repoName, err)
 		return
 	}
+	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
 
 	for _, stackPath := range stacks {
 		job := &queue.Job{

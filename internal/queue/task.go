@@ -14,6 +14,8 @@ const (
 	TaskStatusRunning   = "running"
 	TaskStatusCompleted = "completed"
 	TaskStatusFailed    = "failed"
+
+	taskRenewIntervalMin = 10 * time.Second
 )
 
 var ErrTaskNotFound = errors.New("task not found")
@@ -101,6 +103,57 @@ func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor 
 	return task, nil
 }
 
+func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxAge, renewEvery time.Duration) {
+	start := time.Now()
+	interval := renewEvery
+	if interval <= 0 {
+		interval = q.lockTTL / 3
+	}
+	if interval < taskRenewIntervalMin {
+		interval = taskRenewIntervalMin
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		if maxAge > 0 && time.Since(start) > maxAge {
+			_ = q.FailTask(context.Background(), taskID, repoName, "task exceeded maximum duration")
+			return
+		}
+
+		status, err := q.client.HGet(ctx, keyTaskPrefix+taskID, "status").Result()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				return
+			}
+			continue
+		}
+		if status != TaskStatusRunning {
+			return
+		}
+
+		lockValue, err := q.client.Get(ctx, keyLockPrefix+repoName).Result()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				return
+			}
+			continue
+		}
+		if lockValue != taskID {
+			return
+		}
+
+		_ = q.client.Expire(ctx, keyLockPrefix+repoName, q.lockTTL).Err()
+	}
+}
+
 func (q *Queue) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	taskKey := keyTaskPrefix + taskID
 	values, err := q.client.HGetAll(ctx, taskKey).Result()
@@ -112,6 +165,21 @@ func (q *Queue) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	}
 
 	return taskFromHash(values)
+}
+
+func (q *Queue) FailTask(ctx context.Context, taskID, repoName, errMsg string) error {
+	taskKey := keyTaskPrefix + taskID
+
+	pipe := q.client.Pipeline()
+	pipe.HSet(ctx, taskKey, map[string]any{
+		"status":   TaskStatusFailed,
+		"ended_at": time.Now().Unix(),
+		"error":    errMsg,
+	})
+	pipe.Del(ctx, keyLockPrefix+repoName)
+	pipe.Del(ctx, keyTaskRepo+repoName)
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func (q *Queue) GetActiveTask(ctx context.Context, repoName string) (*Task, error) {
