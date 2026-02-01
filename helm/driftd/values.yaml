@@ -1,0 +1,55 @@
+image:
+  repository: ghcr.io/cbrown132/driftd
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+server:
+  replicas: 1
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  envFrom: []
+
+worker:
+  replicas: 2
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  envFrom: []
+
+storage:
+  data:
+    enabled: true
+    existingClaim: ""
+    size: 20Gi
+    accessModes: ["ReadWriteMany"]
+    storageClassName: ""
+  cache:
+    enabled: true
+    existingClaim: ""
+    size: 20Gi
+    accessModes: ["ReadWriteMany"]
+    storageClassName: ""
+
+config:
+  data_dir: /data
+  listen_addr: ":8080"
+  redis:
+    addr: "redis:6379"
+    password: ""
+    db: 0
+  worker:
+    concurrency: 5
+    lock_ttl: 30m
+    retry_once: true
+    task_max_age: 6h
+    renew_every: 10s
+  workspace:
+    retention: 5
+  repos: []

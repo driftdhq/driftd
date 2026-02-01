@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "driftd.fullname" . }}-server
+  labels:
+    app.kubernetes.io/name: {{ include "driftd.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "driftd.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "driftd.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: server
+    spec:
+      containers:
+        - name: driftd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve", "-config", "/etc/driftd/config.yaml"]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /etc/driftd
+            - name: data
+              mountPath: /data
+            - name: cache
+              mountPath: /cache
+          envFrom:
+{{- toYaml .Values.server.envFrom | nindent 12 }}
+          resources:
+{{- toYaml .Values.server.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "driftd.fullname" . }}-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ if .Values.storage.data.existingClaim }}{{ .Values.storage.data.existingClaim }}{{ else }}{{ include "driftd.fullname" . }}-data{{ end }}
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ if .Values.storage.cache.existingClaim }}{{ .Values.storage.cache.existingClaim }}{{ else }}{{ include "driftd.fullname" . }}-cache{{ end }}
+      nodeSelector:
+{{- toYaml .Values.server.nodeSelector | nindent 8 }}
+      tolerations:
+{{- toYaml .Values.server.tolerations | nindent 8 }}
+      affinity:
+{{- toYaml .Values.server.affinity | nindent 8 }}

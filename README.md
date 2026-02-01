@@ -333,7 +333,34 @@ Driftd is designed for Kubernetes:
 - **Storage**: PVC mounted at `/data` (EBS, EFS, etc.)
 - **Cache**: PVC mounted at `/cache` (can be shared ReadWriteMany for multi-worker)
 
-Helm chart coming soon.
+## Helm
+
+The Helm chart lives in `helm/driftd`.
+
+```bash
+helm install driftd ./helm/driftd \\
+  --set image.repository=ghcr.io/cbrown132/driftd \\
+  --set image.tag=latest
+```
+
+Example values:
+
+```yaml
+config:
+  data_dir: /data
+  redis:
+    addr: "redis:6379"
+  repos:
+    - name: infra
+      url: git@github.com:myorg/infra.git
+      branch: main
+      ignore_paths:
+        - "**/modules/**"
+      git:
+        type: ssh
+        ssh_key_path: /etc/driftd/ssh/id_ed25519
+        ssh_known_hosts_path: /etc/driftd/ssh/known_hosts
+```
 
 ## How It Works
 

@@ -1,0 +1,17 @@
+{{- if and .Values.storage.cache.enabled (not .Values.storage.cache.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "driftd.fullname" . }}-cache
+  labels:
+    app.kubernetes.io/name: {{ include "driftd.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes:
+{{- toYaml .Values.storage.cache.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.cache.size }}
+  {{- if .Values.storage.cache.storageClassName }}
+  storageClassName: {{ .Values.storage.cache.storageClassName }}
+  {{- end }}

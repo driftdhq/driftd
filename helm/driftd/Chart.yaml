@@ -1,0 +1,5 @@
+apiVersion: v2
+name: driftd
+description: Terraform/Terragrunt drift detection server
+version: 0.1.0
+appVersion: "0.1.0"
