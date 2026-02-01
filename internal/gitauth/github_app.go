@@ -24,6 +24,10 @@ type appTokenCache struct {
 
 var tokenCache sync.Map
 
+func clearTokenCache() {
+	tokenCache = sync.Map{}
+}
+
 func githubAppAuth(ctx context.Context, cfg *config.GitAuthConfig) (*githttp.BasicAuth, error) {
 	if cfg.GitHubApp == nil {
 		return nil, fmt.Errorf("github_app config required")

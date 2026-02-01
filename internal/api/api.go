@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -240,7 +241,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 
 	var req scanRequest
 	if r.Body != nil {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 			http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 			return
 		}
@@ -337,7 +338,7 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 
 	var req scanRequest
 	if r.Body != nil {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 			http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 			return
 		}

@@ -59,7 +59,7 @@ func TestScanRepoCompletesTask(t *testing.T) {
 		},
 	}
 
-	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, true, nil)
+	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, true, nil, true)
 	defer cleanup()
 
 	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
@@ -110,7 +110,7 @@ func TestScanRepoCompletesTask(t *testing.T) {
 func TestScanRepoConflict(t *testing.T) {
 	runner := &fakeRunner{}
 
-	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil)
+	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, false)
 	defer cleanup()
 
 	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
@@ -150,6 +150,51 @@ func TestScanRepoConflict(t *testing.T) {
 	_ = q.FailTask(context.Background(), sr.Task.ID, "repo", "test cleanup")
 }
 
+func TestScanRepoInvalidJSON(t *testing.T) {
+	runner := &fakeRunner{}
+	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString("{bad json"))
+	if err != nil {
+		t.Fatalf("scan request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCancelInflightOnNewTrigger(t *testing.T) {
+	runner := &fakeRunner{}
+	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request 2 failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	task := getTask(t, ts, sr.Task.ID)
+	if task.Status != queue.TaskStatusCanceled {
+		t.Fatalf("expected canceled, got %s", task.Status)
+	}
+}
+
 func TestTaskVersionMapping(t *testing.T) {
 	runner := &fakeRunner{
 		drifted: map[string]bool{},
@@ -163,7 +208,7 @@ func TestTaskVersionMapping(t *testing.T) {
 		rootTG: "0.56.4",
 	}
 
-	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, false, versions)
+	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, false, versions, true)
 	defer cleanup()
 
 	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
@@ -196,7 +241,7 @@ func TestTaskVersionMapping(t *testing.T) {
 	}
 }
 
-func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker bool, versions *testVersions) (*httptest.Server, *queue.Queue, func()) {
+func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker bool, versions *testVersions, cancelInflight bool) (*httptest.Server, *queue.Queue, func()) {
 	t.Helper()
 
 	mr, err := miniredis.Run()
@@ -221,8 +266,9 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 		},
 		Repos: []config.RepoConfig{
 			{
-				Name: "repo",
-				URL:  repoDir,
+				Name:                       "repo",
+				URL:                        repoDir,
+				CancelInflightOnNewTrigger: cancelInflight,
 			},
 		},
 	}

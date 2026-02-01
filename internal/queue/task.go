@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -321,11 +319,11 @@ func (q *Queue) MarkTaskEnqueueFailed(ctx context.Context, taskID string) error 
 
 func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {
 	taskKey := keyTaskPrefix + taskID
-	values, err := q.client.HMGet(ctx, taskKey, "repo", "total", "completed", "failed", "workspace").Result()
+	values, err := q.client.HMGet(ctx, taskKey, "repo", "total", "completed", "failed").Result()
 	if err != nil {
 		return err
 	}
-	if len(values) != 5 {
+	if len(values) != 4 {
 		return nil
 	}
 
@@ -333,7 +331,6 @@ func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {
 	total := toInt(values[1])
 	completed := toInt(values[2])
 	failed := toInt(values[3])
-	workspacePath, _ := values[4].(string)
 
 	if total == 0 {
 		return q.finishTask(ctx, taskKey, repoName, 0)
@@ -341,13 +338,7 @@ func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {
 	if completed+failed < total {
 		return nil
 	}
-	if err := q.finishTask(ctx, taskKey, repoName, failed); err != nil {
-		return err
-	}
-	if workspacePath != "" {
-		_ = os.RemoveAll(filepath.Dir(workspacePath))
-	}
-	return nil
+	return q.finishTask(ctx, taskKey, repoName, failed)
 }
 
 func (q *Queue) finishTask(ctx context.Context, taskKey, repoName string, failed int) error {
