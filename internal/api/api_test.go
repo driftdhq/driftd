@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,8 @@ import (
 	"github.com/cbrown132/driftd/internal/runner"
 	"github.com/cbrown132/driftd/internal/storage"
 	"github.com/cbrown132/driftd/internal/worker"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 type fakeRunner struct {
@@ -25,7 +28,7 @@ type fakeRunner struct {
 	failures map[string]error
 }
 
-func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath string) (*runner.RunResult, error) {
+func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string) (*runner.RunResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -154,6 +157,8 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 		t.Fatalf("miniredis: %v", err)
 	}
 
+	repoDir := createTestRepo(t, stacks)
+
 	cfg := &config.Config{
 		DataDir: t.TempDir(),
 		Redis: config.RedisConfig{
@@ -170,7 +175,7 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 		Repos: []config.RepoConfig{
 			{
 				Name:   "repo",
-				URL:    "https://example.com/repo.git",
+				URL:    repoDir,
 				Stacks: stacks,
 			},
 		},
@@ -234,4 +239,42 @@ func waitForTask(t *testing.T, ts *httptest.Server, taskID string, timeout time.
 
 	t.Fatalf("task %s did not complete within timeout", taskID)
 	return nil
+}
+
+func createTestRepo(t *testing.T, stacks []string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	for _, stack := range stacks {
+		path := filepath.Join(dir, stack)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			t.Fatalf("mkdir stack: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "main.tf"), []byte(""), 0644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+	}
+
+	repo, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	if _, err := wt.Add("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	_, err = wt.Commit("init", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "test",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+	return dir
 }

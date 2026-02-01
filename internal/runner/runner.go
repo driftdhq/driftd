@@ -34,7 +34,7 @@ type RunResult struct {
 	RunAt      time.Time
 }
 
-func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath string) (*RunResult, error) {
+func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string) (*RunResult, error) {
 	result := &RunResult{
 		RunAt: time.Now(),
 	}
@@ -63,13 +63,22 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath string) (
 
 	tool := detectTool(workDir)
 
-	// Switch to correct terraform/terragrunt version based on repo config
-	if err := switchVersions(ctx, workDir, tool); err != nil {
-		result.Error = fmt.Sprintf("failed to switch versions: %v", err)
+	tfBin, err := ensureTerraformBinary(ctx, workDir, tfVersion)
+	if err != nil {
+		result.Error = fmt.Sprintf("failed to install terraform: %v", err)
 		return result, nil
 	}
 
-	output, err := runPlan(ctx, workDir, tool)
+	var tgBin string
+	if tool == "terragrunt" {
+		tgBin, err = ensureTerragruntBinary(ctx, workDir, tgVersion)
+		if err != nil {
+			result.Error = fmt.Sprintf("failed to install terragrunt: %v", err)
+			return result, nil
+		}
+	}
+
+	output, err := runPlan(ctx, workDir, tool, tfBin, tgBin)
 	result.PlanOutput = output
 
 	if err != nil {
@@ -115,49 +124,11 @@ func detectTool(stackPath string) string {
 	return "terraform"
 }
 
-// switchVersions uses tfswitch/tgswitch to install the correct version
-// based on .terraform-version, required_version, .terragrunt-version, etc.
-// Falls back to latest if no version is specified.
-func switchVersions(ctx context.Context, workDir, tool string) error {
-	// Always run tfswitch - terragrunt also needs terraform
-	if err := runSwitch(ctx, workDir, "tfswitch"); err != nil {
-		return fmt.Errorf("tfswitch failed: %w", err)
-	}
-
-	if tool == "terragrunt" {
-		if err := runSwitch(ctx, workDir, "tgswitch"); err != nil {
-			return fmt.Errorf("tgswitch failed: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func runSwitch(ctx context.Context, workDir, switchCmd string) error {
-	cmd := exec.CommandContext(ctx, switchCmd)
-	cmd.Dir = workDir
-
-	// Capture output for debugging but don't fail on non-zero exit
-	// tfswitch/tgswitch may return non-zero if already on correct version
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Check if the binary exists
-		if _, pathErr := exec.LookPath(switchCmd); pathErr != nil {
-			// Switch tool not installed, skip (allows running outside container)
-			return nil
-		}
-		// Log but don't fail - the plan will fail if version is truly incompatible
-		fmt.Printf("%s warning: %v\nOutput: %s\n", switchCmd, err, output)
-	}
-
-	return nil
-}
-
-func runPlan(ctx context.Context, workDir, tool string) (string, error) {
+func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin string) (string, error) {
 	var output bytes.Buffer
 
 	if tool == "terraform" {
-		initCmd := exec.CommandContext(ctx, "terraform", "init", "-input=false")
+		initCmd := exec.CommandContext(ctx, tfBin, "init", "-input=false")
 		initCmd.Dir = workDir
 		initCmd.Stdout = &output
 		initCmd.Stderr = &output
@@ -168,9 +139,10 @@ func runPlan(ctx context.Context, workDir, tool string) (string, error) {
 
 	var planCmd *exec.Cmd
 	if tool == "terragrunt" {
-		planCmd = exec.CommandContext(ctx, "terragrunt", "plan", "-detailed-exitcode", "-input=false")
+		planCmd = exec.CommandContext(ctx, tgBin, "plan", "-detailed-exitcode", "-input=false")
+		planCmd.Env = append(os.Environ(), fmt.Sprintf("TERRAGRUNT_TFPATH=%s", tfBin))
 	} else {
-		planCmd = exec.CommandContext(ctx, "terraform", "plan", "-detailed-exitcode", "-input=false")
+		planCmd = exec.CommandContext(ctx, tfBin, "plan", "-detailed-exitcode", "-input=false")
 	}
 	planCmd.Dir = workDir
 	planCmd.Stdout = &output

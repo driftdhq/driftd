@@ -23,7 +23,7 @@ type Worker struct {
 }
 
 type Runner interface {
-	Run(ctx context.Context, repoName, repoURL, stackPath string) (*runner.RunResult, error)
+	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string) (*runner.RunResult, error)
 }
 
 func New(q *queue.Queue, r Runner, concurrency int) *Worker {
@@ -97,7 +97,23 @@ func (w *Worker) processJob(job *queue.Job) {
 	ctx, cancel := context.WithTimeout(w.ctx, 30*time.Minute)
 	defer cancel()
 
-	result, err := w.runner.Run(ctx, job.RepoName, job.RepoURL, job.StackPath)
+	var tfVersion, tgVersion string
+	if job.TaskID != "" {
+		if task, err := w.queue.GetTask(w.ctx, job.TaskID); err == nil && task != nil {
+			if v, ok := task.StackTFVersions[job.StackPath]; ok {
+				tfVersion = v
+			} else {
+				tfVersion = task.TerraformVersion
+			}
+			if v, ok := task.StackTGVersions[job.StackPath]; ok {
+				tgVersion = v
+			} else {
+				tgVersion = task.TerragruntVersion
+			}
+		}
+	}
+
+	result, err := w.runner.Run(ctx, job.RepoName, job.RepoURL, job.StackPath, tfVersion, tgVersion)
 
 	if err != nil {
 		log.Printf("Job %s failed (internal error): %v", job.ID, err)

@@ -1,0 +1,175 @@
+package runner
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+var tfInstallMu sync.Mutex
+var tgInstallMu sync.Mutex
+
+func ensureTerraformBinary(ctx context.Context, workDir, version string) (string, error) {
+	if version == "" {
+		return "terraform", nil
+	}
+	cacheDir := getenv("TFSWITCH_HOME", "/cache/terraform/versions")
+	target := filepath.Join(cacheDir, version, "terraform")
+	if fileExists(target) {
+		return target, nil
+	}
+
+	tfInstallMu.Lock()
+	defer tfInstallMu.Unlock()
+
+	if fileExists(target) {
+		return target, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return "", err
+	}
+
+	restore, err := ensureVersionFile(workDir, ".terraform-version", version)
+	if err != nil {
+		return "", err
+	}
+	if restore != nil {
+		defer restore()
+	}
+
+	if err := runSwitch(ctx, workDir, "tfswitch", cacheDir); err != nil {
+		return "", err
+	}
+
+	installed := filepath.Join(cacheDir, "terraform")
+	if !fileExists(installed) {
+		return "", fmt.Errorf("terraform binary not found after tfswitch")
+	}
+	if err := copyFile(installed, target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func ensureTerragruntBinary(ctx context.Context, workDir, version string) (string, error) {
+	if version == "" {
+		return "terragrunt", nil
+	}
+	cacheDir := getenv("TGSWITCH_HOME", "/cache/terragrunt/versions")
+	target := filepath.Join(cacheDir, version, "terragrunt")
+	if fileExists(target) {
+		return target, nil
+	}
+
+	tgInstallMu.Lock()
+	defer tgInstallMu.Unlock()
+
+	if fileExists(target) {
+		return target, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return "", err
+	}
+
+	restore, err := ensureVersionFile(workDir, ".terragrunt-version", version)
+	if err != nil {
+		return "", err
+	}
+	if restore != nil {
+		defer restore()
+	}
+
+	if err := runSwitch(ctx, workDir, "tgswitch", cacheDir); err != nil {
+		return "", err
+	}
+
+	installed := filepath.Join(cacheDir, "terragrunt")
+	if !fileExists(installed) {
+		return "", fmt.Errorf("terragrunt binary not found after tgswitch")
+	}
+	if err := copyFile(installed, target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func runSwitch(ctx context.Context, workDir, switchCmd, cacheDir string) error {
+	cmd := exec.CommandContext(ctx, switchCmd)
+	cmd.Dir = workDir
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("%s=%s", switchHomeEnv(switchCmd), cacheDir),
+		fmt.Sprintf("PATH=%s%s%s", cacheDir, string(os.PathListSeparator), os.Getenv("PATH")),
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if _, pathErr := exec.LookPath(switchCmd); pathErr != nil {
+			return fmt.Errorf("%s not installed", switchCmd)
+		}
+		return fmt.Errorf("%s failed: %v (output: %s)", switchCmd, err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func switchHomeEnv(switchCmd string) string {
+	if switchCmd == "tgswitch" {
+		return "TGSWITCH_HOME"
+	}
+	return "TFSWITCH_HOME"
+}
+
+func ensureVersionFile(workDir, fileName, version string) (func(), error) {
+	path := filepath.Join(workDir, fileName)
+	orig, err := os.ReadFile(path)
+	if err == nil && strings.TrimSpace(string(orig)) == version {
+		return nil, nil
+	}
+
+	if err := os.WriteFile(path, []byte(version), 0644); err != nil {
+		return nil, err
+	}
+
+	return func() {
+		if len(orig) == 0 {
+			_ = os.Remove(path)
+			return
+		}
+		_ = os.WriteFile(path, orig, 0644)
+	}, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Chmod(0755)
+}
+
+func getenv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}

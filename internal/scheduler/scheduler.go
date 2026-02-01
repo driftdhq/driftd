@@ -6,6 +6,7 @@ import (
 
 	"github.com/cbrown132/driftd/internal/config"
 	"github.com/cbrown132/driftd/internal/queue"
+	"github.com/cbrown132/driftd/internal/version"
 	"github.com/robfig/cron/v3"
 )
 
@@ -71,6 +72,14 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string, stacks []string) 
 		return
 	}
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+
+	versions, err := version.DetectFromRepoURL(ctx, repoURL, stacks)
+	if err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoName, err.Error())
+		log.Printf("Failed to detect versions for %s: %v", repoName, err)
+		return
+	}
+	_ = s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
 
 	for _, stackPath := range stacks {
 		job := &queue.Job{

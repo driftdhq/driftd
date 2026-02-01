@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -31,6 +32,11 @@ type Task struct {
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at,omitempty"`
 	Error     string    `json:"error,omitempty"`
+
+	TerraformVersion  string            `json:"terraform_version,omitempty"`
+	TerragruntVersion string            `json:"terragrunt_version,omitempty"`
+	StackTFVersions   map[string]string `json:"stack_tf_versions,omitempty"`
+	StackTGVersions   map[string]string `json:"stack_tg_versions,omitempty"`
 
 	Total     int `json:"total"`
 	Queued    int `json:"queued"`
@@ -91,6 +97,10 @@ func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor 
 		"failed":     task.Failed,
 		"drifted":    task.Drifted,
 		"errored":    task.Errored,
+		"tf_version": "",
+		"tg_version": "",
+		"stack_tf":   "{}",
+		"stack_tg":   "{}",
 	})
 	pipe.Expire(ctx, taskKey, jobRetention)
 	pipe.Set(ctx, keyTaskRepo+repoName, taskID, jobRetention)
@@ -167,6 +177,25 @@ func (q *Queue) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	}
 
 	return taskFromHash(values)
+}
+
+func (q *Queue) SetTaskVersions(ctx context.Context, taskID, tfVersion, tgVersion string, stackTF, stackTG map[string]string) error {
+	tfJSON, err := json.Marshal(stackTF)
+	if err != nil {
+		return fmt.Errorf("marshal stack tf versions: %w", err)
+	}
+	tgJSON, err := json.Marshal(stackTG)
+	if err != nil {
+		return fmt.Errorf("marshal stack tg versions: %w", err)
+	}
+
+	_, err = q.client.HSet(ctx, keyTaskPrefix+taskID, map[string]any{
+		"tf_version": tfVersion,
+		"tg_version": tgVersion,
+		"stack_tf":   string(tfJSON),
+		"stack_tg":   string(tgJSON),
+	}).Result()
+	return err
 }
 
 func (q *Queue) FailTask(ctx context.Context, taskID, repoName, errMsg string) error {
@@ -292,21 +321,34 @@ func (q *Queue) finishTask(ctx context.Context, taskKey, repoName string, failed
 }
 
 func taskFromHash(values map[string]string) (*Task, error) {
+	var stackTF map[string]string
+	var stackTG map[string]string
+	if raw := values["stack_tf"]; raw != "" {
+		_ = json.Unmarshal([]byte(raw), &stackTF)
+	}
+	if raw := values["stack_tg"]; raw != "" {
+		_ = json.Unmarshal([]byte(raw), &stackTG)
+	}
+
 	task := &Task{
-		ID:        values["id"],
-		RepoName:  values["repo"],
-		Trigger:   values["trigger"],
-		Commit:    values["commit"],
-		Actor:     values["actor"],
-		Status:    values["status"],
-		Error:     values["error"],
-		Total:     toInt(values["total"]),
-		Queued:    toInt(values["queued"]),
-		Running:   toInt(values["running"]),
-		Completed: toInt(values["completed"]),
-		Failed:    toInt(values["failed"]),
-		Drifted:   toInt(values["drifted"]),
-		Errored:   toInt(values["errored"]),
+		ID:                values["id"],
+		RepoName:          values["repo"],
+		Trigger:           values["trigger"],
+		Commit:            values["commit"],
+		Actor:             values["actor"],
+		Status:            values["status"],
+		Error:             values["error"],
+		TerraformVersion:  values["tf_version"],
+		TerragruntVersion: values["tg_version"],
+		StackTFVersions:   stackTF,
+		StackTGVersions:   stackTG,
+		Total:             toInt(values["total"]),
+		Queued:            toInt(values["queued"]),
+		Running:           toInt(values["running"]),
+		Completed:         toInt(values["completed"]),
+		Failed:            toInt(values["failed"]),
+		Drifted:           toInt(values["drifted"]),
+		Errored:           toInt(values["errored"]),
 	}
 
 	task.CreatedAt = time.Unix(toInt64(values["created_at"]), 0)

@@ -14,6 +14,7 @@ import (
 	"github.com/cbrown132/driftd/internal/config"
 	"github.com/cbrown132/driftd/internal/queue"
 	"github.com/cbrown132/driftd/internal/storage"
+	"github.com/cbrown132/driftd/internal/version"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -262,6 +263,14 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
 
+	versions, err := version.DetectFromRepoURL(r.Context(), repoCfg.URL, repoCfg.Stacks)
+	if err != nil {
+		_ = s.queue.FailTask(r.Context(), task.ID, repoName, err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.queue.SetTaskVersions(r.Context(), task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
+
 	var jobIDs []string
 	var errors []string
 
@@ -355,6 +364,14 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+
+	versions, err := version.DetectFromRepoURL(r.Context(), repoCfg.URL, []string{stackPath})
+	if err != nil {
+		_ = s.queue.FailTask(r.Context(), task.ID, repoName, err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.queue.SetTaskVersions(r.Context(), task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
 
 	job := &queue.Job{
 		TaskID:     task.ID,
