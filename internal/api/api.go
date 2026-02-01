@@ -103,6 +103,7 @@ func (s *Server) Handler() http.Handler {
 		r.Use(s.csrfMiddleware)
 		r.Get("/", s.handleIndex)
 		r.Get("/repos/{repo}", s.handleRepo)
+		r.Post("/repos/{repo}/scan", s.handleScanRepoUI)
 		r.Get("/repos/{repo}/stacks/*", s.handleStack)
 		r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
 	})
@@ -498,6 +499,53 @@ type scanResponse struct {
 	ActiveTask *queue.Task `json:"active_task,omitempty"`
 	Message    string      `json:"message,omitempty"`
 	Error      string      `json:"error,omitempty"`
+}
+
+func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	if !isValidRepoName(repoName) {
+		http.Error(w, "Invalid repository name", http.StatusBadRequest)
+		return
+	}
+
+	repoCfg := s.cfg.GetRepo(repoName)
+	if repoCfg == nil {
+		http.Error(w, "Repository not configured", http.StatusNotFound)
+		return
+	}
+
+	trigger := "manual"
+	maxRetries := 0
+	if s.cfg.Worker.RetryOnce {
+		maxRetries = 1
+	}
+
+	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, trigger, "", "")
+	if err != nil {
+		if err == queue.ErrRepoLocked {
+			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+			return
+		}
+		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	for _, stackPath := range stacks {
+		job := &queue.Job{
+			TaskID:     task.ID,
+			RepoName:   repoName,
+			RepoURL:    repoCfg.URL,
+			StackPath:  stackPath,
+			MaxRetries: maxRetries,
+			Trigger:    trigger,
+		}
+		if err := s.queue.Enqueue(r.Context(), job); err != nil {
+			_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
+			break
+		}
+	}
+
+	http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
 }
 
 func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
