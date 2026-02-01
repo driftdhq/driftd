@@ -8,12 +8,21 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cbrown132/driftd/internal/config"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+type appTokenCache struct {
+	mu     sync.Mutex
+	token  string
+	expiry time.Time
+}
+
+var tokenCache sync.Map
 
 func githubAppAuth(ctx context.Context, cfg *config.GitAuthConfig) (*githttp.BasicAuth, error) {
 	if cfg.GitHubApp == nil {
@@ -36,6 +45,18 @@ func githubAppAuth(ctx context.Context, cfg *config.GitAuthConfig) (*githttp.Bas
 func githubAppToken(ctx context.Context, cfg *config.GitHubAppConfig) (string, error) {
 	if cfg.AppID == 0 || cfg.InstallationID == 0 {
 		return "", fmt.Errorf("github_app app_id and installation_id required")
+	}
+
+	cacheKey := fmt.Sprintf("%d:%d", cfg.AppID, cfg.InstallationID)
+	if cached, ok := tokenCache.Load(cacheKey); ok {
+		c := cached.(*appTokenCache)
+		c.mu.Lock()
+		if c.token != "" && time.Until(c.expiry) > 2*time.Minute {
+			token := c.token
+			c.mu.Unlock()
+			return token, nil
+		}
+		c.mu.Unlock()
 	}
 
 	key, err := loadPrivateKey(cfg)
@@ -87,6 +108,10 @@ func githubAppToken(ctx context.Context, cfg *config.GitHubAppConfig) (string, e
 	if body.Token == "" {
 		return "", fmt.Errorf("github app token missing in response")
 	}
+
+	expiry := time.Now().Add(58 * time.Minute)
+	c := &appTokenCache{token: body.Token, expiry: expiry}
+	tokenCache.Store(cacheKey, c)
 	return body.Token, nil
 }
 

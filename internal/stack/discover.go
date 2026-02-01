@@ -4,6 +4,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 var defaultIgnore = []string{
@@ -86,13 +88,10 @@ func shouldIgnore(path string, patterns []string) bool {
 }
 
 func matchGlob(pattern, path string) bool {
-	if strings.Contains(pattern, "**") {
-		parts := strings.Split(pattern, "**")
-		if len(parts) == 2 {
-			return strings.HasPrefix(path, strings.TrimSuffix(parts[0], "/")) &&
-				strings.HasSuffix(path, strings.TrimPrefix(parts[1], "/"))
-		}
+	ok, err := doublestar.Match(pattern, path)
+	if err == nil && ok {
+		return true
 	}
-	ok, _ := filepath.Match(pattern, path)
+	ok, _ = filepath.Match(pattern, path)
 	return ok
 }
