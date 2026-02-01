@@ -138,7 +138,7 @@ func planOnlyWrapperPath(workDir, tfBin string) (string, error) {
 func runSwitch(ctx context.Context, workDir, switchCmd, cacheDir, target string) error {
 	cmd := exec.CommandContext(ctx, switchCmd, "-b", target)
 	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(filteredEnv(),
 		fmt.Sprintf("%s=%s", switchHomeEnv(switchCmd), cacheDir),
 		fmt.Sprintf("PATH=%s%s%s", cacheDir, string(os.PathListSeparator), os.Getenv("PATH")),
 	)
@@ -226,15 +226,21 @@ func copyDir(src, dst string, skip map[string]struct{}) error {
 		if _, ok := skip[name]; ok {
 			continue
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			continue
-		}
 		srcPath := filepath.Join(src, name)
 		dstPath := filepath.Join(dst, name)
 		if entry.Type()&os.ModeSymlink != 0 {
 			link, err := os.Readlink(srcPath)
 			if err != nil {
 				return err
+			}
+			target := link
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(srcPath), target)
+			}
+			target = filepath.Clean(target)
+			rel, err := filepath.Rel(src, target)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+				continue
 			}
 			if err := os.Symlink(link, dstPath); err != nil {
 				return err

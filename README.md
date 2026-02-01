@@ -161,6 +161,7 @@ Note: GitHub App tokens are short-lived and read-only if you scope the app permi
 
 ```yaml
 webhook:
+  enabled: true
   github_secret: "your-webhook-secret"
   # Optional shared token header (if not using GitHub HMAC)
   # token: "shared-token"
@@ -171,6 +172,7 @@ webhook:
 Driftd listens on `POST /api/webhooks/github`. For `push` events on the default branch,
 it maps changed files to stacks and re-plans only those stacks. If changes are too large
 or can’t be mapped to a stack, it falls back to a full repo scan.
+When `webhook.enabled` is true, you must provide either `github_secret` or `token`.
 
 **UI Basic Auth (optional)**
 
@@ -181,6 +183,26 @@ ui_auth:
 ```
 
 If `ui_auth` is not set, the UI is publicly accessible on the configured listener.
+
+**API Auth (optional)**
+
+```yaml
+api_auth:
+  username: "driftd"
+  password: "change-me"
+  # Or use a shared token header
+  # token: "shared-api-token"
+  # token_header: "X-API-Token"
+```
+
+When `api_auth` is configured, all `/api/*` routes (except webhooks) require auth.
+
+**API Rate Limiting (optional)**
+
+```yaml
+api:
+  rate_limit_per_minute: 60
+```
 
 **GitHub App setup (quick checklist)**
 

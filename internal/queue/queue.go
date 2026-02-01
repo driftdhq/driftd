@@ -134,8 +134,8 @@ func (q *Queue) Enqueue(ctx context.Context, job *Job) error {
 // The job status is updated to "running" and the repo lock is acquired.
 func (q *Queue) Dequeue(ctx context.Context, workerID string) (*Job, error) {
 	for {
-		// Block waiting for job
-		result, err := q.client.BRPop(ctx, 1, keyQueue).Result()
+		// Block waiting for job (1 second timeout to allow checking for orphaned jobs)
+		result, err := q.client.BRPop(ctx, time.Second, keyQueue).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				job, findErr := q.findPendingJob(ctx)

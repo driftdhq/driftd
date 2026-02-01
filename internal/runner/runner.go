@@ -153,7 +153,7 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	if tool == "terraform" {
 		initCmd := exec.CommandContext(ctx, tfBin, "init", "-input=false")
 		initCmd.Dir = workDir
-		initCmd.Env = append(os.Environ(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
+		initCmd.Env = append(filteredEnv(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
 		initCmd.Stdout = &output
 		initCmd.Stderr = &output
 		if err := initCmd.Run(); err != nil {
@@ -164,14 +164,14 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	var planCmd *exec.Cmd
 	if tool == "terragrunt" {
 		planCmd = exec.CommandContext(ctx, tgBin, "plan", "-detailed-exitcode", "-input=false")
-		planCmd.Env = append(os.Environ(),
+		planCmd.Env = append(filteredEnv(),
 			fmt.Sprintf("TERRAGRUNT_TFPATH=%s", tfBin),
 			fmt.Sprintf("TERRAGRUNT_DOWNLOAD=%s", filepath.Join(os.TempDir(), "driftd-tg", safePath(stackPath))),
 			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
 		)
 	} else {
 		planCmd = exec.CommandContext(ctx, tfBin, "plan", "-detailed-exitcode", "-input=false")
-		planCmd.Env = append(os.Environ(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
+		planCmd.Env = append(filteredEnv(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
 	}
 	planCmd.Dir = workDir
 	planCmd.Stdout = &output
@@ -196,6 +196,30 @@ func parsePlanSummary(output string) (added, changed, destroyed int) {
 	}
 
 	return added, changed, destroyed
+}
+
+func filteredEnv() []string {
+	allowed := []string{"PATH", "HOME", "TMPDIR"}
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		if strings.HasPrefix(key, "TF_") || strings.HasPrefix(key, "TERRAGRUNT_") {
+			out = append(out, entry)
+			continue
+		}
+		for _, allow := range allowed {
+			if key == allow {
+				out = append(out, entry)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func safePath(path string) string {

@@ -120,6 +120,9 @@ func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor 
 
 func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxAge, renewEvery time.Duration) {
 	start := time.Now()
+	if maxAge <= 0 {
+		maxAge = 6 * time.Hour
+	}
 	interval := renewEvery
 	if interval <= 0 {
 		interval = q.lockTTL / 3
@@ -140,7 +143,7 @@ func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxA
 		case <-ticker.C:
 		}
 
-		if maxAge > 0 && time.Since(start) > maxAge {
+		if time.Since(start) > maxAge {
 			_ = q.FailTask(context.Background(), taskID, repoName, "task exceeded maximum duration")
 			return
 		}

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/cbrown132/driftd/internal/config"
 	"github.com/cbrown132/driftd/internal/gitauth"
@@ -181,7 +182,9 @@ func cloneWorkspace(ctx context.Context, dataDir string, repoCfg *config.RepoCon
 		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(repoCfg.Branch)
 		cloneOpts.SingleBranch = true
 	}
-	repo, err := git.PlainCloneContext(ctx, base, false, cloneOpts)
+	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	repo, err := git.PlainCloneContext(cloneCtx, base, false, cloneOpts)
 	if err != nil {
 		return base, "", err
 	}

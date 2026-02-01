@@ -23,9 +23,36 @@ type appTokenCache struct {
 }
 
 var tokenCache sync.Map
+var tokenCacheCleanupOnce sync.Once
 
 func clearTokenCache() {
 	tokenCache = sync.Map{}
+}
+
+func startTokenCacheCleanup() {
+	tokenCacheCleanupOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(10 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				now := time.Now()
+				tokenCache.Range(func(key, value any) bool {
+					c, ok := value.(*appTokenCache)
+					if !ok {
+						tokenCache.Delete(key)
+						return true
+					}
+					c.mu.Lock()
+					expired := c.expiry.Before(now)
+					c.mu.Unlock()
+					if expired {
+						tokenCache.Delete(key)
+					}
+					return true
+				})
+			}
+		}()
+	})
 }
 
 func githubAppAuth(ctx context.Context, cfg *config.GitAuthConfig) (*githttp.BasicAuth, error) {
@@ -50,6 +77,8 @@ func githubAppToken(ctx context.Context, cfg *config.GitHubAppConfig) (string, e
 	if cfg.AppID == 0 || cfg.InstallationID == 0 {
 		return "", fmt.Errorf("github_app app_id and installation_id required")
 	}
+
+	startTokenCacheCleanup()
 
 	cacheKey := fmt.Sprintf("%d:%d", cfg.AppID, cfg.InstallationID)
 	if cached, ok := tokenCache.Load(cacheKey); ok {

@@ -17,6 +17,8 @@ type Config struct {
 	Repos      []RepoConfig    `yaml:"repos"`
 	Webhook    WebhookConfig   `yaml:"webhook"`
 	UIAuth     UIAuthConfig    `yaml:"ui_auth"`
+	APIAuth    APIAuthConfig   `yaml:"api_auth"`
+	API        APIConfig       `yaml:"api"`
 }
 
 type RedisConfig struct {
@@ -38,6 +40,7 @@ type WorkspaceConfig struct {
 }
 
 type WebhookConfig struct {
+	Enabled      bool   `yaml:"enabled"`
 	GitHubSecret string `yaml:"github_secret"`
 	Token        string `yaml:"token"`
 	TokenHeader  string `yaml:"token_header"`
@@ -47,6 +50,17 @@ type WebhookConfig struct {
 type UIAuthConfig struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
+}
+
+type APIAuthConfig struct {
+	Username    string `yaml:"username"`
+	Password    string `yaml:"password"`
+	Token       string `yaml:"token"`
+	TokenHeader string `yaml:"token_header"`
+}
+
+type APIConfig struct {
+	RateLimitPerMinute int `yaml:"rate_limit_per_minute"`
 }
 
 const (
@@ -67,10 +81,10 @@ type RepoConfig struct {
 type GitAuthConfig struct {
 	Type string `yaml:"type"` // "ssh", "https", "github_app"
 
-	SSHKeyPath               string `yaml:"ssh_key_path"`
-	SSHKeyEnv                string `yaml:"ssh_key_env"`
-	SSHKeyPassphraseEnv      string `yaml:"ssh_key_passphrase_env"`
-	SSHKnownHostsPath        string `yaml:"ssh_known_hosts_path"`
+	SSHKeyPath          string `yaml:"ssh_key_path"`
+	SSHKeyEnv           string `yaml:"ssh_key_env"`
+	SSHKeyPassphraseEnv string `yaml:"ssh_key_passphrase_env"`
+	SSHKnownHostsPath   string `yaml:"ssh_known_hosts_path"`
 	// SSHInsecureIgnoreHostKey disables host key verification.
 	// WARNING: This allows man-in-the-middle attacks. Only use for testing
 	// or when connecting to hosts with frequently changing keys.
@@ -169,8 +183,20 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	if cfg.Webhook.TokenHeader == "" {
 		cfg.Webhook.TokenHeader = "X-Webhook-Token"
 	}
+	if !cfg.Webhook.Enabled && (cfg.Webhook.GitHubSecret != "" || cfg.Webhook.Token != "") {
+		cfg.Webhook.Enabled = true
+	}
+	if cfg.APIAuth.TokenHeader == "" {
+		cfg.APIAuth.TokenHeader = "X-API-Token"
+	}
 	if cfg.Webhook.MaxFiles <= 0 {
 		cfg.Webhook.MaxFiles = 300
+	}
+	if cfg.API.RateLimitPerMinute == 0 {
+		cfg.API.RateLimitPerMinute = 60
+	}
+	if cfg.Webhook.Enabled && cfg.Webhook.GitHubSecret == "" && cfg.Webhook.Token == "" {
+		return nil, fmt.Errorf("webhook enabled but github_secret and token are empty")
 	}
 	if cfg.Worker.LockTTL < minLockTTL {
 		return nil, fmt.Errorf("worker.lock_ttl must be at least %s", minLockTTL)

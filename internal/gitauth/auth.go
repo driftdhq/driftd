@@ -3,6 +3,7 @@ package gitauth
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/cbrown132/driftd/internal/config"
@@ -50,6 +51,7 @@ func sshAuth(cfg *config.GitAuthConfig) (transport.AuthMethod, error) {
 	}
 
 	if cfg.SSHInsecureIgnoreHostKey {
+		log.Printf("warning: ssh_insecure_ignore_host_key is enabled; host key verification is disabled")
 		auth.HostKeyCallback = ssh.InsecureIgnoreHostKey()
 		return auth, nil
 	}

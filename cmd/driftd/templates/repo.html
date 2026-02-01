@@ -54,6 +54,7 @@
     <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
     <div class="stack-cell actions">
         <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
             <button type="submit" class="btn btn-small">Scan</button>
         </form>
     </div>
@@ -70,6 +71,7 @@
     <h1>{{.Name}}</h1>
     {{if .Config}}
     <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <button type="submit" class="btn btn-scan">Scan All Stacks</button>
     </form>
     {{end}}
