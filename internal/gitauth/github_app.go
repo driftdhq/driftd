@@ -53,14 +53,19 @@ func githubAppToken(ctx context.Context, cfg *config.GitHubAppConfig) (string, e
 
 	cacheKey := fmt.Sprintf("%d:%d", cfg.AppID, cfg.InstallationID)
 	if cached, ok := tokenCache.Load(cacheKey); ok {
-		c := cached.(*appTokenCache)
-		c.mu.Lock()
-		if c.token != "" && time.Until(c.expiry) > 2*time.Minute {
-			token := c.token
+		c, ok := cached.(*appTokenCache)
+		if !ok {
+			// Invalid cache entry, fetch new token
+			tokenCache.Delete(cacheKey)
+		} else {
+			c.mu.Lock()
+			if c.token != "" && time.Until(c.expiry) > 2*time.Minute {
+				token := c.token
+				c.mu.Unlock()
+				return token, nil
+			}
 			c.mu.Unlock()
-			return token, nil
 		}
-		c.mu.Unlock()
 	}
 
 	key, err := loadPrivateKey(cfg)

@@ -60,7 +60,7 @@ func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor 
 
 	acquired, err := q.client.SetNX(ctx, lockKey, taskID, q.lockTTL).Result()
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire repo lock: %w", err)
+		return nil, fmt.Errorf("failed to acquire repo lock for %s: %w", repoName, err)
 	}
 	if !acquired {
 		return nil, ErrRepoLocked

@@ -1,10 +1,10 @@
 package storage
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -43,8 +43,11 @@ func New(dataDir string) *Storage {
 }
 
 func (s *Storage) stackDir(repoName, stackPath string) string {
-	safePath := strings.ReplaceAll(stackPath, "/", "__")
-	return filepath.Join(s.dataDir, repoName, safePath)
+	return filepath.Join(s.dataDir, repoName, safePath(stackPath))
+}
+
+func safePath(path string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(path))
 }
 
 func (s *Storage) SaveResult(repoName, stackPath string, result *RunResult) error {
@@ -58,12 +61,12 @@ func (s *Storage) SaveResult(repoName, stackPath string, result *RunResult) erro
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(statusPath, statusData, 0644); err != nil {
+	if err := os.WriteFile(statusPath, statusData, 0600); err != nil {
 		return err
 	}
 
 	planPath := filepath.Join(dir, "plan.txt")
-	if err := os.WriteFile(planPath, []byte(result.PlanOutput), 0644); err != nil {
+	if err := os.WriteFile(planPath, []byte(result.PlanOutput), 0600); err != nil {
 		return err
 	}
 
@@ -147,7 +150,10 @@ func (s *Storage) ListStacks(repoName string) ([]StackStatus, error) {
 			continue
 		}
 
-		stackPath := strings.ReplaceAll(entry.Name(), "__", "/")
+		stackPath, err := decodeSafePath(entry.Name())
+		if err != nil {
+			continue
+		}
 		result, err := s.GetResult(repoName, stackPath)
 		if err != nil {
 			continue
@@ -165,4 +171,12 @@ func (s *Storage) ListStacks(repoName string) ([]StackStatus, error) {
 	}
 
 	return stacks, nil
+}
+
+func decodeSafePath(value string) (string, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }

@@ -90,6 +90,8 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
 			return
 		}
 	}
+	// Use Background context because renewal must continue independent of the scheduler tick.
+	// The goroutine exits when task status changes to completed/failed/canceled.
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
 
 	auth, err := gitauth.AuthMethod(ctx, repoCfg)

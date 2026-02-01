@@ -131,6 +131,10 @@ git:
   ssh_known_hosts_path: /etc/driftd/ssh/known_hosts
 ```
 
+> ⚠️ **Security Warning:** Setting `ssh_insecure_ignore_host_key: true` disables SSH host key verification, making the connection
+> vulnerable to man-in-the-middle attacks. Only use this for testing or in controlled environments. For production, always provide a
+> valid `ssh_known_hosts_path`.
+
 **HTTPS token**
 
 ```yaml

@@ -46,7 +46,7 @@ func sshAuth(cfg *config.GitAuthConfig) (transport.AuthMethod, error) {
 
 	auth, err := gitssh.NewPublicKeysFromFile("git", keyPath, passphrase)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load SSH key from %s: %w", keyPath, err)
 	}
 
 	if cfg.SSHInsecureIgnoreHostKey {
@@ -56,7 +56,7 @@ func sshAuth(cfg *config.GitAuthConfig) (transport.AuthMethod, error) {
 	if cfg.SSHKnownHostsPath != "" {
 		cb, err := knownhosts.New(cfg.SSHKnownHostsPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("load ssh known_hosts from %s: %w", cfg.SSHKnownHostsPath, err)
 		}
 		auth.HostKeyCallback = cb
 		return auth, nil

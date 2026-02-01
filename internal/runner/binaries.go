@@ -42,16 +42,11 @@ func ensureTerraformBinary(ctx context.Context, workDir, version string) (string
 		defer restore()
 	}
 
-	if err := runSwitch(ctx, workDir, "tfswitch", cacheDir); err != nil {
+	if err := runSwitch(ctx, workDir, "tfswitch", cacheDir, target); err != nil {
 		return "", err
 	}
-
-	installed := filepath.Join(cacheDir, "terraform")
-	if !fileExists(installed) {
+	if !fileExists(target) {
 		return "", fmt.Errorf("terraform binary not found after tfswitch")
-	}
-	if err := copyFile(installed, target); err != nil {
-		return "", err
 	}
 	return target, nil
 }
@@ -84,16 +79,11 @@ func ensureTerragruntBinary(ctx context.Context, workDir, version string) (strin
 		defer restore()
 	}
 
-	if err := runSwitch(ctx, workDir, "tgswitch", cacheDir); err != nil {
+	if err := runSwitch(ctx, workDir, "tgswitch", cacheDir, target); err != nil {
 		return "", err
 	}
-
-	installed := filepath.Join(cacheDir, "terragrunt")
-	if !fileExists(installed) {
+	if !fileExists(target) {
 		return "", fmt.Errorf("terragrunt binary not found after tgswitch")
-	}
-	if err := copyFile(installed, target); err != nil {
-		return "", err
 	}
 	return target, nil
 }
@@ -145,8 +135,8 @@ func planOnlyWrapperPath(workDir, tfBin string) (string, error) {
 	return filepath.Join(workDir, ".driftd", "terraform.planonly"), nil
 }
 
-func runSwitch(ctx context.Context, workDir, switchCmd, cacheDir string) error {
-	cmd := exec.CommandContext(ctx, switchCmd)
+func runSwitch(ctx context.Context, workDir, switchCmd, cacheDir, target string) error {
+	cmd := exec.CommandContext(ctx, switchCmd, "-b", target)
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("%s=%s", switchHomeEnv(switchCmd), cacheDir),

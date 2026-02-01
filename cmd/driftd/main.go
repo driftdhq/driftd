@@ -146,6 +146,6 @@ func runWorker(args []string) {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	<-done
-	log.Println("Shutting down worker...")
+	log.Println("Shutting down, waiting for in-flight jobs...")
 	w.Stop()
 }

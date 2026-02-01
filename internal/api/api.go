@@ -499,6 +499,8 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 		return nil, nil, err
 	}
 
+	// Use Background context because renewal must continue independent of the HTTP request.
+	// The goroutine exits when task status changes to completed/failed/canceled.
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoCfg.Name, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
 
 	auth, err := gitauth.AuthMethod(ctx, repoCfg)
@@ -614,6 +616,10 @@ func (s *Server) cleanupWorkspaces(repoName, keepTaskID string) {
 		if err == nil && task != nil && task.Status == queue.TaskStatusRunning {
 			continue
 		}
+		// Note: There's a small race window where task status could change between
+		// the check and RemoveAll. This is acceptable because workers copy the
+		// workspace to a temp directory before processing, so deletion during
+		// processing won't affect the running job.
 		_ = os.RemoveAll(it.path)
 	}
 }

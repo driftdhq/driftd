@@ -57,7 +57,10 @@ type GitAuthConfig struct {
 	SSHKeyEnv                string `yaml:"ssh_key_env"`
 	SSHKeyPassphraseEnv      string `yaml:"ssh_key_passphrase_env"`
 	SSHKnownHostsPath        string `yaml:"ssh_known_hosts_path"`
-	SSHInsecureIgnoreHostKey bool   `yaml:"ssh_insecure_ignore_host_key"`
+	// SSHInsecureIgnoreHostKey disables host key verification.
+	// WARNING: This allows man-in-the-middle attacks. Only use for testing
+	// or when connecting to hosts with frequently changing keys.
+	SSHInsecureIgnoreHostKey bool `yaml:"ssh_insecure_ignore_host_key"`
 
 	HTTPSUsername string `yaml:"https_username"`
 	HTTPSToken    string `yaml:"https_token"`

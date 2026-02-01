@@ -49,7 +49,7 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 
 	if workspacePath != "" {
 		if err := copyRepo(workspacePath, tmpDir); err != nil {
-			result.Error = fmt.Sprintf("failed to copy workspace: %v", err)
+			result.Error = fmt.Sprintf("failed to copy workspace from %s: %v", workspacePath, err)
 			return result, nil
 		}
 	} else {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -17,7 +18,7 @@ const (
 	StatusFailed    = "failed"
 	StatusCanceled  = "canceled"
 
-	keyQueue      = "driftd:queue:scans"
+	keyQueue      = "driftd:queue:workitems"
 	keyJobPrefix  = "driftd:job:"
 	keyLockPrefix = "driftd:lock:repo:"
 	keyRepoJobs   = "driftd:jobs:repo:"
@@ -33,6 +34,10 @@ var (
 	ErrRepoLocked  = errors.New("repository scan already in progress")
 	ErrJobNotFound = errors.New("job not found")
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 type Job struct {
 	ID          string    `json:"id"`
@@ -97,7 +102,7 @@ func (q *Queue) Enqueue(ctx context.Context, job *Job) error {
 	job.Status = StatusPending
 	job.CreatedAt = time.Now()
 	if job.ID == "" {
-		job.ID = fmt.Sprintf("%s:%s:%d", job.RepoName, job.StackPath, job.CreatedAt.UnixNano())
+		job.ID = fmt.Sprintf("%s:%s:%d:%d", job.RepoName, job.StackPath, job.CreatedAt.UnixNano(), rand.Int31())
 	}
 
 	// Store job
@@ -127,8 +132,21 @@ func (q *Queue) Enqueue(ctx context.Context, job *Job) error {
 func (q *Queue) Dequeue(ctx context.Context, workerID string) (*Job, error) {
 	for {
 		// Block waiting for job
-		result, err := q.client.BRPop(ctx, 0, keyQueue).Result()
+		result, err := q.client.BRPop(ctx, 1, keyQueue).Result()
 		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				job, findErr := q.findPendingJob(ctx)
+				if findErr != nil {
+					return nil, findErr
+				}
+				if job == nil {
+					continue
+				}
+				if err := q.markJobRunning(ctx, job, workerID); err != nil {
+					return nil, err
+				}
+				return job, nil
+			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
@@ -142,21 +160,56 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*Job, error) {
 			continue
 		}
 
-		// Update job status
-		job.Status = StatusRunning
-		job.StartedAt = time.Now()
-		job.WorkerID = workerID
-		if err := q.updateJob(ctx, job); err != nil {
+		if err := q.markJobRunning(ctx, job, workerID); err != nil {
 			return nil, err
 		}
 
-		if job.TaskID != "" {
-			if err := q.markTaskJobRunning(ctx, job.TaskID); err != nil {
+		return job, nil
+	}
+}
+
+func (q *Queue) markJobRunning(ctx context.Context, job *Job, workerID string) error {
+	job.Status = StatusRunning
+	job.StartedAt = time.Now()
+	job.WorkerID = workerID
+	if err := q.updateJob(ctx, job); err != nil {
+		return err
+	}
+	if job.TaskID != "" {
+		if err := q.markTaskJobRunning(ctx, job.TaskID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (q *Queue) findPendingJob(ctx context.Context) (*Job, error) {
+	var cursor uint64
+	for {
+		keys, next, err := q.client.Scan(ctx, cursor, keyJobPrefix+"*", 100).Result()
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range keys {
+			data, err := q.client.Get(ctx, key).Result()
+			if err != nil {
+				if errors.Is(err, redis.Nil) {
+					continue
+				}
 				return nil, err
 			}
+			var job Job
+			if err := json.Unmarshal([]byte(data), &job); err != nil {
+				continue
+			}
+			if job.Status == StatusPending {
+				return &job, nil
+			}
 		}
-
-		return job, nil
+		if next == 0 {
+			return nil, nil
+		}
+		cursor = next
 	}
 }
 
@@ -230,16 +283,34 @@ func (q *Queue) ListRepoJobs(ctx context.Context, repoName string, limit int) ([
 		return nil, fmt.Errorf("failed to list job IDs: %w", err)
 	}
 
+	if len(jobIDs) == 0 {
+		return nil, nil
+	}
+	if limit > 0 && len(jobIDs) > limit {
+		jobIDs = jobIDs[:limit]
+	}
+
+	pipe := q.client.Pipeline()
+	cmds := make([]*redis.StringCmd, len(jobIDs))
+	for i, id := range jobIDs {
+		cmds[i] = pipe.Get(ctx, keyJobPrefix+id)
+	}
+	_, err = pipe.Exec(ctx)
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("failed to fetch jobs: %w", err)
+	}
+
 	var jobs []*Job
-	for _, id := range jobIDs {
-		job, err := q.GetJob(ctx, id)
+	for _, cmd := range cmds {
+		data, err := cmd.Result()
 		if err != nil {
 			continue // Job expired
 		}
-		jobs = append(jobs, job)
-		if limit > 0 && len(jobs) >= limit {
-			break
+		var job Job
+		if err := json.Unmarshal([]byte(data), &job); err != nil {
+			continue
 		}
+		jobs = append(jobs, &job)
 	}
 
 	return jobs, nil
