@@ -64,7 +64,10 @@ func (q *Queue) CancelJob(ctx context.Context, job *Job, reason string) error {
 	job.Status = StatusCanceled
 	job.CompletedAt = time.Now()
 	job.Error = reason
-	return q.updateJob(ctx, job)
+	if err := q.updateJob(ctx, job); err != nil {
+		return err
+	}
+	return q.client.SRem(ctx, keyRepoJobs+job.RepoName, job.ID).Err()
 }
 
 type Queue struct {
@@ -220,6 +223,9 @@ func (q *Queue) Complete(ctx context.Context, job *Job, drifted bool) error {
 	if err := q.updateJob(ctx, job); err != nil {
 		return err
 	}
+	if err := q.client.SRem(ctx, keyRepoJobs+job.RepoName, job.ID).Err(); err != nil {
+		return err
+	}
 	if job.TaskID != "" {
 		return q.markTaskJobCompleted(ctx, job.TaskID, drifted)
 	}
@@ -250,6 +256,9 @@ func (q *Queue) Fail(ctx context.Context, job *Job, errMsg string) error {
 	job.Status = StatusFailed
 	job.CompletedAt = time.Now()
 	if err := q.updateJob(ctx, job); err != nil {
+		return err
+	}
+	if err := q.client.SRem(ctx, keyRepoJobs+job.RepoName, job.ID).Err(); err != nil {
 		return err
 	}
 	if job.TaskID != "" {

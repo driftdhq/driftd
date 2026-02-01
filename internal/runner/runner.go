@@ -64,6 +64,11 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 		}
 	}
 
+	if !isSafeStackPath(stackPath) {
+		result.Error = "invalid stack path"
+		return result, nil
+	}
+
 	workDir := filepath.Join(tmpDir, stackPath)
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
 		result.Error = fmt.Sprintf("stack path not found: %s", stackPath)
@@ -195,4 +200,18 @@ func parsePlanSummary(output string) (added, changed, destroyed int) {
 
 func safePath(path string) string {
 	return strings.ReplaceAll(path, string(os.PathSeparator), "__")
+}
+
+func isSafeStackPath(stackPath string) bool {
+	if stackPath == "" {
+		return true
+	}
+	if filepath.IsAbs(stackPath) {
+		return false
+	}
+	clean := filepath.Clean(stackPath)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return false
+	}
+	return true
 }

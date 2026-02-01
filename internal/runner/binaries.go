@@ -226,6 +226,9 @@ func copyDir(src, dst string, skip map[string]struct{}) error {
 		if _, ok := skip[name]; ok {
 			continue
 		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
 		srcPath := filepath.Join(src, name)
 		dstPath := filepath.Join(dst, name)
 		if entry.Type()&os.ModeSymlink != 0 {

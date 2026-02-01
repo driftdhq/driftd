@@ -279,54 +279,74 @@ func (q *Queue) AttachJobToTask(ctx context.Context, taskID, jobID string) error
 }
 
 func (q *Queue) markTaskJobRunning(ctx context.Context, taskID string) error {
-	pipe := q.client.Pipeline()
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "running", 1)
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "queued", -1)
-	_, err := pipe.Exec(ctx)
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", 1); err != nil {
+		return err
+	}
+	_, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "queued", -1)
 	return err
 }
 
 func (q *Queue) markTaskJobRetry(ctx context.Context, taskID string) error {
-	pipe := q.client.Pipeline()
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "running", -1)
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "queued", 1)
-	_, err := pipe.Exec(ctx)
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", -1); err != nil {
+		return err
+	}
+	_, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "queued", 1)
 	return err
 }
 
 func (q *Queue) markTaskJobCompleted(ctx context.Context, taskID string, drifted bool) error {
-	pipe := q.client.Pipeline()
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "running", -1)
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "completed", 1)
-	if drifted {
-		pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "drifted", 1)
-	}
-	if _, err := pipe.Exec(ctx); err != nil {
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", -1); err != nil {
 		return err
+	}
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "completed", 1); err != nil {
+		return err
+	}
+	if drifted {
+		if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "drifted", 1); err != nil {
+			return err
+		}
 	}
 	return q.maybeFinishTask(ctx, taskID)
 }
 
 func (q *Queue) markTaskJobFailed(ctx context.Context, taskID string) error {
-	pipe := q.client.Pipeline()
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "running", -1)
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "failed", 1)
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "errored", 1)
-	if _, err := pipe.Exec(ctx); err != nil {
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", -1); err != nil {
+		return err
+	}
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "failed", 1); err != nil {
+		return err
+	}
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "errored", 1); err != nil {
 		return err
 	}
 	return q.maybeFinishTask(ctx, taskID)
 }
 
 func (q *Queue) MarkTaskEnqueueFailed(ctx context.Context, taskID string) error {
-	pipe := q.client.Pipeline()
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "queued", -1)
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "failed", 1)
-	pipe.HIncrBy(ctx, keyTaskPrefix+taskID, "errored", 1)
-	if _, err := pipe.Exec(ctx); err != nil {
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "queued", -1); err != nil {
+		return err
+	}
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "failed", 1); err != nil {
+		return err
+	}
+	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "errored", 1); err != nil {
 		return err
 	}
 	return q.maybeFinishTask(ctx, taskID)
+}
+
+func (q *Queue) incrFloor(ctx context.Context, key, field string, delta int64) (int64, error) {
+	val, err := q.client.HIncrBy(ctx, key, field, delta).Result()
+	if err != nil {
+		return 0, err
+	}
+	if val < 0 {
+		if err := q.client.HSet(ctx, key, field, 0).Err(); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	return val, nil
 }
 
 func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -176,7 +177,8 @@ func (s *Storage) ListStacks(repoName string) ([]StackStatus, error) {
 func decodeSafePath(value string) (string, error) {
 	data, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
-		return "", err
+		// Backward compatibility for legacy "__" encoding.
+		return strings.ReplaceAll(value, "__", "/"), nil
 	}
 	return string(data), nil
 }

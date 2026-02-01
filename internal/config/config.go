@@ -137,7 +137,7 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	if cfg.Redis.Addr == "" {
 		cfg.Redis.Addr = "localhost:6379"
 	}
-	if cfg.Worker.Concurrency == 0 {
+	if cfg.Worker.Concurrency < 1 {
 		cfg.Worker.Concurrency = 5
 	}
 	if cfg.Worker.LockTTL == 0 {

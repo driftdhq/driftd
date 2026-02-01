@@ -511,10 +511,16 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 
 	workspacePath, commitSHA, err := s.cloneWorkspace(ctx, repoCfg, task.ID, auth)
 	if err != nil {
+		if workspacePath != "" {
+			_ = os.RemoveAll(filepath.Dir(workspacePath))
+		}
 		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
 	}
-	_ = s.queue.SetTaskWorkspace(ctx, task.ID, workspacePath, commitSHA)
+	if err := s.queue.SetTaskWorkspace(ctx, task.ID, workspacePath, commitSHA); err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, fmt.Sprintf("failed to set workspace: %v", err))
+		return nil, nil, err
+	}
 	go s.cleanupWorkspaces(repoCfg.Name, task.ID)
 
 	stacks, err := stack.Discover(workspacePath, repoCfg.IgnorePaths)
@@ -532,8 +538,14 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
 	}
-	_ = s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
-	_ = s.queue.SetTaskTotal(ctx, task.ID, len(stacks))
+	if err := s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt); err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, fmt.Sprintf("failed to set versions: %v", err))
+		return nil, nil, err
+	}
+	if err := s.queue.SetTaskTotal(ctx, task.ID, len(stacks)); err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, fmt.Sprintf("failed to set task total: %v", err))
+		return nil, nil, err
+	}
 
 	return task, stacks, nil
 }
@@ -541,7 +553,7 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, taskID string, auth transport.AuthMethod) (string, string, error) {
 	base := filepath.Join(s.cfg.DataDir, "workspaces", repoCfg.Name, taskID, "repo")
 	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
-		return "", "", err
+		return base, "", err
 	}
 
 	cloneOpts := &git.CloneOptions{
@@ -555,7 +567,7 @@ func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig,
 	}
 	repo, err := git.PlainCloneContext(ctx, base, false, cloneOpts)
 	if err != nil {
-		return "", "", err
+		return base, "", err
 	}
 
 	head, err := repo.Head()

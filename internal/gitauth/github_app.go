@@ -98,7 +98,8 @@ func githubAppToken(ctx context.Context, cfg *config.GitHubAppConfig) (string, e
 	req.Header.Set("Authorization", "Bearer "+signed)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
