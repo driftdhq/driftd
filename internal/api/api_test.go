@@ -58,7 +58,7 @@ func TestScanRepoCompletesTask(t *testing.T) {
 		},
 	}
 
-	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, true)
+	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, true, nil)
 	defer cleanup()
 
 	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
@@ -109,7 +109,7 @@ func TestScanRepoCompletesTask(t *testing.T) {
 func TestScanRepoConflict(t *testing.T) {
 	runner := &fakeRunner{}
 
-	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false)
+	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil)
 	defer cleanup()
 
 	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
@@ -149,7 +149,53 @@ func TestScanRepoConflict(t *testing.T) {
 	_ = q.FailTask(context.Background(), sr.Task.ID, "repo", "test cleanup")
 }
 
-func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker bool) (*httptest.Server, *queue.Queue, func()) {
+func TestTaskVersionMapping(t *testing.T) {
+	runner := &fakeRunner{
+		drifted: map[string]bool{},
+	}
+
+	versions := &testVersions{
+		rootTF: "1.6.2",
+		stackTF: map[string]string{
+			"envs/prod": "1.5.7",
+		},
+		rootTG: "0.56.4",
+	}
+
+	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, false, versions)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	task := getTask(t, ts, sr.Task.ID)
+	if task.TerraformVersion != "1.6.2" {
+		t.Fatalf("expected default tf version 1.6.2, got %q", task.TerraformVersion)
+	}
+	if task.TerragruntVersion != "0.56.4" {
+		t.Fatalf("expected default tg version 0.56.4, got %q", task.TerragruntVersion)
+	}
+	if task.StackTFVersions["envs/prod"] != "1.5.7" {
+		t.Fatalf("expected prod stack tf override, got %q", task.StackTFVersions["envs/prod"])
+	}
+	if _, ok := task.StackTFVersions["envs/dev"]; ok {
+		t.Fatalf("did not expect dev stack override")
+	}
+}
+
+func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker bool, versions *testVersions) (*httptest.Server, *queue.Queue, func()) {
 	t.Helper()
 
 	mr, err := miniredis.Run()
@@ -157,7 +203,7 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 		t.Fatalf("miniredis: %v", err)
 	}
 
-	repoDir := createTestRepo(t, stacks)
+	repoDir := createTestRepo(t, stacks, versions)
 
 	cfg := &config.Config{
 		DataDir: t.TempDir(),
@@ -241,10 +287,45 @@ func waitForTask(t *testing.T, ts *httptest.Server, taskID string, timeout time.
 	return nil
 }
 
-func createTestRepo(t *testing.T, stacks []string) string {
+func getTask(t *testing.T, ts *httptest.Server, taskID string) *queue.Task {
+	t.Helper()
+
+	resp, err := http.Get(ts.URL + "/api/tasks/" + taskID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var task queue.Task
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		t.Fatalf("decode task: %v", err)
+	}
+	return &task
+}
+
+type testVersions struct {
+	rootTF  string
+	rootTG  string
+	stackTF map[string]string
+	stackTG map[string]string
+}
+
+func createTestRepo(t *testing.T, stacks []string, versions *testVersions) string {
 	t.Helper()
 
 	dir := t.TempDir()
+	if versions != nil {
+		if versions.rootTF != "" {
+			if err := os.WriteFile(filepath.Join(dir, ".terraform-version"), []byte(versions.rootTF), 0644); err != nil {
+				t.Fatalf("write root tf version: %v", err)
+			}
+		}
+		if versions.rootTG != "" {
+			if err := os.WriteFile(filepath.Join(dir, ".terragrunt-version"), []byte(versions.rootTG), 0644); err != nil {
+				t.Fatalf("write root tg version: %v", err)
+			}
+		}
+	}
 	for _, stack := range stacks {
 		path := filepath.Join(dir, stack)
 		if err := os.MkdirAll(path, 0755); err != nil {
@@ -252,6 +333,18 @@ func createTestRepo(t *testing.T, stacks []string) string {
 		}
 		if err := os.WriteFile(filepath.Join(path, "main.tf"), []byte(""), 0644); err != nil {
 			t.Fatalf("write file: %v", err)
+		}
+		if versions != nil {
+			if v := versions.stackTF[stack]; v != "" {
+				if err := os.WriteFile(filepath.Join(path, ".terraform-version"), []byte(v), 0644); err != nil {
+					t.Fatalf("write stack tf version: %v", err)
+				}
+			}
+			if v := versions.stackTG[stack]; v != "" {
+				if err := os.WriteFile(filepath.Join(path, ".terragrunt-version"), []byte(v), 0644); err != nil {
+					t.Fatalf("write stack tg version: %v", err)
+				}
+			}
 		}
 	}
 
