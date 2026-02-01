@@ -68,6 +68,11 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 		result.Error = fmt.Sprintf("failed to install terraform: %v", err)
 		return result, nil
 	}
+	tfBin, err = ensurePlanOnlyWrapper(workDir, tfBin)
+	if err != nil {
+		result.Error = fmt.Sprintf("failed to create terraform wrapper: %v", err)
+		return result, nil
+	}
 
 	var tgBin string
 	if tool == "terragrunt" {

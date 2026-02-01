@@ -1,6 +1,11 @@
 package runner
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
 
 func TestParsePlanSummary(t *testing.T) {
 	tests := []struct {
@@ -41,4 +46,44 @@ func TestParsePlanSummary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPlanOnlyWrapperBlocksApply(t *testing.T) {
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "terraform")
+	if err := os.WriteFile(realBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake terraform: %v", err)
+	}
+
+	wrapper, err := ensurePlanOnlyWrapper(dir, realBin)
+	if err != nil {
+		t.Fatalf("ensure wrapper: %v", err)
+	}
+
+	cmd := execCommand(wrapper, "apply")
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("expected apply to be blocked")
+	}
+}
+
+func TestPlanOnlyWrapperAllowsPlan(t *testing.T) {
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "terraform")
+	if err := os.WriteFile(realBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake terraform: %v", err)
+	}
+
+	wrapper, err := ensurePlanOnlyWrapper(dir, realBin)
+	if err != nil {
+		t.Fatalf("ensure wrapper: %v", err)
+	}
+
+	cmd := execCommand(wrapper, "plan")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("expected plan to succeed, got %v", err)
+	}
+}
+
+func execCommand(name string, args ...string) *exec.Cmd {
+	return exec.Command(name, args...)
 }

@@ -98,6 +98,53 @@ func ensureTerragruntBinary(ctx context.Context, workDir, version string) (strin
 	return target, nil
 }
 
+func ensurePlanOnlyWrapper(workDir, tfBin string) (string, error) {
+	wrapperPath, err := planOnlyWrapperPath(workDir, tfBin)
+	if err != nil {
+		return "", err
+	}
+	if fileExists(wrapperPath) {
+		return wrapperPath, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(wrapperPath), 0755); err != nil {
+		return "", err
+	}
+
+	script := fmt.Sprintf(`#!/bin/sh
+set -eu
+cmd=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) continue ;;
+    *) cmd="$arg"; break ;;
+  esac
+done
+case "$cmd" in
+  apply|destroy|import|taint|untaint|state|console|login|logout)
+    echo "driftd: terraform subcommand disabled: $cmd" >&2
+    exit 2
+    ;;
+esac
+exec %q "$@"
+`, tfBin)
+
+	if err := os.WriteFile(wrapperPath, []byte(script), 0755); err != nil {
+		return "", err
+	}
+	return wrapperPath, nil
+}
+
+func planOnlyWrapperPath(workDir, tfBin string) (string, error) {
+	if filepath.IsAbs(tfBin) {
+		return tfBin + ".planonly", nil
+	}
+	if workDir == "" {
+		return "", fmt.Errorf("workDir required for plan-only wrapper")
+	}
+	return filepath.Join(workDir, ".driftd", "terraform.planonly"), nil
+}
+
 func runSwitch(ctx context.Context, workDir, switchCmd, cacheDir string) error {
 	cmd := exec.CommandContext(ctx, switchCmd)
 	cmd.Dir = workDir
