@@ -172,6 +172,16 @@ Driftd listens on `POST /api/webhooks/github`. For `push` events on the default 
 it maps changed files to stacks and re-plans only those stacks. If changes are too large
 or can’t be mapped to a stack, it falls back to a full repo scan.
 
+**UI Basic Auth (optional)**
+
+```yaml
+ui_auth:
+  username: "driftd"
+  password: "change-me"
+```
+
+If `ui_auth` is not set, the UI is publicly accessible on the configured listener.
+
 **GitHub App setup (quick checklist)**
 
 1. Create a GitHub App and give it `Contents: Read-only` (and `Metadata: Read-only`).

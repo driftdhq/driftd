@@ -76,10 +76,15 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.Recoverer)
 
 	// HTML routes
-	r.Get("/", s.handleIndex)
-	r.Get("/repos/{repo}", s.handleRepo)
-	r.Get("/repos/{repo}/stacks/*", s.handleStack)
-	r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
+	r.Group(func(r chi.Router) {
+		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
+			r.Use(s.uiAuthMiddleware)
+		}
+		r.Get("/", s.handleIndex)
+		r.Get("/repos/{repo}", s.handleRepo)
+		r.Get("/repos/{repo}/stacks/*", s.handleStack)
+		r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
+	})
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
@@ -97,6 +102,18 @@ func (s *Server) Handler() http.Handler {
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticHandler))))
 
 	return r
+}
+
+func (s *Server) uiAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		if !ok || username != s.cfg.UIAuth.Username || password != s.cfg.UIAuth.Password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="driftd"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type indexData struct {

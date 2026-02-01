@@ -16,6 +16,7 @@ type Config struct {
 	Workspace  WorkspaceConfig `yaml:"workspace"`
 	Repos      []RepoConfig    `yaml:"repos"`
 	Webhook    WebhookConfig   `yaml:"webhook"`
+	UIAuth     UIAuthConfig    `yaml:"ui_auth"`
 }
 
 type RedisConfig struct {
@@ -41,6 +42,11 @@ type WebhookConfig struct {
 	Token        string `yaml:"token"`
 	TokenHeader  string `yaml:"token_header"`
 	MaxFiles     int    `yaml:"max_files"`
+}
+
+type UIAuthConfig struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 const (
