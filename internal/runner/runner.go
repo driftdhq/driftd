@@ -140,7 +140,7 @@ func detectTool(stackPath string) string {
 
 func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPath string) (string, error) {
 	var output bytes.Buffer
-	dataDir := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath))
+	dataDir := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath), filepath.Base(repoRoot))
 	if err := os.MkdirAll(dataDir, 0755); err == nil {
 		defer os.RemoveAll(dataDir)
 	}

@@ -240,7 +240,10 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 
 	var req scanRequest
 	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+			return
+		}
 	}
 	if req.Trigger == "" {
 		req.Trigger = "manual"
@@ -334,7 +337,10 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 
 	var req scanRequest
 	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+			return
+		}
 	}
 	if req.Trigger == "" {
 		req.Trigger = "manual"

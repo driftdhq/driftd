@@ -85,9 +85,10 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
 				log.Printf("Skipping scheduled scan for %s: repo already running", repoName)
 				return
 			}
+		} else {
+			log.Printf("Failed to start task for %s: %v", repoName, err)
+			return
 		}
-		log.Printf("Failed to start task for %s: %v", repoName, err)
-		return
 	}
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
 

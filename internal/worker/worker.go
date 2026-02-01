@@ -132,15 +132,17 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	if w.cfg != nil {
 		if repoCfg := w.cfg.GetRepo(job.RepoName); repoCfg != nil {
-			authMethod, authErr := gitauth.AuthMethod(ctx, repoCfg)
-			if authErr != nil {
-				log.Printf("Job %s failed (git auth): %v", job.ID, authErr)
-				if failErr := w.queue.Fail(w.ctx, job, authErr.Error()); failErr != nil {
-					log.Printf("Failed to mark job %s as failed: %v", job.ID, failErr)
+			if workspacePath == "" {
+				authMethod, authErr := gitauth.AuthMethod(ctx, repoCfg)
+				if authErr != nil {
+					log.Printf("Job %s failed (git auth): %v", job.ID, authErr)
+					if failErr := w.queue.Fail(w.ctx, job, authErr.Error()); failErr != nil {
+						log.Printf("Failed to mark job %s as failed: %v", job.ID, failErr)
+					}
+					return
 				}
-				return
+				auth = authMethod
 			}
-			auth = authMethod
 		}
 	}
 
