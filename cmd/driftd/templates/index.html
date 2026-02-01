@@ -18,7 +18,13 @@
             <a href="/repos/{{.Name}}">{{.Name}}</a>
         </div>
         <div class="repo-meta">
-            <span>{{len .Stacks}} stacks configured</span>
+            {{$stackCount := 0}}
+            {{range $.Repos}}
+                {{if eq .Name $.Name}}
+                    {{$stackCount = .Stacks}}
+                {{end}}
+            {{end}}
+            <span>{{$stackCount}} stacks discovered</span>
         </div>
         <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
             <button type="submit" class="btn btn-scan">Scan All</button>

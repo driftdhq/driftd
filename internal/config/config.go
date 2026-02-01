@@ -38,7 +38,8 @@ const (
 type RepoConfig struct {
 	Name                       string         `yaml:"name"`
 	URL                        string         `yaml:"url"`
-	Stacks                     []string       `yaml:"stacks"`
+	Branch                     string         `yaml:"branch"`
+	IgnorePaths                []string       `yaml:"ignore_paths"`
 	Schedule                   string         `yaml:"schedule"` // cron expression, empty = no scheduled scans
 	CancelInflightOnNewTrigger bool           `yaml:"cancel_inflight_on_new_trigger"`
 	Git                        *GitAuthConfig `yaml:"git"`

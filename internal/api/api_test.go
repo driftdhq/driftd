@@ -221,9 +221,8 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 		},
 		Repos: []config.RepoConfig{
 			{
-				Name:   "repo",
-				URL:    repoDir,
-				Stacks: stacks,
+				Name: "repo",
+				URL:  repoDir,
 			},
 		},
 	}

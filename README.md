@@ -44,6 +44,7 @@ Driftd separates the web server from workers for independent scaling:
 - **Repo**: A git repository containing multiple Terraform or Terragrunt stacks.
 - **Task run**: A single scan of a repo. Only one task run is active per repo at a time.
 - **Job**: A single stack plan within a task run. Jobs can run in parallel across workers.
+- **Stack discovery**: Driftd scans the repo for stack directories (`terragrunt.hcl` or `*.tf`). Use `ignore_paths` to skip paths.
 
 ## Persistence
 
@@ -102,16 +103,15 @@ worker:
 repos:
   - name: my-infra
     url: https://github.com/myorg/terraform-infra.git
+    branch: main
+    ignore_paths:
+      - "**/modules/**"
     cancel_inflight_on_new_trigger: true
     git:
       type: https
       https_token_env: GIT_TOKEN
       https_username: x-access-token
     schedule: "0 */6 * * *"  # every 6 hours (optional, omit to disable)
-    stacks:
-      - envs/prod
-      - envs/staging
-      - envs/dev
 ```
 
 ### Git Authentication (Server + Workers)
@@ -333,12 +333,13 @@ Helm chart coming soon.
 
 ## How It Works
 
-1. **Configuration**: Define repositories and stacks in `config.yaml`
+1. **Configuration**: Define repositories in `config.yaml`
 2. **Task Creation**: A scan trigger (cron or API) creates a repo-level task run
-3. **Queueing**: The task enqueues one job per stack into Redis
-4. **Processing**: Workers pull jobs, clone repos, switch versions, and run plans
-5. **Storage**: Results (drift status + plan output) are saved to filesystem
-6. **Display**: Web UI reads from storage and shows drift status
+3. **Discovery**: The server clones the repo and discovers stacks (with `ignore_paths`)
+4. **Queueing**: The task enqueues one job per stack into Redis
+5. **Processing**: Workers copy the repo snapshot, switch versions, and run plans
+6. **Storage**: Results (drift status + plan output) are saved to filesystem
+7. **Display**: Web UI reads from storage and shows drift status
 
 ## Task & Job Lifecycle
 

@@ -203,6 +203,14 @@ func (q *Queue) SetTaskVersions(ctx context.Context, taskID, tfVersion, tgVersio
 	return err
 }
 
+func (q *Queue) SetTaskTotal(ctx context.Context, taskID string, total int) error {
+	_, err := q.client.HSet(ctx, keyTaskPrefix+taskID, map[string]any{
+		"total":  total,
+		"queued": total,
+	}).Result()
+	return err
+}
+
 func (q *Queue) SetTaskWorkspace(ctx context.Context, taskID, workspacePath, commitSHA string) error {
 	_, err := q.client.HSet(ctx, keyTaskPrefix+taskID, map[string]any{
 		"workspace":  workspacePath,

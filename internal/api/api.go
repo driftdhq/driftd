@@ -16,11 +16,13 @@ import (
 	"github.com/cbrown132/driftd/internal/config"
 	"github.com/cbrown132/driftd/internal/gitauth"
 	"github.com/cbrown132/driftd/internal/queue"
+	"github.com/cbrown132/driftd/internal/stack"
 	"github.com/cbrown132/driftd/internal/storage"
 	"github.com/cbrown132/driftd/internal/version"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
@@ -248,7 +250,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	task, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor, len(repoCfg.Stacks), repoCfg.Stacks)
+	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
@@ -271,7 +273,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 	var jobIDs []string
 	var errors []string
 
-	for _, stackPath := range repoCfg.Stacks {
+	for _, stackPath := range stacks {
 		job := &queue.Job{
 			TaskID:     task.ID,
 			RepoName:   repoName,
@@ -342,7 +344,7 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	task, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor, 1, []string{stackPath})
+	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
@@ -361,6 +363,13 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// startTaskWithCancel handles lock renewal and version detection
+
+	if !containsStack(stackPath, stacks) {
+		_ = s.queue.FailTask(r.Context(), task.ID, repoName, "stack not found")
+		http.Error(w, "Stack not found", http.StatusNotFound)
+		return
+	}
+	_ = s.queue.SetTaskTotal(r.Context(), task.ID, 1)
 
 	job := &queue.Job{
 		TaskID:     task.ID,
@@ -411,21 +420,21 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(task)
 }
 
-func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string, total int, stacks []string) (*queue.Task, error) {
+func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Task, []string, error) {
 	if repoCfg == nil {
-		return nil, fmt.Errorf("repository not configured")
+		return nil, nil, fmt.Errorf("repository not configured")
 	}
 
-	task, err := s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, total)
+	task, err := s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, 0)
 	if err != nil && err == queue.ErrRepoLocked && repoCfg.CancelInflightOnNewTrigger {
 		activeTask, activeErr := s.queue.GetActiveTask(ctx, repoCfg.Name)
 		if activeErr == nil && activeTask != nil {
 			_ = s.queue.CancelTask(ctx, activeTask.ID, repoCfg.Name, "superseded by new trigger")
 		}
-		task, err = s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, total)
+		task, err = s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, 0)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoCfg.Name, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
@@ -433,37 +442,53 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 	auth, err := gitauth.AuthMethod(ctx, repoCfg)
 	if err != nil {
 		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
-		return nil, err
+		return nil, nil, err
 	}
 
-	versions, err := version.DetectFromRepoURL(ctx, repoCfg.URL, stacks, auth)
+	workspacePath, commitSHA, err := s.cloneWorkspace(ctx, repoCfg, task.ID, auth)
 	if err != nil {
 		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
-		return nil, err
-	}
-	_ = s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
-
-	workspacePath, commitSHA, err := s.cloneWorkspace(ctx, repoCfg.Name, repoCfg.URL, task.ID, auth)
-	if err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
-		return nil, err
+		return nil, nil, err
 	}
 	_ = s.queue.SetTaskWorkspace(ctx, task.ID, workspacePath, commitSHA)
 
-	return task, nil
+	stacks, err := stack.Discover(workspacePath, repoCfg.IgnorePaths)
+	if err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		return nil, nil, err
+	}
+	if len(stacks) == 0 {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, "no stacks discovered")
+		return nil, nil, fmt.Errorf("no stacks discovered")
+	}
+
+	versions, err := version.Detect(workspacePath, stacks)
+	if err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		return nil, nil, err
+	}
+	_ = s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
+	_ = s.queue.SetTaskTotal(ctx, task.ID, len(stacks))
+
+	return task, stacks, nil
 }
 
-func (s *Server) cloneWorkspace(ctx context.Context, repoName, repoURL, taskID string, auth transport.AuthMethod) (string, string, error) {
-	base := filepath.Join(s.cfg.DataDir, "workspaces", repoName, taskID, "repo")
+func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, taskID string, auth transport.AuthMethod) (string, string, error) {
+	base := filepath.Join(s.cfg.DataDir, "workspaces", repoCfg.Name, taskID, "repo")
 	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
 		return "", "", err
 	}
 
-	repo, err := git.PlainCloneContext(ctx, base, false, &git.CloneOptions{
-		URL:   repoURL,
+	cloneOpts := &git.CloneOptions{
+		URL:   repoCfg.URL,
 		Depth: 1,
 		Auth:  auth,
-	})
+	}
+	if repoCfg.Branch != "" {
+		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(repoCfg.Branch)
+		cloneOpts.SingleBranch = true
+	}
+	repo, err := git.PlainCloneContext(ctx, base, false, cloneOpts)
 	if err != nil {
 		return "", "", err
 	}
@@ -473,6 +498,15 @@ func (s *Server) cloneWorkspace(ctx context.Context, repoName, repoURL, taskID s
 		return base, "", nil
 	}
 	return base, head.Hash().String(), nil
+}
+
+func containsStack(target string, stacks []string) bool {
+	for _, s := range stacks {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 func timeAgo(t time.Time) string {

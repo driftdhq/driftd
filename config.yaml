@@ -17,12 +17,12 @@ repos:
   # Example repository configuration
   # - name: my-infra
   #   url: https://github.com/myorg/terraform-infra.git
+  #   branch: main
+  #   ignore_paths:
+  #     - "**/modules/**"
   #   cancel_inflight_on_new_trigger: true
   #   git:
   #     type: https
   #     https_token_env: GIT_TOKEN
   #     https_username: x-access-token
   #   schedule: "0 */6 * * *"  # every 6 hours (optional)
-  #   stacks:
-  #     - envs/prod
-  #     - envs/staging
