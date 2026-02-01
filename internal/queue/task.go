@@ -345,7 +345,7 @@ func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {
 	failed := toInt(values[3])
 
 	if total == 0 {
-		return q.finishTask(ctx, taskKey, repoName, 0)
+		return q.finishTask(ctx, taskKey, repoName, taskID, 0)
 	}
 	if completed+failed < total {
 		return nil
