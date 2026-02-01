@@ -36,10 +36,37 @@ const (
 )
 
 type RepoConfig struct {
-	Name     string   `yaml:"name"`
-	URL      string   `yaml:"url"`
-	Stacks   []string `yaml:"stacks"`
-	Schedule string   `yaml:"schedule"` // cron expression, empty = no scheduled scans
+	Name                       string         `yaml:"name"`
+	URL                        string         `yaml:"url"`
+	Stacks                     []string       `yaml:"stacks"`
+	Schedule                   string         `yaml:"schedule"` // cron expression, empty = no scheduled scans
+	CancelInflightOnNewTrigger bool           `yaml:"cancel_inflight_on_new_trigger"`
+	Git                        *GitAuthConfig `yaml:"git"`
+}
+
+type GitAuthConfig struct {
+	Type string `yaml:"type"` // "ssh", "https", "github_app"
+
+	SSHKeyPath               string `yaml:"ssh_key_path"`
+	SSHKeyEnv                string `yaml:"ssh_key_env"`
+	SSHKeyPassphraseEnv      string `yaml:"ssh_key_passphrase_env"`
+	SSHKnownHostsPath        string `yaml:"ssh_known_hosts_path"`
+	SSHInsecureIgnoreHostKey bool   `yaml:"ssh_insecure_ignore_host_key"`
+
+	HTTPSUsername string `yaml:"https_username"`
+	HTTPSToken    string `yaml:"https_token"`
+	HTTPSTokenEnv string `yaml:"https_token_env"`
+
+	GitHubApp *GitHubAppConfig `yaml:"github_app"`
+}
+
+type GitHubAppConfig struct {
+	AppID          int64  `yaml:"app_id"`
+	InstallationID int64  `yaml:"installation_id"`
+	PrivateKey     string `yaml:"private_key"`
+	PrivateKeyPath string `yaml:"private_key_path"`
+	PrivateKeyEnv  string `yaml:"private_key_env"`
+	APIBaseURL     string `yaml:"api_base_url"`
 }
 
 func Load(path string) (*Config, error) {

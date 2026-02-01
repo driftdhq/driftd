@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/cbrown132/driftd/internal/config"
+	"github.com/cbrown132/driftd/internal/gitauth"
 	"github.com/cbrown132/driftd/internal/queue"
 	"github.com/cbrown132/driftd/internal/version"
 	"github.com/robfig/cron/v3"
@@ -56,6 +57,7 @@ func (s *Scheduler) Stop() {
 
 func (s *Scheduler) enqueueRepoScans(repoName, repoURL string, stacks []string) {
 	ctx := context.Background()
+	repoCfg := s.cfg.GetRepo(repoName)
 
 	maxRetries := 0
 	if s.cfg.Worker.RetryOnce {
@@ -65,15 +67,34 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string, stacks []string) 
 	task, err := s.queue.StartTask(ctx, repoName, "scheduled", "", "", len(stacks))
 	if err != nil {
 		if err == queue.ErrRepoLocked {
-			log.Printf("Skipping scheduled scan for %s: repo already running", repoName)
-			return
+			if repoCfg != nil && repoCfg.CancelInflightOnNewTrigger {
+				activeTask, activeErr := s.queue.GetActiveTask(ctx, repoName)
+				if activeErr == nil && activeTask != nil {
+					_ = s.queue.CancelTask(ctx, activeTask.ID, repoName, "superseded by new schedule")
+				}
+				task, err = s.queue.StartTask(ctx, repoName, "scheduled", "", "", len(stacks))
+				if err != nil {
+					log.Printf("Failed to start task for %s after cancel: %v", repoName, err)
+					return
+				}
+			} else {
+				log.Printf("Skipping scheduled scan for %s: repo already running", repoName)
+				return
+			}
 		}
 		log.Printf("Failed to start task for %s: %v", repoName, err)
 		return
 	}
 	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
 
-	versions, err := version.DetectFromRepoURL(ctx, repoURL, stacks)
+	auth, err := gitauth.AuthMethod(ctx, repoCfg)
+	if err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoName, err.Error())
+		log.Printf("Failed to resolve git auth for %s: %v", repoName, err)
+		return
+	}
+
+	versions, err := version.DetectFromRepoURL(ctx, repoURL, stacks, auth)
 	if err != nil {
 		_ = s.queue.FailTask(ctx, task.ID, repoName, err.Error())
 		log.Printf("Failed to detect versions for %s: %v", repoName, err)

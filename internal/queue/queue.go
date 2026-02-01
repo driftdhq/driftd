@@ -15,6 +15,7 @@ const (
 	StatusRunning   = "running"
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
+	StatusCanceled  = "canceled"
 
 	keyQueue      = "driftd:queue:scans"
 	keyJobPrefix  = "driftd:job:"
@@ -51,6 +52,13 @@ type Job struct {
 	Trigger string `json:"trigger,omitempty"` // "scheduled", "manual", "post-apply"
 	Commit  string `json:"commit,omitempty"`
 	Actor   string `json:"actor,omitempty"`
+}
+
+func (q *Queue) CancelJob(ctx context.Context, job *Job, reason string) error {
+	job.Status = StatusCanceled
+	job.CompletedAt = time.Now()
+	job.Error = reason
+	return q.updateJob(ctx, job)
 }
 
 type Queue struct {

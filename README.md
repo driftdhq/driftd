@@ -102,12 +102,52 @@ worker:
 repos:
   - name: my-infra
     url: https://github.com/myorg/terraform-infra.git
+    cancel_inflight_on_new_trigger: true
+    git:
+      type: https
+      https_token_env: GIT_TOKEN
+      https_username: x-access-token
     schedule: "0 */6 * * *"  # every 6 hours (optional, omit to disable)
     stacks:
       - envs/prod
       - envs/staging
       - envs/dev
 ```
+
+### Git Authentication (Server + Workers)
+
+Driftd can authenticate to private repos using SSH, HTTPS tokens, or GitHub App credentials. Configure per repo:
+
+**SSH**
+
+```yaml
+git:
+  type: ssh
+  ssh_key_path: /etc/driftd/ssh/id_ed25519
+  ssh_known_hosts_path: /etc/driftd/ssh/known_hosts
+```
+
+**HTTPS token**
+
+```yaml
+git:
+  type: https
+  https_token_env: GIT_TOKEN
+  https_username: x-access-token
+```
+
+**GitHub App**
+
+```yaml
+git:
+  type: github_app
+  github_app:
+    app_id: 123456
+    installation_id: 12345678
+    private_key_path: /etc/driftd/github-app.pem
+```
+
+Note: GitHub App tokens are short-lived and read-only if you scope the app permissions appropriately.
 
 ### Version Detection
 

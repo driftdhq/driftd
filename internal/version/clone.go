@@ -6,9 +6,10 @@ import (
 	"os"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
-func DetectFromRepoURL(ctx context.Context, repoURL string, stacks []string) (*Versions, error) {
+func DetectFromRepoURL(ctx context.Context, repoURL string, stacks []string, auth transport.AuthMethod) (*Versions, error) {
 	tmpDir, err := os.MkdirTemp("", "driftd-version-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
@@ -18,6 +19,7 @@ func DetectFromRepoURL(ctx context.Context, repoURL string, stacks []string) (*V
 	_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
 		URL:   repoURL,
 		Depth: 1,
+		Auth:  auth,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("clone repo: %w", err)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cbrown132/driftd/internal/config"
+	"github.com/cbrown132/driftd/internal/gitauth"
 	"github.com/cbrown132/driftd/internal/queue"
 	"github.com/cbrown132/driftd/internal/storage"
 	"github.com/cbrown132/driftd/internal/version"
@@ -243,7 +244,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	task, err := s.queue.StartTask(r.Context(), repoName, req.Trigger, req.Commit, req.Actor, len(repoCfg.Stacks))
+	task, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor, len(repoCfg.Stacks), repoCfg.Stacks)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
@@ -261,15 +262,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
-
-	versions, err := version.DetectFromRepoURL(r.Context(), repoCfg.URL, repoCfg.Stacks)
-	if err != nil {
-		_ = s.queue.FailTask(r.Context(), task.ID, repoName, err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	_ = s.queue.SetTaskVersions(r.Context(), task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
+	// startTaskWithCancel handles lock renewal and version detection
 
 	var jobIDs []string
 	var errors []string
@@ -345,7 +338,7 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	task, err := s.queue.StartTask(r.Context(), repoName, req.Trigger, req.Commit, req.Actor, 1)
+	task, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor, 1, []string{stackPath})
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
@@ -363,15 +356,7 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
-
-	versions, err := version.DetectFromRepoURL(r.Context(), repoCfg.URL, []string{stackPath})
-	if err != nil {
-		_ = s.queue.FailTask(r.Context(), task.ID, repoName, err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	_ = s.queue.SetTaskVersions(r.Context(), task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
+	// startTaskWithCancel handles lock renewal and version detection
 
 	job := &queue.Job{
 		TaskID:     task.ID,
@@ -420,6 +405,41 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
+}
+
+func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string, total int, stacks []string) (*queue.Task, error) {
+	if repoCfg == nil {
+		return nil, fmt.Errorf("repository not configured")
+	}
+
+	task, err := s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, total)
+	if err != nil && err == queue.ErrRepoLocked && repoCfg.CancelInflightOnNewTrigger {
+		activeTask, activeErr := s.queue.GetActiveTask(ctx, repoCfg.Name)
+		if activeErr == nil && activeTask != nil {
+			_ = s.queue.CancelTask(ctx, activeTask.ID, repoCfg.Name, "superseded by new trigger")
+		}
+		task, err = s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, total)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	go s.queue.RenewTaskLock(context.Background(), task.ID, repoCfg.Name, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+
+	auth, err := gitauth.AuthMethod(ctx, repoCfg)
+	if err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		return nil, err
+	}
+
+	versions, err := version.DetectFromRepoURL(ctx, repoCfg.URL, stacks, auth)
+	if err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		return nil, err
+	}
+	_ = s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
+
+	return task, nil
 }
 
 func timeAgo(t time.Time) string {

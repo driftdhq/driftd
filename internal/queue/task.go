@@ -15,6 +15,7 @@ const (
 	TaskStatusRunning   = "running"
 	TaskStatusCompleted = "completed"
 	TaskStatusFailed    = "failed"
+	TaskStatusCanceled  = "canceled"
 
 	taskRenewIntervalMin = 10 * time.Second
 )
@@ -213,6 +214,23 @@ func (q *Queue) FailTask(ctx context.Context, taskID, repoName, errMsg string) e
 	return err
 }
 
+func (q *Queue) CancelTask(ctx context.Context, taskID, repoName, reason string) error {
+	if reason == "" {
+		reason = "canceled"
+	}
+	taskKey := keyTaskPrefix + taskID
+
+	pipe := q.client.Pipeline()
+	pipe.HSet(ctx, taskKey, map[string]any{
+		"status":   TaskStatusCanceled,
+		"ended_at": time.Now().Unix(),
+		"error":    reason,
+	})
+	pipe.Del(ctx, keyLockPrefix+repoName)
+	pipe.Del(ctx, keyTaskRepo+repoName)
+	_, err := pipe.Exec(ctx)
+	return err
+}
 func (q *Queue) GetActiveTask(ctx context.Context, repoName string) (*Task, error) {
 	taskID, err := q.client.Get(ctx, keyTaskRepo+repoName).Result()
 	if err != nil {

@@ -8,8 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cbrown132/driftd/internal/config"
+	"github.com/cbrown132/driftd/internal/gitauth"
 	"github.com/cbrown132/driftd/internal/queue"
 	"github.com/cbrown132/driftd/internal/runner"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 type Worker struct {
@@ -20,13 +23,14 @@ type Worker struct {
 	wg          sync.WaitGroup
 	ctx         context.Context
 	cancel      context.CancelFunc
+	cfg         *config.Config
 }
 
 type Runner interface {
-	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string) (*runner.RunResult, error)
+	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod) (*runner.RunResult, error)
 }
 
-func New(q *queue.Queue, r Runner, concurrency int) *Worker {
+func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config) *Worker {
 	hostname, _ := os.Hostname()
 	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 
@@ -39,6 +43,7 @@ func New(q *queue.Queue, r Runner, concurrency int) *Worker {
 		concurrency: concurrency,
 		ctx:         ctx,
 		cancel:      cancel,
+		cfg:         cfg,
 	}
 }
 
@@ -93,13 +98,16 @@ func (w *Worker) processLoop(workerNum int) {
 func (w *Worker) processJob(job *queue.Job) {
 	log.Printf("Processing job %s: %s/%s", job.ID, job.RepoName, job.StackPath)
 
-	// Create context with timeout for the plan execution
-	ctx, cancel := context.WithTimeout(w.ctx, 30*time.Minute)
-	defer cancel()
-
 	var tfVersion, tgVersion string
+	var auth transport.AuthMethod
+	var taskID string
 	if job.TaskID != "" {
+		taskID = job.TaskID
 		if task, err := w.queue.GetTask(w.ctx, job.TaskID); err == nil && task != nil {
+			if task.Status == queue.TaskStatusCanceled {
+				_ = w.queue.CancelJob(w.ctx, job, "task canceled")
+				return
+			}
 			if v, ok := task.StackTFVersions[job.StackPath]; ok {
 				tfVersion = v
 			} else {
@@ -113,7 +121,28 @@ func (w *Worker) processJob(job *queue.Job) {
 		}
 	}
 
-	result, err := w.runner.Run(ctx, job.RepoName, job.RepoURL, job.StackPath, tfVersion, tgVersion)
+	// Create context with timeout for the plan execution
+	ctx, cancel := context.WithTimeout(w.ctx, 30*time.Minute)
+	defer cancel()
+	if taskID != "" {
+		go w.watchTaskCancel(ctx, cancel, taskID)
+	}
+
+	if w.cfg != nil {
+		if repoCfg := w.cfg.GetRepo(job.RepoName); repoCfg != nil {
+			authMethod, authErr := gitauth.AuthMethod(ctx, repoCfg)
+			if authErr != nil {
+				log.Printf("Job %s failed (git auth): %v", job.ID, authErr)
+				if failErr := w.queue.Fail(w.ctx, job, authErr.Error()); failErr != nil {
+					log.Printf("Failed to mark job %s as failed: %v", job.ID, failErr)
+				}
+				return
+			}
+			auth = authMethod
+		}
+	}
+
+	result, err := w.runner.Run(ctx, job.RepoName, job.RepoURL, job.StackPath, tfVersion, tgVersion, auth)
 
 	if err != nil {
 		log.Printf("Job %s failed (internal error): %v", job.ID, err)
@@ -136,5 +165,27 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	if completeErr := w.queue.Complete(w.ctx, job, result.Drifted); completeErr != nil {
 		log.Printf("Failed to mark job %s as completed: %v", job.ID, completeErr)
+	}
+}
+
+func (w *Worker) watchTaskCancel(ctx context.Context, cancel context.CancelFunc, taskID string) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		task, err := w.queue.GetTask(ctx, taskID)
+		if err != nil || task == nil {
+			continue
+		}
+		if task.Status == queue.TaskStatusCanceled {
+			cancel()
+			return
+		}
 	}
 }

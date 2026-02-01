@@ -20,6 +20,7 @@ import (
 	"github.com/cbrown132/driftd/internal/worker"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 type fakeRunner struct {
@@ -28,7 +29,7 @@ type fakeRunner struct {
 	failures map[string]error
 }
 
-func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string) (*runner.RunResult, error) {
+func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod) (*runner.RunResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -245,7 +246,7 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 
 	var w *worker.Worker
 	if startWorker {
-		w = worker.New(q, r, 1)
+		w = worker.New(q, r, 1, cfg)
 		w.Start()
 	}
 

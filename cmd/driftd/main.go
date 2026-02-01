@@ -138,7 +138,7 @@ func runWorker(args []string) {
 	defer q.Close()
 
 	// Start worker
-	w := worker.New(q, run, cfg.Worker.Concurrency)
+	w := worker.New(q, run, cfg.Worker.Concurrency, cfg)
 	w.Start()
 
 	// Handle shutdown

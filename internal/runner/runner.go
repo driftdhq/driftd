@@ -14,6 +14,7 @@ import (
 
 	"github.com/cbrown132/driftd/internal/storage"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 type Runner struct {
@@ -34,7 +35,7 @@ type RunResult struct {
 	RunAt      time.Time
 }
 
-func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string) (*RunResult, error) {
+func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod) (*RunResult, error) {
 	result := &RunResult{
 		RunAt: time.Now(),
 	}
@@ -49,6 +50,7 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 	_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
 		URL:   repoURL,
 		Depth: 1,
+		Auth:  auth,
 	})
 	if err != nil {
 		result.Error = fmt.Sprintf("failed to clone repo: %v", err)
