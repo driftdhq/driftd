@@ -11,11 +11,35 @@
     <header>
         <nav>
             <a href="/" class="logo">Driftd</a>
+            <button class="theme-toggle" type="button" aria-label="Toggle theme">
+                <span class="theme-toggle-icon" data-light>🌞</span>
+                <span class="theme-toggle-icon" data-dark>🌙</span>
+            </button>
         </nav>
     </header>
     <main>
         {{template "content" .}}
     </main>
+    <script>
+        (function () {
+            const root = document.documentElement;
+            const key = "driftd-theme";
+            const stored = localStorage.getItem(key);
+            if (stored) {
+                root.setAttribute("data-theme", stored);
+            } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
+                root.setAttribute("data-theme", "light");
+            }
+            const btn = document.querySelector(".theme-toggle");
+            if (!btn) return;
+            btn.addEventListener("click", () => {
+                const current = root.getAttribute("data-theme") || "dark";
+                const next = current === "dark" ? "light" : "dark";
+                root.setAttribute("data-theme", next);
+                localStorage.setItem(key, next);
+            });
+        })();
+    </script>
 </body>
 </html>
 {{end}}

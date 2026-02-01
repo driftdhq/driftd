@@ -24,6 +24,7 @@ const (
 	keyTaskPrefix = "driftd:task:"
 	keyTaskRepo   = "driftd:task:repo:"
 	keyTaskJobs   = "driftd:task:jobs:"
+	keyTaskLast   = "driftd:task:last:"
 
 	jobRetention = 7 * 24 * time.Hour // 7 days
 )
