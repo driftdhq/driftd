@@ -27,7 +27,7 @@ type Worker struct {
 }
 
 type Runner interface {
-	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod) (*runner.RunResult, error)
+	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error)
 }
 
 func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config) *Worker {
@@ -101,6 +101,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	var tfVersion, tgVersion string
 	var auth transport.AuthMethod
 	var taskID string
+	var workspacePath string
 	if job.TaskID != "" {
 		taskID = job.TaskID
 		if task, err := w.queue.GetTask(w.ctx, job.TaskID); err == nil && task != nil {
@@ -118,6 +119,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			} else {
 				tgVersion = task.TerragruntVersion
 			}
+			workspacePath = task.WorkspacePath
 		}
 	}
 
@@ -142,7 +144,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		}
 	}
 
-	result, err := w.runner.Run(ctx, job.RepoName, job.RepoURL, job.StackPath, tfVersion, tgVersion, auth)
+	result, err := w.runner.Run(ctx, job.RepoName, job.RepoURL, job.StackPath, tfVersion, tgVersion, auth, workspacePath)
 
 	if err != nil {
 		log.Printf("Job %s failed (internal error): %v", job.ID, err)

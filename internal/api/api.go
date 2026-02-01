@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +20,8 @@ import (
 	"github.com/cbrown132/driftd/internal/version"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 type Server struct {
@@ -439,7 +443,36 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 	}
 	_ = s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt)
 
+	workspacePath, commitSHA, err := s.cloneWorkspace(ctx, repoCfg.Name, repoCfg.URL, task.ID, auth)
+	if err != nil {
+		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		return nil, err
+	}
+	_ = s.queue.SetTaskWorkspace(ctx, task.ID, workspacePath, commitSHA)
+
 	return task, nil
+}
+
+func (s *Server) cloneWorkspace(ctx context.Context, repoName, repoURL, taskID string, auth transport.AuthMethod) (string, string, error) {
+	base := filepath.Join(s.cfg.DataDir, "workspaces", repoName, taskID, "repo")
+	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
+		return "", "", err
+	}
+
+	repo, err := git.PlainCloneContext(ctx, base, false, &git.CloneOptions{
+		URL:   repoURL,
+		Depth: 1,
+		Auth:  auth,
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	head, err := repo.Head()
+	if err != nil {
+		return base, "", nil
+	}
+	return base, head.Hash().String(), nil
 }
 
 func timeAgo(t time.Time) string {

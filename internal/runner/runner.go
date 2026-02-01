@@ -35,7 +35,7 @@ type RunResult struct {
 	RunAt      time.Time
 }
 
-func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod) (*RunResult, error) {
+func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod, workspacePath string) (*RunResult, error) {
 	result := &RunResult{
 		RunAt: time.Now(),
 	}
@@ -47,14 +47,21 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 	}
 	defer os.RemoveAll(tmpDir)
 
-	_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
-		URL:   repoURL,
-		Depth: 1,
-		Auth:  auth,
-	})
-	if err != nil {
-		result.Error = fmt.Sprintf("failed to clone repo: %v", err)
-		return result, nil
+	if workspacePath != "" {
+		if err := copyRepo(workspacePath, tmpDir); err != nil {
+			result.Error = fmt.Sprintf("failed to copy workspace: %v", err)
+			return result, nil
+		}
+	} else {
+		_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
+			URL:   repoURL,
+			Depth: 1,
+			Auth:  auth,
+		})
+		if err != nil {
+			result.Error = fmt.Sprintf("failed to clone repo: %v", err)
+			return result, nil
+		}
 	}
 
 	workDir := filepath.Join(tmpDir, stackPath)
@@ -85,7 +92,7 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 		}
 	}
 
-	output, err := runPlan(ctx, workDir, tool, tfBin, tgBin)
+	output, err := runPlan(ctx, workDir, tool, tfBin, tgBin, tmpDir, stackPath)
 	result.PlanOutput = output
 
 	if err != nil {
@@ -131,12 +138,17 @@ func detectTool(stackPath string) string {
 	return "terraform"
 }
 
-func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin string) (string, error) {
+func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPath string) (string, error) {
 	var output bytes.Buffer
+	dataDir := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath))
+	if err := os.MkdirAll(dataDir, 0755); err == nil {
+		defer os.RemoveAll(dataDir)
+	}
 
 	if tool == "terraform" {
 		initCmd := exec.CommandContext(ctx, tfBin, "init", "-input=false")
 		initCmd.Dir = workDir
+		initCmd.Env = append(os.Environ(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
 		initCmd.Stdout = &output
 		initCmd.Stderr = &output
 		if err := initCmd.Run(); err != nil {
@@ -147,9 +159,14 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin string) (string, e
 	var planCmd *exec.Cmd
 	if tool == "terragrunt" {
 		planCmd = exec.CommandContext(ctx, tgBin, "plan", "-detailed-exitcode", "-input=false")
-		planCmd.Env = append(os.Environ(), fmt.Sprintf("TERRAGRUNT_TFPATH=%s", tfBin))
+		planCmd.Env = append(os.Environ(),
+			fmt.Sprintf("TERRAGRUNT_TFPATH=%s", tfBin),
+			fmt.Sprintf("TERRAGRUNT_DOWNLOAD=%s", filepath.Join(os.TempDir(), "driftd-tg", safePath(stackPath))),
+			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
+		)
 	} else {
 		planCmd = exec.CommandContext(ctx, tfBin, "plan", "-detailed-exitcode", "-input=false")
+		planCmd.Env = append(os.Environ(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
 	}
 	planCmd.Dir = workDir
 	planCmd.Stdout = &output
@@ -174,4 +191,8 @@ func parsePlanSummary(output string) (added, changed, destroyed int) {
 	}
 
 	return added, changed, destroyed
+}
+
+func safePath(path string) string {
+	return strings.ReplaceAll(path, string(os.PathSeparator), "__")
 }

@@ -38,6 +38,8 @@ type Task struct {
 	TerragruntVersion string            `json:"terragrunt_version,omitempty"`
 	StackTFVersions   map[string]string `json:"stack_tf_versions,omitempty"`
 	StackTGVersions   map[string]string `json:"stack_tg_versions,omitempty"`
+	WorkspacePath     string            `json:"workspace_path,omitempty"`
+	CommitSHA         string            `json:"commit_sha,omitempty"`
 
 	Total     int `json:"total"`
 	Queued    int `json:"queued"`
@@ -102,6 +104,8 @@ func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor 
 		"tg_version": "",
 		"stack_tf":   "{}",
 		"stack_tg":   "{}",
+		"workspace":  "",
+		"commit_sha": "",
 	})
 	pipe.Expire(ctx, taskKey, jobRetention)
 	pipe.Set(ctx, keyTaskRepo+repoName, taskID, jobRetention)
@@ -195,6 +199,14 @@ func (q *Queue) SetTaskVersions(ctx context.Context, taskID, tfVersion, tgVersio
 		"tg_version": tgVersion,
 		"stack_tf":   string(tfJSON),
 		"stack_tg":   string(tgJSON),
+	}).Result()
+	return err
+}
+
+func (q *Queue) SetTaskWorkspace(ctx context.Context, taskID, workspacePath, commitSHA string) error {
+	_, err := q.client.HSet(ctx, keyTaskPrefix+taskID, map[string]any{
+		"workspace":  workspacePath,
+		"commit_sha": commitSHA,
 	}).Result()
 	return err
 }
@@ -360,6 +372,8 @@ func taskFromHash(values map[string]string) (*Task, error) {
 		TerragruntVersion: values["tg_version"],
 		StackTFVersions:   stackTF,
 		StackTGVersions:   stackTG,
+		WorkspacePath:     values["workspace"],
+		CommitSHA:         values["commit_sha"],
 		Total:             toInt(values["total"]),
 		Queued:            toInt(values["queued"]),
 		Running:           toInt(values["running"]),

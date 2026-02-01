@@ -214,6 +214,53 @@ func copyFile(src, dst string) error {
 	return out.Chmod(0755)
 }
 
+func copyRepo(src, dst string) error {
+	return copyDir(src, dst, map[string]struct{}{".git": {}})
+}
+
+func copyDir(src, dst string, skip map[string]struct{}) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, info.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if _, ok := skip[name]; ok {
+			continue
+		}
+		srcPath := filepath.Join(src, name)
+		dstPath := filepath.Join(dst, name)
+		if entry.Type()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(srcPath)
+			if err != nil {
+				return err
+			}
+			if err := os.Symlink(link, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath, skip); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := copyFile(srcPath, dstPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
