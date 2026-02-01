@@ -248,6 +248,7 @@ func (q *Queue) CancelTask(ctx context.Context, taskID, repoName, reason string)
 	})
 	pipe.Del(ctx, keyLockPrefix+repoName)
 	pipe.Del(ctx, keyTaskRepo+repoName)
+	pipe.Set(ctx, keyTaskLast+repoName, taskID, jobRetention)
 	_, err := pipe.Exec(ctx)
 	return err
 }
@@ -258,6 +259,17 @@ func (q *Queue) GetActiveTask(ctx context.Context, repoName string) (*Task, erro
 			return nil, ErrTaskNotFound
 		}
 		return nil, fmt.Errorf("failed to get active task id: %w", err)
+	}
+	return q.GetTask(ctx, taskID)
+}
+
+func (q *Queue) GetLastTask(ctx context.Context, repoName string) (*Task, error) {
+	taskID, err := q.client.Get(ctx, keyTaskLast+repoName).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("failed to get last task id: %w", err)
 	}
 	return q.GetTask(ctx, taskID)
 }
@@ -338,10 +350,10 @@ func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {
 	if completed+failed < total {
 		return nil
 	}
-	return q.finishTask(ctx, taskKey, repoName, failed)
+	return q.finishTask(ctx, taskKey, repoName, taskID, failed)
 }
 
-func (q *Queue) finishTask(ctx context.Context, taskKey, repoName string, failed int) error {
+func (q *Queue) finishTask(ctx context.Context, taskKey, repoName, taskID string, failed int) error {
 	status := TaskStatusCompleted
 	if failed > 0 {
 		status = TaskStatusFailed
@@ -354,6 +366,7 @@ func (q *Queue) finishTask(ctx context.Context, taskKey, repoName string, failed
 	})
 	pipe.Del(ctx, keyLockPrefix+repoName)
 	pipe.Del(ctx, keyTaskRepo+repoName)
+	pipe.Set(ctx, keyTaskLast+repoName, taskID, jobRetention)
 	_, err := pipe.Exec(ctx)
 	return err
 }

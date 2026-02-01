@@ -25,6 +25,18 @@
                 {{end}}
             {{end}}
             <span>{{$stackCount}} stacks discovered</span>
+            {{range $.Repos}}
+                {{if eq .Name $.Name}}
+                    {{if .Active}}
+                        <span class="meta-pill">Running {{.Progress}}</span>
+                    {{else if not .LastRun.IsZero}}
+                        <span class="meta-pill">Last run {{timeAgo .LastRun}}</span>
+                    {{end}}
+                    {{if .CommitSHA}}
+                        <span class="meta-pill">Commit {{printf "%.7s" .CommitSHA}}</span>
+                    {{end}}
+                {{end}}
+            {{end}}
         </div>
         <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
             <button type="submit" class="btn btn-scan">Scan All</button>

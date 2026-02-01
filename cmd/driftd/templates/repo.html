@@ -14,6 +14,34 @@
     {{end}}
 </div>
 
+{{if .ActiveTask}}
+<div class="task-summary active">
+    <div>
+        <strong>Running</strong>
+        <span class="meta">Task {{printf "%.7s" .ActiveTask.ID}}</span>
+        {{if .ActiveTask.CommitSHA}}<span class="meta">Commit {{printf "%.7s" .ActiveTask.CommitSHA}}</span>{{end}}
+    </div>
+    <div class="progress">
+        <div class="progress-bar">
+            {{$pct := 0}}
+            {{if gt .ActiveTask.Total 0}}
+                {{$pct = div (mul (add .ActiveTask.Completed .ActiveTask.Failed) 100) .ActiveTask.Total}}
+            {{end}}
+            <div class="progress-fill" style="width: {{$pct}}%"></div>
+        </div>
+        <span class="meta">{{add .ActiveTask.Completed .ActiveTask.Failed}} / {{.ActiveTask.Total}}</span>
+    </div>
+</div>
+{{else if .LastTask}}
+<div class="task-summary">
+    <div>
+        <strong>Last run</strong>
+        <span class="meta">{{timeAgo .LastTask.EndedAt}}</span>
+        {{if .LastTask.CommitSHA}}<span class="meta">Commit {{printf "%.7s" .LastTask.CommitSHA}}</span>{{end}}
+    </div>
+</div>
+{{end}}
+
 {{if .Stacks}}
 <section class="stacks">
     <table class="stack-table">
@@ -65,12 +93,6 @@
 </section>
 {{else if .Config}}
 <p class="empty-state">No scans yet. Click "Scan All Stacks" to start.</p>
-<p class="stack-list">Configured stacks:</p>
-<ul>
-    {{range .Config.Stacks}}
-    <li>{{.}}</li>
-    {{end}}
-</ul>
 {{else}}
 <p class="empty-state">Repository not found in configuration.</p>
 {{end}}

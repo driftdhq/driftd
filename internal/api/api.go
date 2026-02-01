@@ -39,6 +39,18 @@ type Server struct {
 func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, staticFS fs.FS) (*Server, error) {
 	funcMap := template.FuncMap{
 		"timeAgo": timeAgo,
+		"add": func(a, b int) int {
+			return a + b
+		},
+		"mul": func(a, b int) int {
+			return a * b
+		},
+		"div": func(a, b int) int {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
 	}
 
 	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
@@ -88,10 +100,14 @@ type indexData struct {
 }
 
 type repoStatusData struct {
-	Name    string
-	Drifted bool
-	Stacks  int
-	Locked  bool
+	Name      string
+	Drifted   bool
+	Stacks    int
+	Locked    bool
+	LastRun   time.Time
+	CommitSHA string
+	Active    bool
+	Progress  string
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -100,11 +116,36 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	var repoData []repoStatusData
 	for _, repo := range repos {
 		locked, _ := s.queue.IsRepoLocked(r.Context(), repo.Name)
+		var lastTask *queue.Task
+		if activeTask, err := s.queue.GetActiveTask(r.Context(), repo.Name); err == nil {
+			lastTask = activeTask
+		} else if lastTaskFound, err := s.queue.GetLastTask(r.Context(), repo.Name); err == nil {
+			lastTask = lastTaskFound
+		}
+
+		var progress string
+		var active bool
+		var lastRun time.Time
+		var commit string
+		if lastTask != nil {
+			commit = lastTask.CommitSHA
+			if lastTask.Status == queue.TaskStatusRunning {
+				active = true
+				progress = fmt.Sprintf("%d/%d", lastTask.Completed+lastTask.Failed, lastTask.Total)
+				lastRun = lastTask.StartedAt
+			} else {
+				lastRun = lastTask.EndedAt
+			}
+		}
 		repoData = append(repoData, repoStatusData{
-			Name:    repo.Name,
-			Drifted: repo.Drifted,
-			Stacks:  repo.Stacks,
-			Locked:  locked,
+			Name:      repo.Name,
+			Drifted:   repo.Drifted,
+			Stacks:    repo.Stacks,
+			Locked:    locked,
+			LastRun:   lastRun,
+			CommitSHA: commit,
+			Active:    active,
+			Progress:  progress,
 		})
 	}
 
@@ -119,10 +160,12 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 type repoPageData struct {
-	Name   string
-	Stacks []storage.StackStatus
-	Config *config.RepoConfig
-	Locked bool
+	Name       string
+	Stacks     []storage.StackStatus
+	Config     *config.RepoConfig
+	Locked     bool
+	ActiveTask *queue.Task
+	LastTask   *queue.Task
 }
 
 func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
@@ -131,12 +174,16 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	stacks, _ := s.storage.ListStacks(repoName)
 	repoCfg := s.cfg.GetRepo(repoName)
 	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
+	activeTask, _ := s.queue.GetActiveTask(r.Context(), repoName)
+	lastTask, _ := s.queue.GetLastTask(r.Context(), repoName)
 
 	data := repoPageData{
-		Name:   repoName,
-		Stacks: stacks,
-		Config: repoCfg,
-		Locked: locked,
+		Name:       repoName,
+		Stacks:     stacks,
+		Config:     repoCfg,
+		Locked:     locked,
+		ActiveTask: activeTask,
+		LastTask:   lastTask,
 	}
 
 	if err := s.tmpl.ExecuteTemplate(w, "repo.html", data); err != nil {
@@ -148,6 +195,7 @@ type stackPageData struct {
 	RepoName string
 	Path     string
 	Result   *storage.RunResult
+	Task     *queue.Task
 }
 
 func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
@@ -159,11 +207,13 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
+	lastTask, _ := s.queue.GetLastTask(r.Context(), repoName)
 
 	data := stackPageData{
 		RepoName: repoName,
 		Path:     stackPath,
 		Result:   result,
+		Task:     lastTask,
 	}
 
 	if err := s.tmpl.ExecuteTemplate(w, "drift.html", data); err != nil {

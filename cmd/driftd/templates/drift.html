@@ -14,6 +14,16 @@
     </form>
 </div>
 
+{{if .Task}}
+<div class="task-summary">
+    <div>
+        <strong>Last task</strong>
+        <span class="meta">{{timeAgo .Task.EndedAt}}</span>
+        {{if .Task.CommitSHA}}<span class="meta">Commit {{printf "%.7s" .Task.CommitSHA}}</span>{{end}}
+    </div>
+</div>
+{{end}}
+
 {{if .Result}}
 <div class="drift-summary">
     <div class="status-box {{if .Result.Error}}error{{else if .Result.Drifted}}drifted{{else}}ok{{end}}">
