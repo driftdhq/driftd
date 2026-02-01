@@ -1,56 +1,112 @@
-# Driftd
+<p align="center">
+  <h1 align="center">Driftd</h1>
+</p>
 
-A self-hosted Terraform/Terragrunt drift detection server with a web UI.
+<p align="center">
+  <strong>Continuous drift detection for Terraform & Terragrunt</strong>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#features">Features</a> &bull;
+  <a href="#architecture">Architecture</a> &bull;
+  <a href="#configuration">Configuration</a> &bull;
+  <a href="#api">API</a>
+</p>
+
+---
+
+## Quick Start
+
+```bash
+# 1. Start Redis
+docker run -d -p 6379:6379 redis:alpine
+
+# 2. Create config.yaml
+cat > config.yaml <<EOF
+data_dir: ./data
+redis:
+  addr: localhost:6379
+repos:
+  - name: my-infra
+    url: https://github.com/myorg/terraform-infra.git
+EOF
+
+# 3. Run server + worker
+docker run -d -p 8080:8080 \
+  -v $(pwd)/config.yaml:/etc/driftd/config.yaml \
+  -v driftd-data:/data \
+  ghcr.io/cbrown132/driftd serve -config /etc/driftd/config.yaml
+
+docker run -d \
+  -v $(pwd)/config.yaml:/etc/driftd/config.yaml \
+  -v driftd-data:/data \
+  ghcr.io/cbrown132/driftd worker -config /etc/driftd/config.yaml
+
+# 4. Trigger a scan
+curl -X POST http://localhost:8080/api/repos/my-infra/scan
+```
+
+Open http://localhost:8080 to view the dashboard.
+
+---
 
 ## Features
 
-- **Drift Detection**: Runs `terraform plan` or `terragrunt plan` to detect infrastructure drift
-- **Web UI**: Dashboard showing drift status across repositories and stacks
-- **Task Runs**: Per-repo task runs that fan out to parallel stack jobs
-- **Job Queue**: Redis-backed queue with repo-level locking for reliable execution
-- **Scheduled Scans**: Cron expressions per repository for automated drift checks
-- **Webhook Support**: POST API for triggering scans after applies (real-time drift status)
-- **Version Management**: Auto-detects terraform/terragrunt versions via tfswitch/tgswitch
-- **Caching**: Shared provider and binary cache to reduce disk usage and download time
+- **Drift Detection** - Runs `terraform plan` or `terragrunt plan` to detect infrastructure drift
+- **Web UI** - Dashboard showing drift status across repositories and stacks
+- **Scheduled Scans** - Cron expressions per repository for automated drift checks
+- **Webhook Support** - GitHub webhooks for real-time drift updates after applies
+- **Version Management** - Auto-detects and installs terraform/terragrunt versions via tfswitch/tgswitch
+- **Horizontal Scaling** - Separate server and worker processes for independent scaling
+- **Repo Locking** - Prevents concurrent scans of the same repository
+- **Caching** - Shared provider and binary cache across workers
+
+---
 
 ## Architecture
 
-Driftd separates the web server from workers for independent scaling:
+```mermaid
+flowchart TB
+    subgraph Control["Control Plane"]
+        Server["<b>driftd serve</b><br/>API &bull; UI &bull; Scheduler"]
+    end
 
+    subgraph Data["Data Layer"]
+        Redis[("<b>Redis</b><br/>Queue &bull; Locks &bull; State")]
+        Storage[("<b>Storage</b><br/>Plan Outputs")]
+    end
+
+    subgraph Workers["Worker Pool (scalable)"]
+        W1["driftd worker"]
+        W2["driftd worker"]
+        W3["driftd worker"]
+    end
+
+    Server <-->|"tasks/jobs"| Redis
+    Server -->|"clone repos"| Storage
+    W1 & W2 & W3 <-->|"dequeue"| Redis
+    W1 & W2 & W3 <-->|"read/write"| Storage
 ```
-┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│  driftd     │      │    Redis    │      │   Storage   │
-│  serve      │◄────►│  (queue +   │◄────►│   (PVC)     │
-│  (UI/API)   │      │  tasks +    │      └─────────────┘
-│             │      │  queue +    │
-│             │      │  locks)     │
-└─────────────┘      └──────▲──────┘             ▲
-                            │                    │
-         ┌──────────────────┼──────────────────┐ │
-         │                  │                  │ │
-   ┌─────▼─────┐     ┌─────▼─────┐     ┌─────▼─────┐
-   │  driftd   │     │  driftd   │     │  driftd   │
-   │  worker   │     │  worker   │     │  worker   │
-   └───────────┘     └───────────┘     └───────────┘
-```
 
-- **serve**: Web UI, API, and scheduler (single replica)
-- **worker**: Processes scan jobs (scale horizontally based on workload)
-- **Redis**: Task state, job queue, and repo locks (prevents concurrent scans of same repo)
-- **Storage**: Filesystem-based, mount a PVC for persistence
+| Component | Role |
+|-----------|------|
+| **serve** | Web UI, REST API, scheduler. Single replica. |
+| **worker** | Processes scan jobs. Scale horizontally based on workload. |
+| **Redis** | Job queue, task state, repo locks. Ephemeral - can be wiped safely. |
+| **Storage** | Plan outputs and drift status. Mount a PVC for persistence. |
 
-## Concepts
+---
 
-- **Repo**: A git repository containing multiple Terraform or Terragrunt stacks.
-- **Task run**: A single scan of a repo. Only one task run is active per repo at a time.
-- **Job**: A single stack plan within a task run. Jobs can run in parallel across workers.
-- **Stack discovery**: Driftd scans the repo for stack directories (`terragrunt.hcl` or `*.tf`). Use `ignore_paths` to skip paths.
+## Requirements
 
-## Persistence
+- **Redis** - For task state, job queue, and distributed locking
+- **Storage** - Filesystem path for plan outputs (PVC in Kubernetes)
+- **Git access** - SSH keys, HTTPS tokens, or GitHub App for private repos
 
-- **Redis**: Ephemeral task + job state, queue, and locks. If Redis is wiped, you lose in-flight progress but can re-run tasks.
-- **Filesystem (`data_dir`)**: Durable plan outputs and drift status for the UI.
-- **Workspaces**: Repo snapshots are stored under `data_dir/workspaces/<repo>/<taskID>/repo`. Older snapshots are pruned by `workspace.retention`.
+Terraform and Terragrunt are auto-installed via tfswitch/tgswitch in the container.
+
+---
 
 ## Installation
 
@@ -68,18 +124,28 @@ go build -o driftd ./cmd/driftd
 docker pull ghcr.io/cbrown132/driftd:latest
 ```
 
-Or build locally:
+### Helm
 
 ```bash
-docker build -t driftd .
+helm install driftd ./helm/driftd \
+  --set image.repository=ghcr.io/cbrown132/driftd \
+  --set image.tag=latest
 ```
 
-## Requirements
+See `helm/driftd/README.md` for full chart documentation.
 
-- **Redis**: For task state, job queue, and distributed locking
-- **Storage**: Filesystem path for plan outputs (PVC in Kubernetes)
-- **Terraform/Terragrunt**: Auto-installed via tfswitch/tgswitch in container, or pre-installed for local use
-- **Git access**: Standard git auth (SSH keys or HTTPS tokens) for private repos
+---
+
+## Concepts
+
+| Term | Description |
+|------|-------------|
+| **Repo** | A git repository containing Terraform or Terragrunt stacks |
+| **Task** | A single scan of a repo. Only one task can be active per repo. |
+| **Job** | A single stack plan within a task. Jobs run in parallel across workers. |
+| **Stack** | A directory containing `terragrunt.hcl` or `*.tf` files |
+
+---
 
 ## Configuration
 
@@ -96,13 +162,12 @@ redis:
 
 worker:
   concurrency: 5      # parallel jobs per worker process
-  lock_ttl: 30m       # repo lock timeout (minimum 2m)
+  lock_ttl: 30m       # repo lock timeout
   retry_once: true    # retry failed jobs once
-  task_max_age: 6h    # max time a repo task may run before it's marked failed
-  renew_every: 10s    # lock renewal interval (0 = lock_ttl/3, minimum 10s, must be <= lock_ttl/2)
+  task_max_age: 6h    # max task duration before forced failure
 
 workspace:
-  retention: 5        # number of workspace snapshots to keep per repo
+  retention: 5        # workspace snapshots to keep per repo
 
 repos:
   - name: my-infra
@@ -110,19 +175,16 @@ repos:
     branch: main
     ignore_paths:
       - "**/modules/**"
-    cancel_inflight_on_new_trigger: true
+    schedule: "0 */6 * * *"  # cron expression (optional)
     git:
       type: https
       https_token_env: GIT_TOKEN
-      https_username: x-access-token
-    schedule: "0 */6 * * *"  # every 6 hours (optional, omit to disable)
 ```
 
-### Git Authentication (Server + Workers)
+<details>
+<summary><b>Git Authentication Options</b></summary>
 
-Driftd can authenticate to private repos using SSH, HTTPS tokens, or GitHub App credentials. Configure per repo:
-
-**SSH**
+### SSH
 
 ```yaml
 git:
@@ -131,11 +193,9 @@ git:
   ssh_known_hosts_path: /etc/driftd/ssh/known_hosts
 ```
 
-> ⚠️ **Security Warning:** Setting `ssh_insecure_ignore_host_key: true` disables SSH host key verification, making the connection
-> vulnerable to man-in-the-middle attacks. Only use this for testing or in controlled environments. For production, always provide a
-> valid `ssh_known_hosts_path`.
+> **Warning:** Setting `ssh_insecure_ignore_host_key: true` disables host key verification and is vulnerable to MITM attacks. Only use for testing.
 
-**HTTPS token**
+### HTTPS Token
 
 ```yaml
 git:
@@ -144,7 +204,7 @@ git:
   https_username: x-access-token
 ```
 
-**GitHub App**
+### GitHub App
 
 ```yaml
 git:
@@ -155,26 +215,29 @@ git:
     private_key_path: /etc/driftd/github-app.pem
 ```
 
-Note: GitHub App tokens are short-lived and read-only if you scope the app permissions appropriately.
+GitHub App tokens are short-lived and can be scoped to read-only access.
 
-**GitHub Webhook (push to default branch)**
+</details>
+
+<details>
+<summary><b>Webhook Configuration</b></summary>
 
 ```yaml
 webhook:
   enabled: true
   github_secret: "your-webhook-secret"
-  # Optional shared token header (if not using GitHub HMAC)
-  # token: "shared-token"
-  # token_header: "X-Webhook-Token"
-  # max_files: 300
 ```
 
-Driftd listens on `POST /api/webhooks/github`. For `push` events on the default branch,
-it maps changed files to stacks and re-plans only those stacks. If changes are too large
-or can’t be mapped to a stack, it falls back to a full repo scan.
-When `webhook.enabled` is true, you must provide either `github_secret` or `token`.
+Driftd listens on `POST /api/webhooks/github`. For push events on the default branch, it maps changed files to stacks and re-plans only affected stacks.
 
-**UI Basic Auth (optional)**
+When `webhook.enabled` is true, you must provide `github_secret` or `token` for authentication.
+
+</details>
+
+<details>
+<summary><b>Authentication & Security</b></summary>
+
+### UI Basic Auth
 
 ```yaml
 ui_auth:
@@ -182,277 +245,151 @@ ui_auth:
   password: "change-me"
 ```
 
-If `ui_auth` is not set, the UI is publicly accessible on the configured listener.
-
-**API Auth (optional)**
+### API Auth
 
 ```yaml
 api_auth:
   username: "driftd"
   password: "change-me"
-  # Or use a shared token header
-  # token: "shared-api-token"
-  # token_header: "X-API-Token"
 ```
 
-When `api_auth` is configured, all `/api/*` routes (except webhooks) require auth.
-
-**API Rate Limiting (optional)**
+### Rate Limiting
 
 ```yaml
 api:
   rate_limit_per_minute: 60
 ```
 
-**GitHub App setup (quick checklist)**
+</details>
 
-1. Create a GitHub App and give it `Contents: Read-only` (and `Metadata: Read-only`).
-2. Install the app on the org or repositories you want to scan.
-3. Download the private key and store it as a Kubernetes secret.
-4. Set `app_id`, `installation_id`, and `private_key_path` in the repo config.
+<details>
+<summary><b>Cloud Provider Credentials</b></summary>
 
-### Credentials for Terraform Providers
+Driftd does not manage cloud credentials. Terraform runs with whatever credentials you provide:
 
-Driftd does not manage cloud credentials. Terraform/Terragrunt runs inside the worker container with whatever credentials you provide.
+- **Environment variables**: `AWS_ACCESS_KEY_ID`, `GOOGLE_APPLICATION_CREDENTIALS`, `ARM_*`
+- **Mounted config**: `~/.aws/credentials`, `~/.config/gcloud`
+- **Workload identity**: EKS IRSA, GKE Workload Identity, Azure Workload Identity
 
-Common options:
+The Helm chart supports `server.envFrom` and `worker.envFrom` for mounting secrets.
 
-- **Environment variables**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `ARM_*`, etc.
-- **Mounted config files**: `~/.aws/credentials`, `~/.config/gcloud`, Azure CLI cache, etc.
-- **Kubernetes workload identity**: EKS IRSA, GKE Workload Identity, Azure Workload Identity.
-- **Assume-role tooling**: Wrap terraform with your standard auth helper (if it exports env vars).
+</details>
 
-For Kubernetes, the Helm chart supports `server.envFrom` and `worker.envFrom` so you can mount a Secret or ConfigMap that holds credentials or provider config. See `helm/driftd/README.md` for examples.
+<details>
+<summary><b>Version Detection</b></summary>
 
-### Version Detection
+Driftd uses [tfswitch](https://tfswitch.warrensbox.com/) and [tgswitch](https://github.com/warrensbox/tgswitch) to detect versions from:
 
-Driftd uses [tfswitch](https://tfswitch.warrensbox.com/) and [tgswitch](https://github.com/warrensbox/tgswitch) to automatically detect and install the correct terraform/terragrunt versions based on:
-
-- `.terraform-version` file
+- `.terraform-version` / `.terragrunt-version` files
 - `required_version` in terraform configuration
-- `.terragrunt-version` file
 
-If no version is specified, it defaults to the latest version.
+If no version is specified, it uses the latest version.
 
-### Private Repositories
+</details>
 
-Driftd relies on standard git authentication. For private repos, provide credentials via:
-
-- SSH keys mounted into the container (e.g., `/home/driftd/.ssh`), or
-- HTTPS tokens embedded in the repo URL.
-
-The exact setup depends on your environment and how you already authenticate git.
-
-## Usage
-
-### Running Locally
-
-```bash
-# Start Redis
-docker run -d -p 6379:6379 redis:alpine
-
-# Start the web server (terminal 1)
-./driftd serve -config config.yaml
-
-# Start a worker (terminal 2)
-./driftd worker -config config.yaml
-```
-
-Open http://localhost:8080 in your browser.
-
-### Running with Docker
-
-```bash
-# Start Redis
-docker run -d --name redis -p 6379:6379 redis:alpine
-
-# Start server
-docker run -d --name driftd-serve \
-  -p 8080:8080 \
-  -v $(pwd)/config.yaml:/etc/driftd/config.yaml \
-  -v driftd-data:/data \
-  -v driftd-cache:/cache \
-  driftd serve -config /etc/driftd/config.yaml
-
-# Start worker
-docker run -d --name driftd-worker \
-  -v $(pwd)/config.yaml:/etc/driftd/config.yaml \
-  -v driftd-data:/data \
-  -v driftd-cache:/cache \
-  driftd worker -config /etc/driftd/config.yaml
-```
+---
 
 ## API
 
-### HTML Routes
+### Routes
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Dashboard |
-| GET | `/repos/{repo}` | Repository detail with stack list |
-| GET | `/repos/{repo}/stacks/{stack...}` | Stack drift detail with plan output |
+| GET | `/repos/{repo}` | Repository detail |
+| GET | `/repos/{repo}/stacks/{stack...}` | Stack detail with plan output |
+| GET | `/api/health` | Health check |
+| GET | `/api/tasks/{taskID}` | Task status |
+| GET | `/api/jobs/{jobID}` | Job status |
+| POST | `/api/repos/{repo}/scan` | Trigger full repo scan |
+| POST | `/api/repos/{repo}/stacks/{stack...}` | Trigger single stack scan |
+| POST | `/api/webhooks/github` | GitHub webhook endpoint |
 
-### API Routes
+### Examples
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check (includes Redis connectivity) |
-| GET | `/api/jobs/{jobID}` | Get job status |
-| GET | `/api/tasks/{taskID}` | Get task run status + progress |
-| GET | `/api/repos/{repo}/jobs` | List recent jobs for a repository |
-| POST | `/api/repos/{repo}/scan` | Trigger scan for all stacks in repo |
-| POST | `/api/repos/{repo}/stacks/{stack...}` | Trigger scan for a single stack |
-
-### Conflict Behavior
-
-If a scan is already running for a repo, the API returns `409 Conflict` with the active task and current progress.
-
-### Triggering Scans
-
-**Manual scan via API:**
+**Trigger a scan:**
 
 ```bash
 curl -X POST http://localhost:8080/api/repos/my-infra/scan
 ```
 
-**Post-apply webhook** (e.g., from CI after `terraform apply`):
-
-```bash
-curl -X POST http://localhost:8080/api/repos/my-infra/stacks/envs/prod \
-  -H "Content-Type: application/json" \
-  -d '{"trigger": "post-apply", "commit": "abc123", "actor": "ci"}'
-```
-
-This keeps drift status accurate in real-time as changes are applied.
-
-**Response (task + jobs):**
+**Response:**
 
 ```json
 {
-  "jobs": ["my-infra:envs/prod:1706712345678"],
   "task": {
     "id": "my-infra:1706712345678",
-    "repo_name": "my-infra",
     "status": "running",
     "total": 12,
     "queued": 11,
     "running": 1,
-    "completed": 0,
-    "failed": 0,
-    "drifted": 0,
-    "errored": 0
-  },
-  "message": "Job enqueued"
-}
-```
-
-**Response (409 conflict):**
-
-```json
-{
-  "error": "Repository scan already in progress",
-  "active_task": {
-    "id": "my-infra:1706712000000",
-    "repo_name": "my-infra",
-    "status": "running",
-    "total": 500,
-    "queued": 320,
-    "running": 40,
-    "completed": 140,
-    "failed": 0,
-    "drifted": 12,
-    "errored": 0
+    "completed": 0
   }
 }
 ```
 
+**Conflict (scan already running):**
+
+```json
+{
+  "error": "Repository scan already in progress",
+  "active_task": { "id": "...", "status": "running", "completed": 140, "total": 500 }
+}
+```
+
+---
+
+## How It Works
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Trigger   │────►│   Clone &   │────►│   Enqueue   │────►│   Workers   │
+│ (cron/API)  │     │   Discover  │     │    Jobs     │     │  Run Plans  │
+└─────────────┘     └─────────────┘     └─────────────┘     └──────┬──────┘
+                                                                   │
+                    ┌─────────────┐     ┌─────────────┐            │
+                    │   Web UI    │◄────│   Storage   │◄───────────┘
+                    │  Dashboard  │     │   (plans)   │
+                    └─────────────┘     └─────────────┘
+```
+
+1. **Trigger** - Cron schedule or API call initiates a scan
+2. **Clone** - Server clones the repo and discovers stacks
+3. **Enqueue** - One job per stack is added to the Redis queue
+4. **Process** - Workers dequeue jobs, run `terraform plan`, save results
+5. **Display** - Web UI shows drift status from stored plan outputs
+
+---
+
 ## Caching
 
-The Docker image uses a `/cache` volume for:
+Mount `/cache` as a persistent volume:
 
 ```
 /cache/
 ├── terraform/
-│   ├── plugins/     # TF_PLUGIN_CACHE_DIR - shared providers across all stacks
+│   ├── plugins/     # TF_PLUGIN_CACHE_DIR - shared providers
 │   └── versions/    # tfswitch binary cache
 └── terragrunt/
-    ├── download/    # TERRAGRUNT_DOWNLOAD - terragrunt module cache
+    ├── download/    # TERRAGRUNT_DOWNLOAD - module cache
     └── versions/    # tgswitch binary cache
 ```
 
-Mount this as a persistent volume to:
-- Share providers across stacks (significant disk savings)
-- Cache terraform/terragrunt binaries (faster version switching)
-- Reduce network downloads
+Benefits: shared providers across stacks, cached binaries, reduced downloads.
 
-## Concurrency & Locking
-
-- **Repo-level locking**: Only one task run can be active per repository
-- **Parallelism by stack**: A task run fans out to one job per stack
-- **Worker concurrency**: Each worker can process multiple jobs in parallel (configurable)
-- **Lock TTL**: Safety timeout if a worker crashes mid-run (default 30 minutes)
-
-This prevents resource contention and ensures consistent state reads.
+---
 
 ## Kubernetes Deployment
 
-Driftd is designed for Kubernetes:
-
 - **Server**: Single replica Deployment (runs scheduler)
 - **Workers**: Deployment with HPA based on queue depth
-- **Redis**: Use managed Redis (ElastiCache, Memorystore) or deploy your own
-- **Storage**: PVC mounted at `/data` (EBS, EFS, etc.)
-- **Cache**: PVC mounted at `/cache` (can be shared ReadWriteMany for multi-worker)
+- **Redis**: Managed Redis (ElastiCache, Memorystore) or self-hosted
+- **Storage**: PVC at `/data` and `/cache`
 
-## Helm
+See `helm/driftd/` for the Helm chart.
 
-The Helm chart lives in `helm/driftd`.
+---
 
-```bash
-helm install driftd ./helm/driftd \\
-  --set image.repository=ghcr.io/cbrown132/driftd \\
-  --set image.tag=latest
-```
+## License
 
-Example values:
-
-```yaml
-config:
-  data_dir: /data
-  redis:
-    addr: "redis:6379"
-  repos:
-    - name: infra
-      url: git@github.com:myorg/infra.git
-      branch: main
-      ignore_paths:
-        - "**/modules/**"
-      git:
-        type: ssh
-        ssh_key_path: /etc/driftd/ssh/id_ed25519
-        ssh_known_hosts_path: /etc/driftd/ssh/known_hosts
-```
-
-## How It Works
-
-1. **Configuration**: Define repositories in `config.yaml`
-2. **Task Creation**: A scan trigger (cron or API) creates a repo-level task run
-3. **Discovery**: The server clones the repo and discovers stacks (with `ignore_paths`)
-4. **Queueing**: The task enqueues one job per stack into Redis
-5. **Processing**: Workers copy the repo snapshot, switch versions, and run plans
-6. **Storage**: Results (drift status + plan output) are saved to filesystem
-7. **Display**: Web UI reads from storage and shows drift status
-
-## Task & Job Lifecycle
-
-```
-task created → running → completed
-                    ↘→ failed (if any job fails permanently)
-```
-
-```
-created → pending → running → completed
-                          ↘→ failed (retry once, then permanent)
-```
-
-Jobs are retained in Redis for 7 days for debugging purposes.
+MIT
