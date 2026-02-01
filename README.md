@@ -250,7 +250,7 @@ docker run -d --name driftd-worker \
 | GET | `/api/tasks/{taskID}` | Get task run status + progress |
 | GET | `/api/repos/{repo}/jobs` | List recent jobs for a repository |
 | POST | `/api/repos/{repo}/scan` | Trigger scan for all stacks in repo |
-| POST | `/api/repos/{repo}/stacks/{stack...}/scan` | Trigger scan for a single stack |
+| POST | `/api/repos/{repo}/stacks/{stack...}` | Trigger scan for a single stack |
 
 ### Conflict Behavior
 
@@ -267,7 +267,7 @@ curl -X POST http://localhost:8080/api/repos/my-infra/scan
 **Post-apply webhook** (e.g., from CI after `terraform apply`):
 
 ```bash
-curl -X POST http://localhost:8080/api/repos/my-infra/stacks/envs/prod/scan \
+curl -X POST http://localhost:8080/api/repos/my-infra/stacks/envs/prod \
   -H "Content-Type: application/json" \
   -d '{"trigger": "post-apply", "commit": "abc123", "actor": "ci"}'
 ```

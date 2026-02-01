@@ -305,7 +305,7 @@ func TestScanSingleStack(t *testing.T) {
 	ts, _, cleanup := newTestServer(t, runner, []string{"dev"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/dev/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/dev", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan stack request failed: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestScanStackNotFound(t *testing.T) {
 	ts, _, cleanup := newTestServer(t, runner, []string{"envs/dev"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/envs/prod/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/envs/prod", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan stack request failed: %v", err)
 	}

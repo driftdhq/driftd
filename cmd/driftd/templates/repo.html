@@ -1,5 +1,66 @@
 {{define "title"}}{{.Name}}{{end}}
 
+{{define "stack-node"}}
+{{if .Children}}
+<details class="stack-group" {{if .Open}}open{{end}}>
+    <summary class="stack-row stack-group-row" style="--depth: {{.Depth}}">
+        <div class="stack-cell stack-name">
+            <span class="stack-caret" aria-hidden="true"></span>
+            <span class="stack-label">{{.Name}}</span>
+            <span class="stack-meta">{{.Total}} stacks</span>
+        </div>
+        <div class="stack-cell status">
+            {{if .Error}}<span class="badge badge-error">{{.Error}} error</span>{{end}}
+            {{if .Drifted}}<span class="badge badge-drift">{{.Drifted}} drift</span>{{end}}
+            {{if .Ok}}<span class="badge badge-ok">{{.Ok}} ok</span>{{end}}
+        </div>
+        <div class="stack-cell changes">-</div>
+        <div class="stack-cell run">-</div>
+        <div class="stack-cell actions"></div>
+    </summary>
+    <div class="stack-group-children">
+        {{range .Children}}
+            {{template "stack-node" .}}
+        {{end}}
+    </div>
+</details>
+{{else}}
+<div class="stack-row stack-leaf" style="--depth: {{.Depth}}">
+    <div class="stack-cell stack-name">
+        <span class="stack-leaf-dot" aria-hidden="true"></span>
+        <a href="/repos/{{.RepoName}}/stacks/{{.Path}}" class="stack-link">{{.Name}}</a>
+        <span class="stack-meta">{{.Path}}</span>
+    </div>
+    <div class="stack-cell status">
+        {{if .Status.Error}}
+        <span class="badge badge-error">Error</span>
+        {{else if .Status.Drifted}}
+        <span class="badge badge-drift">Drift</span>
+        {{else}}
+        <span class="badge badge-ok">OK</span>
+        {{end}}
+    </div>
+    <div class="stack-cell changes">
+        {{if or .Status.Added .Status.Changed .Status.Destroyed}}
+        <span class="changes">
+            {{if .Status.Added}}<span class="add">+{{.Status.Added}}</span>{{end}}
+            {{if .Status.Changed}}<span class="change">~{{.Status.Changed}}</span>{{end}}
+            {{if .Status.Destroyed}}<span class="destroy">-{{.Status.Destroyed}}</span>{{end}}
+        </span>
+        {{else}}
+        -
+        {{end}}
+    </div>
+    <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
+    <div class="stack-cell actions">
+        <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="inline-form">
+            <button type="submit" class="btn btn-small">Scan</button>
+        </form>
+    </div>
+</div>
+{{end}}
+{{end}}
+
 {{define "content"}}
 <nav class="breadcrumb">
     <a href="/">Repositories</a> / <span>{{.Name}}</span>
@@ -65,64 +126,4 @@
 <p class="empty-state">Repository not found in configuration.</p>
 {{end}}
 
-{{define "stack-node"}}
-{{if .Children}}
-<details class="stack-group" {{if .Open}}open{{end}}>
-    <summary class="stack-row stack-group-row" style="--depth: {{.Depth}}">
-        <div class="stack-cell stack-name">
-            <span class="stack-caret" aria-hidden="true"></span>
-            <span class="stack-label">{{.Name}}</span>
-            <span class="stack-meta">{{.Total}} stacks</span>
-        </div>
-        <div class="stack-cell status">
-            {{if .Error}}<span class="badge badge-error">{{.Error}} error</span>{{end}}
-            {{if .Drifted}}<span class="badge badge-drift">{{.Drifted}} drift</span>{{end}}
-            {{if .Ok}}<span class="badge badge-ok">{{.Ok}} ok</span>{{end}}
-        </div>
-        <div class="stack-cell changes">-</div>
-        <div class="stack-cell run">-</div>
-        <div class="stack-cell actions"></div>
-    </summary>
-    <div class="stack-group-children">
-        {{range .Children}}
-            {{template "stack-node" .}}
-        {{end}}
-    </div>
-</details>
-{{else}}
-<div class="stack-row stack-leaf" style="--depth: {{.Depth}}">
-    <div class="stack-cell stack-name">
-        <span class="stack-leaf-dot" aria-hidden="true"></span>
-        <a href="/repos/{{.RepoName}}/stacks/{{.Path}}" class="stack-link">{{.Name}}</a>
-        <span class="stack-meta">{{.Path}}</span>
-    </div>
-    <div class="stack-cell status">
-        {{if .Status.Error}}
-        <span class="badge badge-error">Error</span>
-        {{else if .Status.Drifted}}
-        <span class="badge badge-drift">Drift</span>
-        {{else}}
-        <span class="badge badge-ok">OK</span>
-        {{end}}
-    </div>
-    <div class="stack-cell changes">
-        {{if or .Status.Added .Status.Changed .Status.Destroyed}}
-        <span class="changes">
-            {{if .Status.Added}}<span class="add">+{{.Status.Added}}</span>{{end}}
-            {{if .Status.Changed}}<span class="change">~{{.Status.Changed}}</span>{{end}}
-            {{if .Status.Destroyed}}<span class="destroy">-{{.Status.Destroyed}}</span>{{end}}
-        </span>
-        {{else}}
-        -
-        {{end}}
-    </div>
-    <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
-    <div class="stack-cell actions">
-        <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}/scan" class="inline-form">
-            <button type="submit" class="btn btn-small">Scan</button>
-        </form>
-    </div>
-</div>
-{{end}}
-{{end}}
 {{end}}

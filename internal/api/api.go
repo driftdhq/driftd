@@ -76,6 +76,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/", s.handleIndex)
 	r.Get("/repos/{repo}", s.handleRepo)
 	r.Get("/repos/{repo}/stacks/*", s.handleStack)
+	r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
@@ -84,7 +85,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/tasks/{taskID}", s.handleGetTask)
 		r.Get("/repos/{repo}/jobs", s.handleListRepoJobs)
 		r.Post("/repos/{repo}/scan", s.handleScanRepo)
-		r.Post("/repos/{repo}/stacks/{stack:.*}/scan", s.handleScanStack)
+		r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
 	})
 
 	// Static files from embedded FS
@@ -380,7 +381,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
-	stackPath := chi.URLParam(r, "stack")
+	stackPath := chi.URLParam(r, "*")
 
 	repoCfg := s.cfg.GetRepo(repoName)
 	if repoCfg == nil {
