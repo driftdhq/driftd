@@ -9,14 +9,43 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#features">Features</a> &bull;
-  <a href="#architecture">Architecture</a> &bull;
+  <a href="#how-it-works">How It Works</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
   <a href="#api">API</a>
 </p>
 
 ---
 
-## Quick Start
+## What is Driftd?
+
+Driftd is a read-only drift detection service for Terraform and Terragrunt.
+It continuously runs `terraform plan` against your infrastructure code and
+surfaces drift in a web UI and API. It does **not** apply changes, manage state,
+run CI pipelines, or replace Terraform workflows—it is a visibility layer that
+fits alongside tools like Atlantis or CI-based applies.
+
+Use Driftd when you want fast, continuous insight into drift across many stacks
+and repositories without adding risk to your apply pipeline.
+
+## Quick Mental Model
+
+- **Task** = one scan of a repo
+- **Job** = one stack plan inside a task
+- **Plan** = output saved to storage and shown in the UI
+
+```
+Trigger (cron/API/webhook)
+        │
+        ▼
+     Task (repo)
+        │
+        ▼
+  Jobs (stacks)  ──>  Workers run plans  ──>  Storage + UI
+```
+
+---
+
+## Quick Start (Docker)
 
 ```bash
 # 1. Start Redis
@@ -51,16 +80,83 @@ Open http://localhost:8080 to view the dashboard.
 
 ---
 
+## Quick Start (docker-compose)
+
+```yaml
+version: "3.8"
+
+services:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  driftd-server:
+    image: ghcr.io/cbrown132/driftd:latest
+    command: serve -config /etc/driftd/config.yaml
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/etc/driftd/config.yaml
+      - driftd-data:/data
+
+  driftd-worker:
+    image: ghcr.io/cbrown132/driftd:latest
+    command: worker -config /etc/driftd/config.yaml
+    volumes:
+      - ./config.yaml:/etc/driftd/config.yaml
+      - driftd-data:/data
+
+volumes:
+  driftd-data:
+```
+
+---
+
 ## Features
 
-- **Drift Detection** - Runs `terraform plan` or `terragrunt plan` to detect infrastructure drift
+- **Drift Detection** - Runs `terraform plan` or `terragrunt plan` to detect drift
 - **Web UI** - Dashboard showing drift status across repositories and stacks
 - **Scheduled Scans** - Cron expressions per repository for automated drift checks
 - **Webhook Support** - GitHub webhooks for real-time drift updates after applies
-- **Version Management** - Auto-detects and installs terraform/terragrunt versions via tfswitch/tgswitch
+- **Version Management** - Auto-detects terraform/terragrunt versions via tfswitch/tgswitch
 - **Horizontal Scaling** - Separate server and worker processes for independent scaling
 - **Repo Locking** - Prevents concurrent scans of the same repository
 - **Caching** - Shared provider and binary cache across workers
+
+---
+
+## How It Works
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Trigger   │────►│   Clone &   │────►│   Enqueue   │────►│   Workers   │
+│ (cron/API)  │     │   Discover  │     │    Jobs     │     │  Run Plans  │
+└─────────────┘     └─────────────┘     └─────────────┘     └──────┬──────┘
+                                                                   │
+                    ┌─────────────┐     ┌─────────────┐            │
+                    │   Web UI    │◄────│   Storage   │◄───────────┘
+                    │  Dashboard  │     │   (plans)   │
+                    └─────────────┘     └─────────────┘
+```
+
+1. **Trigger** - Cron schedule or API call initiates a scan
+2. **Clone** - Server clones the repo and discovers stacks
+3. **Enqueue** - One job per stack is added to the Redis queue
+4. **Process** - Workers dequeue jobs, run `terraform plan`, save results
+5. **Display** - Web UI shows drift status from stored plan outputs
+
+---
+
+## Example Workflow
+
+A common setup is:
+
+- **Nightly full scans** for every repo (cron).
+- **GitHub webhook** on default-branch merges to rescan only affected stacks.
+
+This gives you low-latency drift detection after merges while keeping large
+repos manageable by avoiding full scans on every push.
 
 ---
 
@@ -83,10 +179,10 @@ flowchart TB
         W3["driftd worker"]
     end
 
-    Server <-->|"tasks/jobs"| Redis
-    Server -->|"clone repos"| Storage
-    W1 & W2 & W3 <-->|"dequeue"| Redis
-    W1 & W2 & W3 <-->|"read/write"| Storage
+    Server <--> |"tasks/jobs"| Redis
+    Server --> |"clone repos"| Storage
+    W1 & W2 & W3 <--> |"dequeue"| Redis
+    W1 & W2 & W3 <--> |"read/write"| Storage
 ```
 
 | Component | Role |
@@ -143,13 +239,24 @@ See `helm/driftd/README.md` for full chart documentation.
 | **Repo** | A git repository containing Terraform or Terragrunt stacks |
 | **Task** | A single scan of a repo. Only one task can be active per repo. |
 | **Job** | A single stack plan within a task. Jobs run in parallel across workers. |
-| **Stack** | A directory containing `terragrunt.hcl` or `*.tf` files |
+| **Stack** | A directory containing `terragrunt.hcl` or `*.tf` files (ex: `envs/prod`) |
 
 ---
 
 ## Configuration
 
-Create a `config.yaml`:
+### Minimal Example
+
+```yaml
+data_dir: ./data
+redis:
+  addr: "localhost:6379"
+repos:
+  - name: my-infra
+    url: https://github.com/myorg/terraform-infra.git
+```
+
+### Full Example
 
 ```yaml
 data_dir: ./data
@@ -226,9 +333,14 @@ GitHub App tokens are short-lived and can be scoped to read-only access.
 webhook:
   enabled: true
   github_secret: "your-webhook-secret"
+  # Optional shared token header (if not using GitHub HMAC)
+  # token: "shared-token"
+  # token_header: "X-Webhook-Token"
+  # max_files: 300
 ```
 
-Driftd listens on `POST /api/webhooks/github`. For push events on the default branch, it maps changed files to stacks and re-plans only affected stacks.
+Driftd listens on `POST /api/webhooks/github`. For push events on the default
+branch, it maps changed files to stacks and re-plans only affected stacks.
 
 When `webhook.enabled` is true, you must provide `github_secret` or `token` for authentication.
 
@@ -251,6 +363,9 @@ ui_auth:
 api_auth:
   username: "driftd"
   password: "change-me"
+  # Or use a shared token header
+  # token: "shared-api-token"
+  # token_header: "X-API-Token"
 ```
 
 ### Rate Limiting
@@ -313,6 +428,20 @@ If no version is specified, it uses the latest version.
 curl -X POST http://localhost:8080/api/repos/my-infra/scan
 ```
 
+**Trigger a scan with API token:**
+
+```bash
+curl -X POST \
+  -H "X-API-Token: your-token" \
+  http://localhost:8080/api/repos/my-infra/scan
+```
+
+**Trigger a scan with basic auth:**
+
+```bash
+curl -X POST -u driftd:change-me http://localhost:8080/api/repos/my-infra/scan
+```
+
 **Response:**
 
 ```json
@@ -339,28 +468,6 @@ curl -X POST http://localhost:8080/api/repos/my-infra/scan
 
 ---
 
-## How It Works
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Trigger   │────►│   Clone &   │────►│   Enqueue   │────►│   Workers   │
-│ (cron/API)  │     │   Discover  │     │    Jobs     │     │  Run Plans  │
-└─────────────┘     └─────────────┘     └─────────────┘     └──────┬──────┘
-                                                                   │
-                    ┌─────────────┐     ┌─────────────┐            │
-                    │   Web UI    │◄────│   Storage   │◄───────────┘
-                    │  Dashboard  │     │   (plans)   │
-                    └─────────────┘     └─────────────┘
-```
-
-1. **Trigger** - Cron schedule or API call initiates a scan
-2. **Clone** - Server clones the repo and discovers stacks
-3. **Enqueue** - One job per stack is added to the Redis queue
-4. **Process** - Workers dequeue jobs, run `terraform plan`, save results
-5. **Display** - Web UI shows drift status from stored plan outputs
-
----
-
 ## Caching
 
 Mount `/cache` as a persistent volume:
@@ -379,6 +486,43 @@ Benefits: shared providers across stacks, cached binaries, reduced downloads.
 
 ---
 
+## Data Retention
+
+Plan outputs are stored in `data_dir` and may contain sensitive information.
+Use filesystem permissions and storage encryption if needed. Control retention
+with `workspace.retention` and by pruning old plan outputs.
+
+---
+
+## Security Model
+
+- Read-only by design: Driftd never applies changes.
+- Plan output can include secrets: treat stored plans as sensitive data.
+- Restrict API and UI access (VPN, reverse proxy, or built-in auth).
+- Webhooks should always be authenticated (HMAC or shared token).
+
+---
+
+## Production Checklist
+
+- Enable `ui_auth` and/or `api_auth`.
+- Set `webhook.github_secret` (or `token`) if using webhooks.
+- Mount persistent volumes for `/data` and `/cache`.
+- Use managed Redis for durability and monitoring.
+- Set worker `concurrency` based on Terraform provider rate limits.
+- Configure `workspace.retention` to limit disk usage.
+
+---
+
+## Troubleshooting
+
+- **Repo locked**: A task is still running. Check `/api/tasks/{id}` and worker logs.
+- **Jobs stuck**: Confirm Redis connectivity and worker health.
+- **Missing stacks**: Ensure repo has `*.tf` or `terragrunt.hcl` in expected paths.
+- **Auth errors**: Validate SSH keys, tokens, or GitHub App configuration.
+
+---
+
 ## Kubernetes Deployment
 
 - **Server**: Single replica Deployment (runs scheduler)
@@ -387,6 +531,23 @@ Benefits: shared providers across stacks, cached binaries, reduced downloads.
 - **Storage**: PVC at `/data` and `/cache`
 
 See `helm/driftd/` for the Helm chart.
+
+---
+
+## Contributing
+
+1. Fork the repo and create a feature branch.
+2. Run `go test ./...` before submitting.
+3. Keep changes focused and include relevant docs updates.
+
+---
+
+## Roadmap
+
+- Authn/Authz (RBAC, team scoping)
+- GitHub App enhancements (better mapping, events)
+- Per-repo or per-stack policies
+- Audit logging and notifications
 
 ---
 
