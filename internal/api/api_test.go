@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -241,6 +242,116 @@ func TestTaskVersionMapping(t *testing.T) {
 	}
 }
 
+func TestScanRepoNoStacksDiscovered(t *testing.T) {
+	runner := &fakeRunner{}
+
+	ts, q, cleanup := newTestServer(t, runner, []string{}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	}
+
+	ctx := context.Background()
+	keys, err := q.Client().Keys(ctx, "driftd:task:*").Result()
+	if err != nil {
+		t.Fatalf("list task keys: %v", err)
+	}
+	var taskKey string
+	for _, key := range keys {
+		if strings.HasPrefix(key, "driftd:task:jobs:") || strings.HasPrefix(key, "driftd:task:last:") {
+			continue
+		}
+		if key == "driftd:task:repo:repo" {
+			continue
+		}
+		taskKey = key
+		break
+	}
+	if taskKey == "" {
+		t.Fatalf("expected task key to exist")
+	}
+
+	status, err := q.Client().HGet(ctx, taskKey, "status").Result()
+	if err != nil {
+		t.Fatalf("get task status: %v", err)
+	}
+	if status != queue.TaskStatusFailed {
+		t.Fatalf("expected failed, got %s", status)
+	}
+
+	errMsg, err := q.Client().HGet(ctx, taskKey, "error").Result()
+	if err != nil {
+		t.Fatalf("get task error: %v", err)
+	}
+	if errMsg != "no stacks discovered" {
+		t.Fatalf("expected error message, got %q", errMsg)
+	}
+}
+
+func TestScanSingleStack(t *testing.T) {
+	runner := &fakeRunner{
+		drifted: map[string]bool{
+			"dev": false,
+		},
+	}
+
+	ts, _, cleanup := newTestServer(t, runner, []string{"dev"}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/dev/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan stack request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(sr.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(sr.Jobs))
+	}
+	if sr.Task == nil || sr.Task.ID == "" {
+		t.Fatalf("expected task in response")
+	}
+
+	task := getTask(t, ts, sr.Task.ID)
+	if task.Status != queue.TaskStatusRunning {
+		t.Fatalf("expected running, got %s", task.Status)
+	}
+	if task.Total != 1 || task.Queued != 1 {
+		t.Fatalf("unexpected counts: total=%d queued=%d", task.Total, task.Queued)
+	}
+}
+
+func TestScanStackNotFound(t *testing.T) {
+	runner := &fakeRunner{}
+
+	ts, _, cleanup := newTestServer(t, runner, []string{"envs/dev"}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/envs/prod/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan stack request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
 func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker bool, versions *testVersions, cancelInflight bool) (*httptest.Server, *queue.Queue, func()) {
 	t.Helper()
 
@@ -391,6 +502,11 @@ func createTestRepo(t *testing.T, stacks []string, versions *testVersions) strin
 					t.Fatalf("write stack tg version: %v", err)
 				}
 			}
+		}
+	}
+	if len(stacks) == 0 {
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("empty repo"), 0644); err != nil {
+			t.Fatalf("write placeholder: %v", err)
 		}
 	}
 

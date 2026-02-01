@@ -84,6 +84,23 @@ func TestPlanOnlyWrapperAllowsPlan(t *testing.T) {
 	}
 }
 
+func TestDetectToolTerraform(t *testing.T) {
+	dir := t.TempDir()
+	if got := detectTool(dir); got != "terraform" {
+		t.Fatalf("expected terraform, got %s", got)
+	}
+}
+
+func TestDetectToolTerragrunt(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "terragrunt.hcl"), []byte(""), 0644); err != nil {
+		t.Fatalf("write terragrunt.hcl: %v", err)
+	}
+	if got := detectTool(dir); got != "terragrunt" {
+		t.Fatalf("expected terragrunt, got %s", got)
+	}
+}
+
 func execCommand(name string, args ...string) *exec.Cmd {
 	return exec.Command(name, args...)
 }
