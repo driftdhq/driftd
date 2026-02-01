@@ -162,6 +162,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 type repoPageData struct {
 	Name       string
 	Stacks     []storage.StackStatus
+	StackTree  []*stackNode
 	Config     *config.RepoConfig
 	Locked     bool
 	ActiveTask *queue.Task
@@ -172,6 +173,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 
 	stacks, _ := s.storage.ListStacks(repoName)
+	stackTree := buildStackTree(repoName, stacks)
 	repoCfg := s.cfg.GetRepo(repoName)
 	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
 	activeTask, _ := s.queue.GetActiveTask(r.Context(), repoName)
@@ -180,6 +182,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	data := repoPageData{
 		Name:       repoName,
 		Stacks:     stacks,
+		StackTree:  stackTree,
 		Config:     repoCfg,
 		Locked:     locked,
 		ActiveTask: activeTask,

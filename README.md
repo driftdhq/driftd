@@ -153,6 +153,26 @@ git:
 
 Note: GitHub App tokens are short-lived and read-only if you scope the app permissions appropriately.
 
+**GitHub App setup (quick checklist)**
+
+1. Create a GitHub App and give it `Contents: Read-only` (and `Metadata: Read-only`).
+2. Install the app on the org or repositories you want to scan.
+3. Download the private key and store it as a Kubernetes secret.
+4. Set `app_id`, `installation_id`, and `private_key_path` in the repo config.
+
+### Credentials for Terraform Providers
+
+Driftd does not manage cloud credentials. Terraform/Terragrunt runs inside the worker container with whatever credentials you provide.
+
+Common options:
+
+- **Environment variables**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `ARM_*`, etc.
+- **Mounted config files**: `~/.aws/credentials`, `~/.config/gcloud`, Azure CLI cache, etc.
+- **Kubernetes workload identity**: EKS IRSA, GKE Workload Identity, Azure Workload Identity.
+- **Assume-role tooling**: Wrap terraform with your standard auth helper (if it exports env vars).
+
+For Kubernetes, the Helm chart supports `server.envFrom` and `worker.envFrom` so you can mount a Secret or ConfigMap that holds credentials or provider config. See `helm/driftd/README.md` for examples.
+
 ### Version Detection
 
 Driftd uses [tfswitch](https://tfswitch.warrensbox.com/) and [tgswitch](https://github.com/warrensbox/tgswitch) to automatically detect and install the correct terraform/terragrunt versions based on:

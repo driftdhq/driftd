@@ -44,56 +44,85 @@
 
 {{if .Stacks}}
 <section class="stacks">
-    <table class="stack-table">
-        <thead>
-            <tr>
-                <th>Stack</th>
-                <th>Status</th>
-                <th>Changes</th>
-                <th>Last Run</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .Stacks}}
-            <tr>
-                <td>
-                    <a href="/repos/{{$.Name}}/stacks/{{.Path}}">{{.Path}}</a>
-                </td>
-                <td>
-                    {{if .Error}}
-                    <span class="badge badge-error">Error</span>
-                    {{else if .Drifted}}
-                    <span class="badge badge-drift">Drift</span>
-                    {{else}}
-                    <span class="badge badge-ok">OK</span>
-                    {{end}}
-                </td>
-                <td>
-                    {{if or .Added .Changed .Destroyed}}
-                    <span class="changes">
-                        {{if .Added}}<span class="add">+{{.Added}}</span>{{end}}
-                        {{if .Changed}}<span class="change">~{{.Changed}}</span>{{end}}
-                        {{if .Destroyed}}<span class="destroy">-{{.Destroyed}}</span>{{end}}
-                    </span>
-                    {{else}}
-                    -
-                    {{end}}
-                </td>
-                <td>{{timeAgo .RunAt}}</td>
-                <td>
-                    <form method="POST" action="/repos/{{$.Name}}/stacks/{{.Path}}/scan" class="inline-form">
-                        <button type="submit" class="btn btn-small">Scan</button>
-                    </form>
-                </td>
-            </tr>
+    <div class="stack-tree">
+        <div class="stack-tree-header">
+            <div class="stack-cell stack-name">Stack</div>
+            <div class="stack-cell status">Status</div>
+            <div class="stack-cell changes">Changes</div>
+            <div class="stack-cell run">Last Run</div>
+            <div class="stack-cell actions">Actions</div>
+        </div>
+        <div class="stack-tree-body">
+            {{range .StackTree}}
+                {{template "stack-node" .}}
             {{end}}
-        </tbody>
-    </table>
+        </div>
+    </div>
 </section>
 {{else if .Config}}
 <p class="empty-state">No scans yet. Click "Scan All Stacks" to start.</p>
 {{else}}
 <p class="empty-state">Repository not found in configuration.</p>
+{{end}}
+
+{{define "stack-node"}}
+{{if .Children}}
+<details class="stack-group" {{if .Open}}open{{end}}>
+    <summary class="stack-row stack-group-row" style="--depth: {{.Depth}}">
+        <div class="stack-cell stack-name">
+            <span class="stack-caret" aria-hidden="true"></span>
+            <span class="stack-label">{{.Name}}</span>
+            <span class="stack-meta">{{.Total}} stacks</span>
+        </div>
+        <div class="stack-cell status">
+            {{if .Error}}<span class="badge badge-error">{{.Error}} error</span>{{end}}
+            {{if .Drifted}}<span class="badge badge-drift">{{.Drifted}} drift</span>{{end}}
+            {{if .Ok}}<span class="badge badge-ok">{{.Ok}} ok</span>{{end}}
+        </div>
+        <div class="stack-cell changes">-</div>
+        <div class="stack-cell run">-</div>
+        <div class="stack-cell actions"></div>
+    </summary>
+    <div class="stack-group-children">
+        {{range .Children}}
+            {{template "stack-node" .}}
+        {{end}}
+    </div>
+</details>
+{{else}}
+<div class="stack-row stack-leaf" style="--depth: {{.Depth}}">
+    <div class="stack-cell stack-name">
+        <span class="stack-leaf-dot" aria-hidden="true"></span>
+        <a href="/repos/{{.RepoName}}/stacks/{{.Path}}" class="stack-link">{{.Name}}</a>
+        <span class="stack-meta">{{.Path}}</span>
+    </div>
+    <div class="stack-cell status">
+        {{if .Status.Error}}
+        <span class="badge badge-error">Error</span>
+        {{else if .Status.Drifted}}
+        <span class="badge badge-drift">Drift</span>
+        {{else}}
+        <span class="badge badge-ok">OK</span>
+        {{end}}
+    </div>
+    <div class="stack-cell changes">
+        {{if or .Status.Added .Status.Changed .Status.Destroyed}}
+        <span class="changes">
+            {{if .Status.Added}}<span class="add">+{{.Status.Added}}</span>{{end}}
+            {{if .Status.Changed}}<span class="change">~{{.Status.Changed}}</span>{{end}}
+            {{if .Status.Destroyed}}<span class="destroy">-{{.Status.Destroyed}}</span>{{end}}
+        </span>
+        {{else}}
+        -
+        {{end}}
+    </div>
+    <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
+    <div class="stack-cell actions">
+        <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}/scan" class="inline-form">
+            <button type="submit" class="btn btn-small">Scan</button>
+        </form>
+    </div>
+</div>
+{{end}}
 {{end}}
 {{end}}
