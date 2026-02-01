@@ -15,6 +15,7 @@ type Config struct {
 	Worker     WorkerConfig    `yaml:"worker"`
 	Workspace  WorkspaceConfig `yaml:"workspace"`
 	Repos      []RepoConfig    `yaml:"repos"`
+	Webhook    WebhookConfig   `yaml:"webhook"`
 }
 
 type RedisConfig struct {
@@ -33,6 +34,13 @@ type WorkerConfig struct {
 
 type WorkspaceConfig struct {
 	Retention int `yaml:"retention"` // number of workspace snapshots to keep per repo
+}
+
+type WebhookConfig struct {
+	GitHubSecret string `yaml:"github_secret"`
+	Token        string `yaml:"token"`
+	TokenHeader  string `yaml:"token_header"`
+	MaxFiles     int    `yaml:"max_files"`
 }
 
 const (
@@ -151,6 +159,12 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.Workspace.Retention <= 0 {
 		cfg.Workspace.Retention = 5
+	}
+	if cfg.Webhook.TokenHeader == "" {
+		cfg.Webhook.TokenHeader = "X-Webhook-Token"
+	}
+	if cfg.Webhook.MaxFiles <= 0 {
+		cfg.Webhook.MaxFiles = 300
 	}
 	if cfg.Worker.LockTTL < minLockTTL {
 		return nil, fmt.Errorf("worker.lock_ttl must be at least %s", minLockTTL)

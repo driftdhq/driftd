@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -86,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/repos/{repo}/jobs", s.handleListRepoJobs)
 		r.Post("/repos/{repo}/scan", s.handleScanRepo)
 		r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
+		r.Post("/webhooks/github", s.handleGitHubWebhook)
 	})
 
 	// Static files from embedded FS
@@ -463,6 +467,236 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		Task:    task,
 		Message: "Job enqueued",
 	})
+}
+
+type gitHubPushPayload struct {
+	Ref        string `json:"ref"`
+	Repository struct {
+		Name          string `json:"name"`
+		FullName      string `json:"full_name"`
+		DefaultBranch string `json:"default_branch"`
+	} `json:"repository"`
+	HeadCommit struct {
+		ID string `json:"id"`
+	} `json:"head_commit"`
+	Pusher struct {
+		Name string `json:"name"`
+	} `json:"pusher"`
+	Commits []struct {
+		Added    []string `json:"added"`
+		Modified []string `json:"modified"`
+		Removed  []string `json:"removed"`
+	} `json:"commits"`
+}
+
+func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if !s.validateWebhookRequest(w, r, body) {
+		return
+	}
+	if event := r.Header.Get("X-GitHub-Event"); event != "" && event != "push" {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	var payload gitHubPushPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	repoName := payload.Repository.Name
+	repoCfg := s.cfg.GetRepo(repoName)
+	if repoCfg == nil && payload.Repository.FullName != "" {
+		parts := strings.Split(payload.Repository.FullName, "/")
+		if len(parts) > 0 {
+			repoCfg = s.cfg.GetRepo(parts[len(parts)-1])
+			repoName = parts[len(parts)-1]
+		}
+	}
+	if repoCfg == nil {
+		http.Error(w, "Repository not configured", http.StatusNotFound)
+		return
+	}
+
+	defaultBranch := payload.Repository.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
+	if payload.Ref != "refs/heads/"+defaultBranch {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	changedFiles := extractChangedFiles(payload, s.cfg.Webhook.MaxFiles)
+	if len(changedFiles) == 0 {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	fullScan := s.cfg.Webhook.MaxFiles > 0 && len(changedFiles) >= s.cfg.Webhook.MaxFiles
+
+	trigger := "webhook"
+	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+	if err != nil {
+		if err == queue.ErrRepoLocked {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(scanResponse{Error: "Repository scan already in progress"})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	targetStacks, selectionFullScan := selectStacksForChanges(stacks, changedFiles)
+	if selectionFullScan {
+		fullScan = true
+	}
+	if fullScan {
+		targetStacks = stacks
+	}
+	if err := s.queue.SetTaskTotal(r.Context(), task.ID, len(targetStacks)); err != nil {
+		_ = s.queue.FailTask(r.Context(), task.ID, repoName, fmt.Sprintf("failed to set task total: %v", err))
+		http.Error(w, "Failed to set task total", http.StatusInternalServerError)
+		return
+	}
+
+	maxRetries := 0
+	if s.cfg.Worker.RetryOnce {
+		maxRetries = 1
+	}
+
+	var jobIDs []string
+	for _, stackPath := range targetStacks {
+		job := &queue.Job{
+			TaskID:     task.ID,
+			RepoName:   repoName,
+			RepoURL:    repoCfg.URL,
+			StackPath:  stackPath,
+			MaxRetries: maxRetries,
+			Trigger:    trigger,
+			Commit:     payload.HeadCommit.ID,
+			Actor:      payload.Pusher.Name,
+		}
+		if err := s.queue.Enqueue(r.Context(), job); err != nil {
+			_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
+			continue
+		}
+		jobIDs = append(jobIDs, job.ID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scanResponse{
+		Jobs:    jobIDs,
+		Task:    task,
+		Message: fmt.Sprintf("Enqueued %d jobs", len(jobIDs)),
+	})
+}
+
+func extractChangedFiles(payload gitHubPushPayload, maxFiles int) []string {
+	seen := map[string]struct{}{}
+	var files []string
+	for _, commit := range payload.Commits {
+		for _, path := range append(append(commit.Added, commit.Modified...), commit.Removed...) {
+			path = strings.TrimPrefix(path, "/")
+			if path == "" {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			files = append(files, filepath.ToSlash(path))
+			if maxFiles > 0 && len(files) >= maxFiles {
+				return files
+			}
+		}
+	}
+	return files
+}
+
+func selectStacksForChanges(stacks []string, changedFiles []string) ([]string, bool) {
+	if len(stacks) == 0 || len(changedFiles) == 0 {
+		return nil, true
+	}
+
+	stackSet := map[string]struct{}{}
+	for _, stackPath := range stacks {
+		stackSet[filepath.ToSlash(stackPath)] = struct{}{}
+	}
+
+	target := map[string]struct{}{}
+	for _, filePath := range changedFiles {
+		dir := filepath.ToSlash(filepath.Dir(filePath))
+		matched := false
+		for dir != "." && dir != "" {
+			if _, ok := stackSet[dir]; ok {
+				target[dir] = struct{}{}
+				matched = true
+				break
+			}
+			dir = filepath.ToSlash(filepath.Dir(dir))
+		}
+		if !matched {
+			if _, ok := stackSet[""]; ok && filepath.Dir(filePath) == "." {
+				target[""] = struct{}{}
+				matched = true
+			}
+		}
+		if !matched {
+			return nil, true
+		}
+	}
+
+	var out []string
+	for stack := range target {
+		out = append(out, stack)
+	}
+	sort.Strings(out)
+	return out, false
+}
+
+func (s *Server) validateWebhookRequest(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	if s.cfg.Webhook.GitHubSecret != "" {
+		sig := r.Header.Get("X-Hub-Signature-256")
+		if sig == "" {
+			http.Error(w, "Missing signature", http.StatusUnauthorized)
+			return false
+		}
+		const prefix = "sha256="
+		if !strings.HasPrefix(sig, prefix) {
+			http.Error(w, "Invalid signature format", http.StatusUnauthorized)
+			return false
+		}
+		expected := computeHMACSHA256(body, []byte(s.cfg.Webhook.GitHubSecret))
+		got, err := hex.DecodeString(strings.TrimPrefix(sig, prefix))
+		if err != nil || !hmac.Equal(got, expected) {
+			http.Error(w, "Invalid signature", http.StatusUnauthorized)
+			return false
+		}
+		return true
+	}
+
+	if s.cfg.Webhook.Token != "" {
+		token := r.Header.Get(s.cfg.Webhook.TokenHeader)
+		if token == "" || token != s.cfg.Webhook.Token {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return false
+		}
+		return true
+	}
+
+	http.Error(w, "Webhook not configured", http.StatusUnauthorized)
+	return false
+}
+
+func computeHMACSHA256(payload, key []byte) []byte {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(payload)
+	return mac.Sum(nil)
 }
 
 func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {

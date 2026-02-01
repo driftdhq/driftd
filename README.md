@@ -157,6 +157,21 @@ git:
 
 Note: GitHub App tokens are short-lived and read-only if you scope the app permissions appropriately.
 
+**GitHub Webhook (push to default branch)**
+
+```yaml
+webhook:
+  github_secret: "your-webhook-secret"
+  # Optional shared token header (if not using GitHub HMAC)
+  # token: "shared-token"
+  # token_header: "X-Webhook-Token"
+  # max_files: 300
+```
+
+Driftd listens on `POST /api/webhooks/github`. For `push` events on the default branch,
+it maps changed files to stacks and re-plans only those stacks. If changes are too large
+or can’t be mapped to a stack, it falls back to a full repo scan.
+
 **GitHub App setup (quick checklist)**
 
 1. Create a GitHub App and give it `Contents: Read-only` (and `Metadata: Read-only`).
