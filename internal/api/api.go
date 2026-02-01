@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -451,6 +452,7 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 		return nil, nil, err
 	}
 	_ = s.queue.SetTaskWorkspace(ctx, task.ID, workspacePath, commitSHA)
+	go s.cleanupWorkspaces(repoCfg.Name, task.ID)
 
 	stacks, err := stack.Discover(workspacePath, repoCfg.IgnorePaths)
 	if err != nil {
@@ -498,6 +500,61 @@ func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig,
 		return base, "", nil
 	}
 	return base, head.Hash().String(), nil
+}
+
+func (s *Server) cleanupWorkspaces(repoName, keepTaskID string) {
+	retention := s.cfg.Workspace.Retention
+	if retention <= 0 {
+		return
+	}
+
+	base := filepath.Join(s.cfg.DataDir, "workspaces", repoName)
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+
+	type item struct {
+		id   string
+		path string
+		mod  time.Time
+	}
+	var items []item
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		id := entry.Name()
+		if id == keepTaskID {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		items = append(items, item{
+			id:   id,
+			path: filepath.Join(base, id),
+			mod:  info.ModTime(),
+		})
+	}
+
+	if len(items) <= retention-1 {
+		return
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].mod.After(items[j].mod)
+	})
+
+	toDelete := items[retention-1:]
+	for _, it := range toDelete {
+		task, err := s.queue.GetTask(context.Background(), it.id)
+		if err == nil && task != nil && task.Status == queue.TaskStatusRunning {
+			continue
+		}
+		_ = os.RemoveAll(it.path)
+	}
 }
 
 func containsStack(target string, stacks []string) bool {

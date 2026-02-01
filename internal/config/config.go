@@ -9,11 +9,12 @@ import (
 )
 
 type Config struct {
-	DataDir    string       `yaml:"data_dir"`
-	ListenAddr string       `yaml:"listen_addr"`
-	Redis      RedisConfig  `yaml:"redis"`
-	Worker     WorkerConfig `yaml:"worker"`
-	Repos      []RepoConfig `yaml:"repos"`
+	DataDir    string          `yaml:"data_dir"`
+	ListenAddr string          `yaml:"listen_addr"`
+	Redis      RedisConfig     `yaml:"redis"`
+	Worker     WorkerConfig    `yaml:"worker"`
+	Workspace  WorkspaceConfig `yaml:"workspace"`
+	Repos      []RepoConfig    `yaml:"repos"`
 }
 
 type RedisConfig struct {
@@ -28,6 +29,10 @@ type WorkerConfig struct {
 	RetryOnce   bool          `yaml:"retry_once"`
 	TaskMaxAge  time.Duration `yaml:"task_max_age"`
 	RenewEvery  time.Duration `yaml:"renew_every"`
+}
+
+type WorkspaceConfig struct {
+	Retention int `yaml:"retention"` // number of workspace snapshots to keep per repo
 }
 
 const (
@@ -85,6 +90,9 @@ func Load(path string) (*Config, error) {
 			TaskMaxAge:  6 * time.Hour,
 			RenewEvery:  0,
 		},
+		Workspace: WorkspaceConfig{
+			Retention: 5,
+		},
 	}
 
 	if path == "" {
@@ -137,6 +145,9 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.Worker.RenewEvery == 0 {
 		cfg.Worker.RenewEvery = cfg.Worker.LockTTL / 3
+	}
+	if cfg.Workspace.Retention <= 0 {
+		cfg.Workspace.Retention = 5
 	}
 	if cfg.Worker.LockTTL < minLockTTL {
 		return nil, fmt.Errorf("worker.lock_ttl must be at least %s", minLockTTL)

@@ -50,6 +50,7 @@ Driftd separates the web server from workers for independent scaling:
 
 - **Redis**: Ephemeral task + job state, queue, and locks. If Redis is wiped, you lose in-flight progress but can re-run tasks.
 - **Filesystem (`data_dir`)**: Durable plan outputs and drift status for the UI.
+- **Workspaces**: Repo snapshots are stored under `data_dir/workspaces/<repo>/<taskID>/repo`. Older snapshots are pruned by `workspace.retention`.
 
 ## Installation
 
@@ -99,6 +100,9 @@ worker:
   retry_once: true    # retry failed jobs once
   task_max_age: 6h    # max time a repo task may run before it's marked failed
   renew_every: 10s    # lock renewal interval (0 = lock_ttl/3, minimum 10s, must be <= lock_ttl/2)
+
+workspace:
+  retention: 5        # number of workspace snapshots to keep per repo
 
 repos:
   - name: my-infra
