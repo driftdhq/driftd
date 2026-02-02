@@ -11,9 +11,12 @@
     <header>
         <nav>
             <a href="/" class="logo">Driftd</a>
-            <button class="theme-toggle" type="button" aria-label="Toggle theme">
-                <span class="theme-toggle-icon" data-light>🌞</span>
-                <span class="theme-toggle-icon" data-dark>🌙</span>
+            <button class="theme-toggle" type="button" aria-label="Toggle theme" aria-pressed="false">
+                <span class="theme-toggle-track">
+                    <span class="theme-toggle-thumb"></span>
+                    <span class="theme-toggle-icon theme-toggle-icon-light">🌞</span>
+                    <span class="theme-toggle-icon theme-toggle-icon-dark">🌙</span>
+                </span>
             </button>
         </nav>
     </header>
@@ -32,11 +35,14 @@
             }
             const btn = document.querySelector(".theme-toggle");
             if (!btn) return;
+            const currentTheme = root.getAttribute("data-theme") || "dark";
+            btn.setAttribute("aria-pressed", currentTheme === "dark" ? "false" : "true");
             btn.addEventListener("click", () => {
                 const current = root.getAttribute("data-theme") || "dark";
                 const next = current === "dark" ? "light" : "dark";
                 root.setAttribute("data-theme", next);
                 localStorage.setItem(key, next);
+                btn.setAttribute("aria-pressed", next === "dark" ? "false" : "true");
             });
         })();
     </script>

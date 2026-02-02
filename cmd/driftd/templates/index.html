@@ -1,12 +1,40 @@
 {{define "title"}}Dashboard{{end}}
 
 {{define "content"}}
-<h1>Repositories</h1>
+<div class="page-header">
+    <div>
+        <h1>Repositories</h1>
+        <p class="page-subtitle">Drift status across your configured stacks.</p>
+    </div>
+</div>
+
+<section class="overview">
+    <div class="overview-card">
+        <span class="overview-label">Repos</span>
+        <span class="overview-value">{{.TotalRepos}}</span>
+    </div>
+    <div class="overview-card">
+        <span class="overview-label">Stacks</span>
+        <span class="overview-value">{{.TotalStacks}}</span>
+    </div>
+    <div class="overview-card">
+        <span class="overview-label">Active Tasks</span>
+        <span class="overview-value">{{.ActiveTasks}}</span>
+    </div>
+    <div class="overview-card">
+        <span class="overview-label">Drifted Repos</span>
+        <span class="overview-value">{{.DriftedRepos}}</span>
+    </div>
+    <div class="overview-card">
+        <span class="overview-label">Locked Repos</span>
+        <span class="overview-value">{{.LockedRepos}}</span>
+    </div>
+</section>
 
 {{if .ConfigRepos}}
 <section class="repos">
     {{range .ConfigRepos}}
-    <div class="repo-card">
+    <a class="repo-card" href="/repos/{{.Name}}">
         <div class="repo-header">
             {{$status := false}}
             {{range $.Repos}}
@@ -15,7 +43,7 @@
                 {{end}}
             {{end}}
             <span class="status-indicator {{if $status}}drifted{{else}}ok{{end}}"></span>
-            <a href="/repos/{{.Name}}">{{.Name}}</a>
+            <span class="repo-name">{{.Name}}</span>
         </div>
         <div class="repo-meta">
             {{$stackCount := 0}}
@@ -38,10 +66,7 @@
                 {{end}}
             {{end}}
         </div>
-        <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
-            <button type="submit" class="btn btn-scan">Scan All</button>
-        </form>
-    </div>
+    </a>
     {{end}}
 </section>
 {{else}}

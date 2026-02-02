@@ -310,8 +310,13 @@ func (s *Server) getRateLimiter(ip string) *rate.Limiter {
 }
 
 type indexData struct {
-	Repos       []repoStatusData
-	ConfigRepos []config.RepoConfig
+	Repos        []repoStatusData
+	ConfigRepos  []config.RepoConfig
+	TotalRepos   int
+	TotalStacks  int
+	DriftedRepos int
+	ActiveTasks  int
+	LockedRepos  int
 }
 
 type repoStatusData struct {
@@ -364,9 +369,31 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	totalStacks := 0
+	driftedRepos := 0
+	activeTasks := 0
+	lockedRepos := 0
+	for _, repo := range repoData {
+		totalStacks += repo.Stacks
+		if repo.Drifted {
+			driftedRepos++
+		}
+		if repo.Active {
+			activeTasks++
+		}
+		if repo.Locked {
+			lockedRepos++
+		}
+	}
+
 	data := indexData{
-		Repos:       repoData,
-		ConfigRepos: s.cfg.Repos,
+		Repos:        repoData,
+		ConfigRepos:  s.cfg.Repos,
+		TotalRepos:   len(s.cfg.Repos),
+		TotalStacks:  totalStacks,
+		DriftedRepos: driftedRepos,
+		ActiveTasks:  activeTasks,
+		LockedRepos:  lockedRepos,
 	}
 
 	if err := s.tmplIndex.ExecuteTemplate(w, "layout", data); err != nil {
