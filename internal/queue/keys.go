@@ -1,0 +1,32 @@
+package queue
+
+import (
+	"errors"
+	"time"
+)
+
+const (
+	StatusPending   = "pending"
+	StatusRunning   = "running"
+	StatusCompleted = "completed"
+	StatusFailed    = "failed"
+	StatusCanceled  = "canceled"
+
+	keyQueue                 = "driftd:queue:workitems"
+	keyStackScanPrefix       = "driftd:stack_scan:"
+	keyLockPrefix            = "driftd:lock:repo:"
+	keyRepoStackScans        = "driftd:stack_scans:repo:"
+	keyRepoStackScansOrdered = "driftd:stack_scans:repo:ordered:"
+	keyScanPrefix            = "driftd:scan:"
+	keyScanRepo              = "driftd:scan:repo:"
+	keyScanStackScans        = "driftd:scan:stack_scans:"
+	keyScanLast              = "driftd:scan:last:"
+
+	stackScanRetention = 7 * 24 * time.Hour // 7 days
+	scanRetention      = 7 * 24 * time.Hour // 7 days
+)
+
+var (
+	ErrRepoLocked        = errors.New("repository scan already in progress")
+	ErrStackScanNotFound = errors.New("stack scan not found")
+)
