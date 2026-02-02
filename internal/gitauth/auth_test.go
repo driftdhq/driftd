@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cbrown132/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/config"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
@@ -40,8 +40,8 @@ func writeKeyFile(t *testing.T) string {
 func TestSSHAuthFromPath(t *testing.T) {
 	keyPath := writeKeyFile(t)
 	cfg := &config.GitAuthConfig{
-		Type:                      "ssh",
-		SSHKeyPath:                keyPath,
+		Type:                     "ssh",
+		SSHKeyPath:               keyPath,
 		SSHInsecureIgnoreHostKey: true,
 	}
 
@@ -59,8 +59,8 @@ func TestSSHAuthFromEnv(t *testing.T) {
 	t.Setenv("SSH_KEY_PATH", keyPath)
 
 	cfg := &config.GitAuthConfig{
-		Type:                      "ssh",
-		SSHKeyEnv:                 "SSH_KEY_PATH",
+		Type:                     "ssh",
+		SSHKeyEnv:                "SSH_KEY_PATH",
 		SSHInsecureIgnoreHostKey: true,
 	}
 
@@ -88,9 +88,9 @@ func TestSSHAuthRequiresKnownHosts(t *testing.T) {
 func TestHTTPSAuthFromEnv(t *testing.T) {
 	t.Setenv("GIT_TOKEN", "token123")
 	cfg := &config.GitAuthConfig{
-		Type:           "https",
-		HTTPSTokenEnv:  "GIT_TOKEN",
-		HTTPSUsername:  "bot",
+		Type:          "https",
+		HTTPSTokenEnv: "GIT_TOKEN",
+		HTTPSUsername: "bot",
 	}
 
 	auth, err := httpsAuth(cfg)
@@ -108,7 +108,7 @@ func TestHTTPSAuthFromEnv(t *testing.T) {
 
 func TestHTTPSAuthFallbackUsername(t *testing.T) {
 	cfg := &config.GitAuthConfig{
-		Type:        "https",
+		Type:       "https",
 		HTTPSToken: "token123",
 	}
 

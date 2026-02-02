@@ -1,4 +1,4 @@
-module github.com/cbrown132/driftd
+module github.com/driftdhq/driftd
 
 go 1.25.6
 
@@ -11,6 +11,7 @@ require (
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.45.0
+	golang.org/x/time v0.14.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -35,6 +36,5 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )

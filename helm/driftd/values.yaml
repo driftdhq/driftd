@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/cbrown132/driftd
+  repository: ghcr.io/driftdhq/driftd
   tag: latest
   pullPolicy: IfNotPresent
 

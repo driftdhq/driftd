@@ -65,12 +65,12 @@ EOF
 docker run -d -p 8080:8080 \
   -v $(pwd)/config.yaml:/etc/driftd/config.yaml \
   -v driftd-data:/data \
-  ghcr.io/cbrown132/driftd serve -config /etc/driftd/config.yaml
+  ghcr.io/driftdhq/driftd serve -config /etc/driftd/config.yaml
 
 docker run -d \
   -v $(pwd)/config.yaml:/etc/driftd/config.yaml \
   -v driftd-data:/data \
-  ghcr.io/cbrown132/driftd worker -config /etc/driftd/config.yaml
+  ghcr.io/driftdhq/driftd worker -config /etc/driftd/config.yaml
 
 # 4. Trigger a scan
 curl -X POST http://localhost:8080/api/repos/my-infra/scan
@@ -92,7 +92,7 @@ services:
       - "6379:6379"
 
   driftd-server:
-    image: ghcr.io/cbrown132/driftd:latest
+    image: ghcr.io/driftdhq/driftd:latest
     command: serve -config /etc/driftd/config.yaml
     ports:
       - "8080:8080"
@@ -101,7 +101,7 @@ services:
       - driftd-data:/data
 
   driftd-worker:
-    image: ghcr.io/cbrown132/driftd:latest
+    image: ghcr.io/driftdhq/driftd:latest
     command: worker -config /etc/driftd/config.yaml
     volumes:
       - ./config.yaml:/etc/driftd/config.yaml
@@ -209,7 +209,7 @@ Terraform and Terragrunt are auto-installed via tfswitch/tgswitch in the contain
 ### From Source
 
 ```bash
-git clone https://github.com/cbrown132/driftd.git
+git clone https://github.com/driftdhq/driftd.git
 cd driftd
 go build -o driftd ./cmd/driftd
 ```
@@ -217,14 +217,14 @@ go build -o driftd ./cmd/driftd
 ### Docker
 
 ```bash
-docker pull ghcr.io/cbrown132/driftd:latest
+docker pull ghcr.io/driftdhq/driftd:latest
 ```
 
 ### Helm
 
 ```bash
 helm install driftd ./helm/driftd \
-  --set image.repository=ghcr.io/cbrown132/driftd \
+  --set image.repository=ghcr.io/driftdhq/driftd \
   --set image.tag=latest
 ```
 

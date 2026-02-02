@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/cbrown132/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/config"
 )
 
 func TestGitHubAppTokenCaching(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cbrown132/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/config"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/golang-jwt/jwt/v5"
 )

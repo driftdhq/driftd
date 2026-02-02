@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/cbrown132/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/config"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"

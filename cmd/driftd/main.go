@@ -12,13 +12,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cbrown132/driftd/internal/api"
-	"github.com/cbrown132/driftd/internal/config"
-	"github.com/cbrown132/driftd/internal/queue"
-	"github.com/cbrown132/driftd/internal/runner"
-	"github.com/cbrown132/driftd/internal/scheduler"
-	"github.com/cbrown132/driftd/internal/storage"
-	"github.com/cbrown132/driftd/internal/worker"
+	"github.com/driftdhq/driftd/internal/api"
+	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/runner"
+	"github.com/driftdhq/driftd/internal/scheduler"
+	"github.com/driftdhq/driftd/internal/storage"
+	"github.com/driftdhq/driftd/internal/worker"
 )
 
 //go:embed templates/*.html

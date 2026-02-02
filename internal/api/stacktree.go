@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cbrown132/driftd/internal/storage"
+	"github.com/driftdhq/driftd/internal/storage"
 )
 
 type stackNode struct {

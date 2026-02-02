@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/cbrown132/driftd/internal/config"
-	"github.com/cbrown132/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/queue"
 )
 
 func newTestQueue(t *testing.T) *queue.Queue {

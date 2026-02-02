@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cbrown132/driftd/internal/storage"
+	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )

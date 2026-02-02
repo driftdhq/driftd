@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cbrown132/driftd/internal/config"
-	"github.com/cbrown132/driftd/internal/gitauth"
-	"github.com/cbrown132/driftd/internal/queue"
-	"github.com/cbrown132/driftd/internal/runner"
+	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/gitauth"
+	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
