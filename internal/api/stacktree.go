@@ -8,23 +8,24 @@ import (
 )
 
 type stackNode struct {
-	Name     string
-	Path     string
-	RepoName string
-	Depth    int
-	Children []*stackNode
-	Status   *storage.StackStatus
-	Total    int
-	Drifted  int
-	Error    int
-	Ok       int
-	Open     bool
+	Name      string
+	Path      string
+	RepoName  string
+	CSRFToken string
+	Depth     int
+	Children  []*stackNode
+	Status    *storage.StackStatus
+	Total     int
+	Drifted   int
+	Error     int
+	Ok        int
+	Open      bool
 
 	children map[string]*stackNode
 }
 
-func buildStackTree(repoName string, stacks []storage.StackStatus) []*stackNode {
-	root := &stackNode{Depth: -1, RepoName: repoName}
+func buildStackTree(repoName string, stacks []storage.StackStatus, csrfToken string) []*stackNode {
+	root := &stackNode{Depth: -1, RepoName: repoName, CSRFToken: csrfToken}
 
 	for i := range stacks {
 		stack := &stacks[i]
@@ -36,11 +37,12 @@ func buildStackTree(repoName string, stacks []storage.StackStatus) []*stackNode 
 			child := current.children[part]
 			if child == nil {
 				child = &stackNode{
-					Name:     part,
-					Path:     strings.Join(pathParts, "/"),
-					RepoName: repoName,
-					Depth:    current.Depth + 1,
-					Open:     true,
+					Name:      part,
+					Path:      strings.Join(pathParts, "/"),
+					RepoName:  repoName,
+					CSRFToken: csrfToken,
+					Depth:     current.Depth + 1,
+					Open:      true,
 				}
 				if current.children == nil {
 					current.children = make(map[string]*stackNode)

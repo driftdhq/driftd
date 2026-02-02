@@ -441,7 +441,8 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stacks, _ := s.storage.ListStacks(repoName)
-	stackTree := buildStackTree(repoName, stacks)
+	csrfToken := csrfTokenFromContext(r.Context())
+	stackTree := buildStackTree(repoName, stacks, csrfToken)
 	repoCfg := s.cfg.GetRepo(repoName)
 	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
 	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
@@ -455,7 +456,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 		Locked:     locked,
 		ActiveScan: activeScan,
 		LastScan:   lastScan,
-		CSRFToken:  csrfTokenFromContext(r.Context()),
+		CSRFToken:  csrfToken,
 	}
 
 	if err := s.tmplRepo.ExecuteTemplate(w, "layout", data); err != nil {

@@ -48,7 +48,7 @@
         <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
         <div class="stack-cell actions">
             <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="inline-form">
-                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <button type="submit" class="btn btn-small">Scan</button>
             </form>
         </div>
@@ -90,7 +90,7 @@
     <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
     <div class="stack-cell actions">
         <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="inline-form">
-            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <button type="submit" class="btn btn-small">Scan</button>
         </form>
     </div>
