@@ -39,11 +39,13 @@ import (
 )
 
 type Server struct {
-	cfg      *config.Config
-	storage  *storage.Storage
-	queue    *queue.Queue
-	tmpl     *template.Template
-	staticFS fs.FS
+	cfg       *config.Config
+	storage   *storage.Storage
+	queue     *queue.Queue
+	tmplIndex *template.Template
+	tmplRepo  *template.Template
+	tmplDrift *template.Template
+	staticFS  fs.FS
 
 	rateLimitMu  sync.Mutex
 	rateLimiters map[string]*rateLimiterEntry
@@ -75,7 +77,15 @@ func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, st
 		},
 	}
 
-	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
+	tmplIndex, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/layout.html", "templates/index.html")
+	if err != nil {
+		return nil, err
+	}
+	tmplRepo, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/layout.html", "templates/repo.html")
+	if err != nil {
+		return nil, err
+	}
+	tmplDrift, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/layout.html", "templates/drift.html")
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +94,9 @@ func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, st
 		cfg:          cfg,
 		storage:      s,
 		queue:        q,
-		tmpl:         tmpl,
+		tmplIndex:    tmplIndex,
+		tmplRepo:     tmplRepo,
+		tmplDrift:    tmplDrift,
 		staticFS:     staticFS,
 		rateLimiters: make(map[string]*rateLimiterEntry),
 	}, nil
@@ -357,7 +369,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		ConfigRepos: s.cfg.Repos,
 	}
 
-	if err := s.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
+	if err := s.tmplIndex.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("template error: %v", err)
 	}
 }
@@ -398,7 +410,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 		CSRFToken:  csrfTokenFromContext(r.Context()),
 	}
 
-	if err := s.tmpl.ExecuteTemplate(w, "repo.html", data); err != nil {
+	if err := s.tmplRepo.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("template error: %v", err)
 	}
 }
@@ -434,7 +446,7 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 		CSRFToken: csrfTokenFromContext(r.Context()),
 	}
 
-	if err := s.tmpl.ExecuteTemplate(w, "drift.html", data); err != nil {
+	if err := s.tmplDrift.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("template error: %v", err)
 	}
 }
