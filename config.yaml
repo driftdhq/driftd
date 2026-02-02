@@ -10,7 +10,7 @@ worker:
   concurrency: 5
   lock_ttl: 30m        # minimum 2m
   retry_once: true
-  task_max_age: 6h     # max time a repo task may run before it's marked failed
+  scan_max_age: 6h     # max time a repo scan may run before it's marked failed
   renew_every: 10s     # lock renewal interval (0 = lock_ttl/3, minimum 10s, must be <= lock_ttl/2)
 
 workspace:

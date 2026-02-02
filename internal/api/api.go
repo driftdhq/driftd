@@ -135,9 +135,9 @@ func (s *Server) Handler() http.Handler {
 			r.Use(s.apiAuthMiddleware)
 		}
 		r.Get("/health", s.handleHealth)
-		r.Get("/jobs/{jobID}", s.handleGetJob)
-		r.Get("/tasks/{taskID}", s.handleGetTask)
-		r.Get("/repos/{repo}/jobs", s.handleListRepoJobs)
+		r.Get("/stacks/{stackID}", s.handleGetStackScan)
+		r.Get("/scans/{scanID}", s.handleGetScan)
+		r.Get("/repos/{repo}/stacks", s.handleListRepoStackScans)
 		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/scan", s.handleScanRepo)
 		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/stacks/*", s.handleScanStack)
 		if s.cfg.Webhook.Enabled {
@@ -326,7 +326,7 @@ type indexData struct {
 	TotalRepos   int
 	TotalStacks  int
 	DriftedRepos int
-	ActiveTasks  int
+	ActiveScans  int
 	LockedRepos  int
 }
 
@@ -347,25 +347,25 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	var repoData []repoStatusData
 	for _, repo := range repos {
 		locked, _ := s.queue.IsRepoLocked(r.Context(), repo.Name)
-		var lastTask *queue.Task
-		if activeTask, err := s.queue.GetActiveTask(r.Context(), repo.Name); err == nil {
-			lastTask = activeTask
-		} else if lastTaskFound, err := s.queue.GetLastTask(r.Context(), repo.Name); err == nil {
-			lastTask = lastTaskFound
+		var lastScan *queue.Scan
+		if activeScan, err := s.queue.GetActiveScan(r.Context(), repo.Name); err == nil {
+			lastScan = activeScan
+		} else if lastScanFound, err := s.queue.GetLastScan(r.Context(), repo.Name); err == nil {
+			lastScan = lastScanFound
 		}
 
 		var progress string
 		var active bool
 		var lastRun time.Time
 		var commit string
-		if lastTask != nil {
-			commit = lastTask.CommitSHA
-			if lastTask.Status == queue.TaskStatusRunning {
+		if lastScan != nil {
+			commit = lastScan.CommitSHA
+			if lastScan.Status == queue.ScanStatusRunning {
 				active = true
-				progress = fmt.Sprintf("%d/%d", lastTask.Completed+lastTask.Failed, lastTask.Total)
-				lastRun = lastTask.StartedAt
+				progress = fmt.Sprintf("%d/%d", lastScan.Completed+lastScan.Failed, lastScan.Total)
+				lastRun = lastScan.StartedAt
 			} else {
-				lastRun = lastTask.EndedAt
+				lastRun = lastScan.EndedAt
 			}
 		}
 		repoData = append(repoData, repoStatusData{
@@ -382,7 +382,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	totalStacks := 0
 	driftedRepos := 0
-	activeTasks := 0
+	activeScans := 0
 	lockedRepos := 0
 	for _, repo := range repoData {
 		totalStacks += repo.Stacks
@@ -390,7 +390,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			driftedRepos++
 		}
 		if repo.Active {
-			activeTasks++
+			activeScans++
 		}
 		if repo.Locked {
 			lockedRepos++
@@ -405,7 +405,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		TotalRepos:   len(s.cfg.Repos),
 		TotalStacks:  totalStacks,
 		DriftedRepos: driftedRepos,
-		ActiveTasks:  activeTasks,
+		ActiveScans:  activeScans,
 		LockedRepos:  lockedRepos,
 	}
 	for _, repo := range repoData {
@@ -426,8 +426,8 @@ type repoPageData struct {
 	StackTree  []*stackNode
 	Config     *config.RepoConfig
 	Locked     bool
-	ActiveTask *queue.Task
-	LastTask   *queue.Task
+	ActiveScan *queue.Scan
+	LastScan   *queue.Scan
 	CSRFToken  string
 }
 
@@ -442,8 +442,8 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	stackTree := buildStackTree(repoName, stacks)
 	repoCfg := s.cfg.GetRepo(repoName)
 	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
-	activeTask, _ := s.queue.GetActiveTask(r.Context(), repoName)
-	lastTask, _ := s.queue.GetLastTask(r.Context(), repoName)
+	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
+	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
 
 	data := repoPageData{
 		Name:       repoName,
@@ -451,8 +451,8 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 		StackTree:  stackTree,
 		Config:     repoCfg,
 		Locked:     locked,
-		ActiveTask: activeTask,
-		LastTask:   lastTask,
+		ActiveScan: activeScan,
+		LastScan:   lastScan,
 		CSRFToken:  csrfTokenFromContext(r.Context()),
 	}
 
@@ -466,7 +466,7 @@ type stackPageData struct {
 	RepoURL   string
 	Path      string
 	Result    *storage.RunResult
-	Task      *queue.Task
+	Scan      *queue.Scan
 	CSRFToken string
 	PlanHTML  template.HTML
 }
@@ -485,14 +485,14 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-	lastTask, _ := s.queue.GetLastTask(r.Context(), repoName)
+	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
 
 	data := stackPageData{
 		RepoName:  repoName,
 		RepoURL:   "",
 		Path:      stackPath,
 		Result:    result,
-		Task:      lastTask,
+		Scan:      lastScan,
 		CSRFToken: csrfTokenFromContext(r.Context()),
 		PlanHTML:  formatPlanOutput(result.PlanOutput),
 	}
@@ -519,13 +519,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
-func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+func (s *Server) handleGetStackScan(w http.ResponseWriter, r *http.Request) {
+	stackID := chi.URLParam(r, "stackID")
 
-	job, err := s.queue.GetJob(r.Context(), jobID)
+	stackScan, err := s.queue.GetStackScan(r.Context(), stackID)
 	if err != nil {
-		if err == queue.ErrJobNotFound {
-			http.Error(w, "Job not found", http.StatusNotFound)
+		if err == queue.ErrStackScanNotFound {
+			http.Error(w, "Stack scan not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
@@ -533,24 +533,24 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(job)
+	json.NewEncoder(w).Encode(stackScan)
 }
 
-func (s *Server) handleListRepoJobs(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListRepoStackScans(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	if !isValidRepoName(repoName) {
 		http.Error(w, "Invalid repository name", http.StatusBadRequest)
 		return
 	}
 
-	jobs, err := s.queue.ListRepoJobs(r.Context(), repoName, 50)
+	stackScans, err := s.queue.ListRepoStackScans(r.Context(), repoName, 50)
 	if err != nil {
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jobs)
+	json.NewEncoder(w).Encode(stackScans)
 }
 
 type scanRequest struct {
@@ -560,9 +560,9 @@ type scanRequest struct {
 }
 
 type scanResponse struct {
-	Jobs       []string    `json:"jobs,omitempty"`
-	Task       *queue.Task `json:"task,omitempty"`
-	ActiveTask *queue.Task `json:"active_task,omitempty"`
+	Stacks     []string    `json:"stacks,omitempty"`
+	Scan       *queue.Scan `json:"scan,omitempty"`
+	ActiveScan *queue.Scan `json:"active_scan,omitempty"`
 	Message    string      `json:"message,omitempty"`
 	Error      string      `json:"error,omitempty"`
 }
@@ -586,7 +586,7 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, trigger, "", "")
+	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, "", "")
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
@@ -597,8 +597,8 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, stackPath := range stacks {
-		job := &queue.Job{
-			TaskID:     task.ID,
+		job := &queue.StackScan{
+			ScanID:     scan.ID,
 			RepoName:   repoName,
 			RepoURL:    repoCfg.URL,
 			StackPath:  stackPath,
@@ -606,7 +606,7 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 			Trigger:    trigger,
 		}
 		if err := s.queue.Enqueue(r.Context(), job); err != nil {
-			_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
+			_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
 			break
 		}
 	}
@@ -644,10 +644,10 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
+	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
-			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
+			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), repoName)
 			if activeErr != nil {
 				http.Error(w, "Repository scan already in progress", http.StatusConflict)
 				return
@@ -655,21 +655,21 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(scanResponse{
 				Error:      "Repository scan already in progress",
-				ActiveTask: activeTask,
+				ActiveScan: activeScan,
 			})
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	// startTaskWithCancel handles lock renewal and version detection
+	// startScanWithCancel handles lock renewal and version detection
 
-	var jobIDs []string
+	var stackIDs []string
 	var errors []string
 
 	for _, stackPath := range stacks {
-		job := &queue.Job{
-			TaskID:     task.ID,
+		stackScan := &queue.StackScan{
+			ScanID:     scan.ID,
 			RepoName:   repoName,
 			RepoURL:    repoCfg.URL,
 			StackPath:  stackPath,
@@ -679,8 +679,8 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 			Actor:      req.Actor,
 		}
 
-		if err := s.queue.Enqueue(r.Context(), job); err != nil {
-			_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
+		if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
+			_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
 			if err == queue.ErrRepoLocked {
 				errors = append(errors, fmt.Sprintf("%s: repo locked", stackPath))
 			} else {
@@ -688,24 +688,24 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		jobIDs = append(jobIDs, job.ID)
+		stackIDs = append(stackIDs, stackScan.ID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if len(jobIDs) == 0 && len(errors) > 0 {
+	if len(stackIDs) == 0 && len(errors) > 0 {
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(scanResponse{
-			Error:   "Failed to enqueue any jobs",
+			Error:   "Failed to enqueue any stacks",
 			Message: strings.Join(errors, "; "),
 		})
 		return
 	}
 
 	resp := scanResponse{
-		Jobs:    jobIDs,
-		Task:    task,
-		Message: fmt.Sprintf("Enqueued %d jobs", len(jobIDs)),
+		Stacks:  stackIDs,
+		Scan:    scan,
+		Message: fmt.Sprintf("Enqueued %d stacks", len(stackIDs)),
 	}
 	if len(errors) > 0 {
 		resp.Error = strings.Join(errors, "; ")
@@ -745,10 +745,10 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
+	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
-			activeTask, activeErr := s.queue.GetActiveTask(r.Context(), repoName)
+			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), repoName)
 			if activeErr != nil {
 				http.Error(w, "Repository scan already in progress", http.StatusConflict)
 				return
@@ -756,24 +756,24 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(scanResponse{
 				Error:      "Repository scan already in progress",
-				ActiveTask: activeTask,
+				ActiveScan: activeScan,
 			})
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	// startTaskWithCancel handles lock renewal and version detection
+	// startScanWithCancel handles lock renewal and version detection
 
 	if !containsStack(stackPath, stacks) {
-		_ = s.queue.FailTask(r.Context(), task.ID, repoName, "stack not found")
+		_ = s.queue.FailScan(r.Context(), scan.ID, repoName, "stack not found")
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-	_ = s.queue.SetTaskTotal(r.Context(), task.ID, 1)
+	_ = s.queue.SetScanTotal(r.Context(), scan.ID, 1)
 
-	job := &queue.Job{
-		TaskID:     task.ID,
+	stackScan := &queue.StackScan{
+		ScanID:     scan.ID,
 		RepoName:   repoName,
 		RepoURL:    repoCfg.URL,
 		StackPath:  stackPath,
@@ -783,8 +783,8 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		Actor:      req.Actor,
 	}
 
-	if err := s.queue.Enqueue(r.Context(), job); err != nil {
-		_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
+	if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
+		_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
 		w.Header().Set("Content-Type", "application/json")
 		if err == queue.ErrRepoLocked {
 			w.WriteHeader(http.StatusConflict)
@@ -798,9 +798,9 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scanResponse{
-		Jobs:    []string{job.ID},
-		Task:    task,
-		Message: "Job enqueued",
+		Stacks:  []string{stackScan.ID},
+		Scan:    scan,
+		Message: "Stack enqueued",
 	})
 }
 
@@ -874,7 +874,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trigger := "webhook"
-	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			w.WriteHeader(http.StatusConflict)
@@ -887,13 +887,13 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 
 	targetStacks := selectStacksForChanges(stacks, changedFiles)
 	if len(targetStacks) == 0 {
-		_ = s.queue.FailTask(r.Context(), task.ID, repoName, "no matching stacks for webhook changes")
+		_ = s.queue.FailScan(r.Context(), scan.ID, repoName, "no matching stacks for webhook changes")
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	if err := s.queue.SetTaskTotal(r.Context(), task.ID, len(targetStacks)); err != nil {
-		_ = s.queue.FailTask(r.Context(), task.ID, repoName, fmt.Sprintf("failed to set task total: %v", err))
-		http.Error(w, "Failed to set task total", http.StatusInternalServerError)
+	if err := s.queue.SetScanTotal(r.Context(), scan.ID, len(targetStacks)); err != nil {
+		_ = s.queue.FailScan(r.Context(), scan.ID, repoName, fmt.Sprintf("failed to set scan total: %v", err))
+		http.Error(w, "Failed to set scan total", http.StatusInternalServerError)
 		return
 	}
 
@@ -902,10 +902,10 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		maxRetries = 1
 	}
 
-	var jobIDs []string
+	var stackIDs []string
 	for _, stackPath := range targetStacks {
-		job := &queue.Job{
-			TaskID:     task.ID,
+		stackScan := &queue.StackScan{
+			ScanID:     scan.ID,
 			RepoName:   repoName,
 			RepoURL:    repoCfg.URL,
 			StackPath:  stackPath,
@@ -914,18 +914,18 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 			Commit:     payload.HeadCommit.ID,
 			Actor:      payload.Pusher.Name,
 		}
-		if err := s.queue.Enqueue(r.Context(), job); err != nil {
-			_ = s.queue.MarkTaskEnqueueFailed(r.Context(), task.ID)
+		if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
+			_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
 			continue
 		}
-		jobIDs = append(jobIDs, job.ID)
+		stackIDs = append(stackIDs, stackScan.ID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scanResponse{
-		Jobs:    jobIDs,
-		Task:    task,
-		Message: fmt.Sprintf("Enqueued %d jobs", len(jobIDs)),
+		Stacks:  stackIDs,
+		Scan:    scan,
+		Message: fmt.Sprintf("Enqueued %d stacks", len(stackIDs)),
 	})
 }
 
@@ -1048,13 +1048,13 @@ func computeHMACSHA256(payload, key []byte) []byte {
 	return mac.Sum(nil)
 }
 
-func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
-	taskID := chi.URLParam(r, "taskID")
+func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
+	scanID := chi.URLParam(r, "scanID")
 
-	task, err := s.queue.GetTask(r.Context(), taskID)
+	scan, err := s.queue.GetScan(r.Context(), scanID)
 	if err != nil {
-		if err == queue.ErrTaskNotFound {
-			http.Error(w, "Task not found", http.StatusNotFound)
+		if err == queue.ErrScanNotFound {
+			http.Error(w, "Scan not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
@@ -1062,23 +1062,23 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(task)
+	json.NewEncoder(w).Encode(scan)
 }
 
-func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Task, []string, error) {
+func (s *Server) startScanWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, []string, error) {
 	if repoCfg == nil {
 		return nil, nil, fmt.Errorf("repository not configured")
 	}
 
-	task, err := s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, 0)
+	scan, err := s.queue.StartScan(ctx, repoCfg.Name, trigger, commit, actor, 0)
 	if err != nil && err == queue.ErrRepoLocked {
-		activeTask, activeErr := s.queue.GetActiveTask(ctx, repoCfg.Name)
-		if repoCfg.CancelInflightEnabled() && activeErr == nil && activeTask != nil {
+		activeScan, activeErr := s.queue.GetActiveScan(ctx, repoCfg.Name)
+		if repoCfg.CancelInflightEnabled() && activeErr == nil && activeScan != nil {
 			newPriority := queue.TriggerPriority(trigger)
-			activePriority := queue.TriggerPriority(activeTask.Trigger)
+			activePriority := queue.TriggerPriority(activeScan.Trigger)
 			if newPriority >= activePriority {
-				_ = s.queue.CancelTask(ctx, activeTask.ID, repoCfg.Name, "superseded by new trigger")
-				task, err = s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, 0)
+				_ = s.queue.CancelScan(ctx, activeScan.ID, repoCfg.Name, "superseded by new trigger")
+				scan, err = s.queue.StartScan(ctx, repoCfg.Name, trigger, commit, actor, 0)
 			}
 		}
 	}
@@ -1087,58 +1087,58 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 	}
 
 	// Use Background context because renewal must continue independent of the HTTP request.
-	// The goroutine exits when task status changes to completed/failed/canceled.
-	go s.queue.RenewTaskLock(context.Background(), task.ID, repoCfg.Name, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+	// The goroutine exits when scan status changes to completed/failed/canceled.
+	go s.queue.RenewScanLock(context.Background(), scan.ID, repoCfg.Name, s.cfg.Worker.ScanMaxAge, s.cfg.Worker.RenewEvery)
 
 	auth, err := gitauth.AuthMethod(ctx, repoCfg)
 	if err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
 	}
 
-	workspacePath, commitSHA, err := s.cloneWorkspace(ctx, repoCfg, task.ID, auth)
+	workspacePath, commitSHA, err := s.cloneWorkspace(ctx, repoCfg, scan.ID, auth)
 	if err != nil {
 		if workspacePath != "" {
 			_ = os.RemoveAll(filepath.Dir(workspacePath))
 		}
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
 	}
-	if err := s.queue.SetTaskWorkspace(ctx, task.ID, workspacePath, commitSHA); err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, fmt.Sprintf("failed to set workspace: %v", err))
+	if err := s.queue.SetScanWorkspace(ctx, scan.ID, workspacePath, commitSHA); err != nil {
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set workspace: %v", err))
 		return nil, nil, err
 	}
-	go s.cleanupWorkspaces(repoCfg.Name, task.ID)
+	go s.cleanupWorkspaces(repoCfg.Name, scan.ID)
 
 	stacks, err := stack.Discover(workspacePath, repoCfg.IgnorePaths)
 	if err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
 	}
 	if len(stacks) == 0 {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, "no stacks discovered")
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, "no stacks discovered")
 		return nil, nil, fmt.Errorf("no stacks discovered")
 	}
 
 	versions, err := version.Detect(workspacePath, stacks)
 	if err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
 	}
-	if err := s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt); err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, fmt.Sprintf("failed to set versions: %v", err))
+	if err := s.queue.SetScanVersions(ctx, scan.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt); err != nil {
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set versions: %v", err))
 		return nil, nil, err
 	}
-	if err := s.queue.SetTaskTotal(ctx, task.ID, len(stacks)); err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoCfg.Name, fmt.Sprintf("failed to set task total: %v", err))
+	if err := s.queue.SetScanTotal(ctx, scan.ID, len(stacks)); err != nil {
+		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set scan total: %v", err))
 		return nil, nil, err
 	}
 
-	return task, stacks, nil
+	return scan, stacks, nil
 }
 
-func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, taskID string, auth transport.AuthMethod) (string, string, error) {
-	base := filepath.Join(s.cfg.DataDir, "workspaces", repoCfg.Name, taskID, "repo")
+func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (string, string, error) {
+	base := filepath.Join(s.cfg.DataDir, "workspaces", repoCfg.Name, scanID, "repo")
 	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
 		return base, "", err
 	}
@@ -1166,7 +1166,7 @@ func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig,
 	return base, head.Hash().String(), nil
 }
 
-func (s *Server) cleanupWorkspaces(repoName, keepTaskID string) {
+func (s *Server) cleanupWorkspaces(repoName, keepScanID string) {
 	retention := s.cfg.Workspace.Retention
 	if retention <= 0 {
 		return
@@ -1189,7 +1189,7 @@ func (s *Server) cleanupWorkspaces(repoName, keepTaskID string) {
 			continue
 		}
 		id := entry.Name()
-		if id == keepTaskID {
+		if id == keepScanID {
 			continue
 		}
 		info, err := entry.Info()
@@ -1213,14 +1213,14 @@ func (s *Server) cleanupWorkspaces(repoName, keepTaskID string) {
 
 	toDelete := items[retention-1:]
 	for _, it := range toDelete {
-		task, err := s.queue.GetTask(context.Background(), it.id)
-		if err == nil && task != nil && task.Status == queue.TaskStatusRunning {
+		scan, err := s.queue.GetScan(context.Background(), it.id)
+		if err == nil && scan != nil && scan.Status == queue.ScanStatusRunning {
 			continue
 		}
-		// Note: There's a small race window where task status could change between
+		// Note: There's a small race window where scan status could change between
 		// the check and RemoveAll. This is acceptable because workers copy the
 		// workspace to a temp directory before processing, so deletion during
-		// processing won't affect the running job.
+		// processing won't affect the running stack scan.
 		_ = os.RemoveAll(it.path)
 	}
 }

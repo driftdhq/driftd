@@ -95,7 +95,7 @@ func TestWorkerStartStop(t *testing.T) {
 	// Should complete without hanging
 }
 
-func TestWorkerProcessesJob(t *testing.T) {
+func TestWorkerProcessesStackScan(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 	r.results["repo:envs/dev"] = &runner.RunResult{
@@ -110,7 +110,7 @@ func TestWorkerProcessesJob(t *testing.T) {
 	defer w.Stop()
 
 	ctx := context.Background()
-	job := &queue.Job{
+	job := &queue.StackScan{
 		RepoName:  "repo",
 		RepoURL:   "https://github.com/org/repo.git",
 		StackPath: "envs/dev",
@@ -122,7 +122,7 @@ func TestWorkerProcessesJob(t *testing.T) {
 	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.GetJob(ctx, job.ID)
+		got, err := q.GetStackScan(ctx, job.ID)
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}
@@ -132,7 +132,7 @@ func TestWorkerProcessesJob(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	got, err := q.GetJob(ctx, job.ID)
+	got, err := q.GetStackScan(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestWorkerHandlesRunnerError(t *testing.T) {
 	defer w.Stop()
 
 	ctx := context.Background()
-	job := &queue.Job{
+	job := &queue.StackScan{
 		RepoName:   "repo",
 		RepoURL:    "https://github.com/org/repo.git",
 		StackPath:  "stack",
@@ -174,7 +174,7 @@ func TestWorkerHandlesRunnerError(t *testing.T) {
 	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.GetJob(ctx, job.ID)
+		got, err := q.GetStackScan(ctx, job.ID)
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}
@@ -184,7 +184,7 @@ func TestWorkerHandlesRunnerError(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	got, err := q.GetJob(ctx, job.ID)
+	got, err := q.GetStackScan(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestWorkerHandlesRunnerError(t *testing.T) {
 	}
 }
 
-func TestWorkerUsesTaskVersions(t *testing.T) {
+func TestWorkerUsesScanVersions(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 
@@ -206,17 +206,17 @@ func TestWorkerUsesTaskVersions(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a task with version info
-	task, err := q.StartTask(ctx, "repo", "manual", "", "", 1)
+	// Create a scan with version info
+	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
 	if err != nil {
-		t.Fatalf("start task: %v", err)
+		t.Fatalf("start scan: %v", err)
 	}
-	if err := q.SetTaskVersions(ctx, task.ID, "1.5.0", "0.50.0", nil, nil); err != nil {
+	if err := q.SetScanVersions(ctx, scan.ID, "1.5.0", "0.50.0", nil, nil); err != nil {
 		t.Fatalf("set versions: %v", err)
 	}
 
-	job := &queue.Job{
-		TaskID:    task.ID,
+	job := &queue.StackScan{
+		ScanID:    scan.ID,
 		RepoName:  "repo",
 		RepoURL:   "https://github.com/org/repo.git",
 		StackPath: "stack",
@@ -228,7 +228,7 @@ func TestWorkerUsesTaskVersions(t *testing.T) {
 	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.GetJob(ctx, job.ID)
+		got, err := q.GetStackScan(ctx, job.ID)
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}
@@ -260,19 +260,19 @@ func TestWorkerUsesStackVersionOverride(t *testing.T) {
 
 	ctx := context.Background()
 
-	task, err := q.StartTask(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
 	if err != nil {
-		t.Fatalf("start task: %v", err)
+		t.Fatalf("start scan: %v", err)
 	}
 
 	stackTF := map[string]string{"envs/dev": "1.4.0"}
 	stackTG := map[string]string{"envs/dev": "0.45.0"}
-	if err := q.SetTaskVersions(ctx, task.ID, "1.5.0", "0.50.0", stackTF, stackTG); err != nil {
+	if err := q.SetScanVersions(ctx, scan.ID, "1.5.0", "0.50.0", stackTF, stackTG); err != nil {
 		t.Fatalf("set versions: %v", err)
 	}
 
-	job := &queue.Job{
-		TaskID:    task.ID,
+	job := &queue.StackScan{
+		ScanID:    scan.ID,
 		RepoName:  "repo",
 		RepoURL:   "https://github.com/org/repo.git",
 		StackPath: "envs/dev",
@@ -284,7 +284,7 @@ func TestWorkerUsesStackVersionOverride(t *testing.T) {
 	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.GetJob(ctx, job.ID)
+		got, err := q.GetStackScan(ctx, job.ID)
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}
@@ -306,7 +306,7 @@ func TestWorkerUsesStackVersionOverride(t *testing.T) {
 	}
 }
 
-func TestWorkerCancelsJobWhenTaskCanceled(t *testing.T) {
+func TestWorkerCancelsStackScanWhenScanCanceled(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 
@@ -316,18 +316,18 @@ func TestWorkerCancelsJobWhenTaskCanceled(t *testing.T) {
 
 	ctx := context.Background()
 
-	task, err := q.StartTask(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
 	if err != nil {
-		t.Fatalf("start task: %v", err)
+		t.Fatalf("start scan: %v", err)
 	}
 
-	// Cancel the task before the job runs
-	if err := q.CancelTask(ctx, task.ID, "repo", "test cancel"); err != nil {
-		t.Fatalf("cancel task: %v", err)
+	// Cancel the scan before the job runs
+	if err := q.CancelScan(ctx, scan.ID, "repo", "test cancel"); err != nil {
+		t.Fatalf("cancel scan: %v", err)
 	}
 
-	job := &queue.Job{
-		TaskID:    task.ID,
+	job := &queue.StackScan{
+		ScanID:    scan.ID,
 		RepoName:  "repo",
 		RepoURL:   "https://github.com/org/repo.git",
 		StackPath: "stack",
@@ -339,7 +339,7 @@ func TestWorkerCancelsJobWhenTaskCanceled(t *testing.T) {
 	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.GetJob(ctx, job.ID)
+		got, err := q.GetStackScan(ctx, job.ID)
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}
@@ -349,7 +349,7 @@ func TestWorkerCancelsJobWhenTaskCanceled(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	got, err := q.GetJob(ctx, job.ID)
+	got, err := q.GetStackScan(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -374,16 +374,16 @@ func TestWorkerUsesWorkspacePath(t *testing.T) {
 
 	ctx := context.Background()
 
-	task, err := q.StartTask(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
 	if err != nil {
-		t.Fatalf("start task: %v", err)
+		t.Fatalf("start scan: %v", err)
 	}
-	if err := q.SetTaskWorkspace(ctx, task.ID, "/data/workspaces/repo/123", "abc123"); err != nil {
+	if err := q.SetScanWorkspace(ctx, scan.ID, "/data/workspaces/repo/123", "abc123"); err != nil {
 		t.Fatalf("set workspace: %v", err)
 	}
 
-	job := &queue.Job{
-		TaskID:    task.ID,
+	job := &queue.StackScan{
+		ScanID:    scan.ID,
 		RepoName:  "repo",
 		RepoURL:   "https://github.com/org/repo.git",
 		StackPath: "stack",
@@ -395,7 +395,7 @@ func TestWorkerUsesWorkspacePath(t *testing.T) {
 	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.GetJob(ctx, job.ID)
+		got, err := q.GetStackScan(ctx, job.ID)
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}
@@ -432,7 +432,7 @@ func TestWorkerWithConfig(t *testing.T) {
 	defer w.Stop()
 
 	ctx := context.Background()
-	job := &queue.Job{
+	job := &queue.StackScan{
 		RepoName:  "repo",
 		RepoURL:   "https://github.com/org/repo.git",
 		StackPath: "stack",
@@ -444,7 +444,7 @@ func TestWorkerWithConfig(t *testing.T) {
 	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		got, err := q.GetJob(ctx, job.ID)
+		got, err := q.GetStackScan(ctx, job.ID)
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}
@@ -454,7 +454,7 @@ func TestWorkerWithConfig(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	got, err := q.GetJob(ctx, job.ID)
+	got, err := q.GetStackScan(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -476,7 +476,7 @@ func TestWorkerConcurrency(t *testing.T) {
 
 	// Enqueue 3 jobs
 	for i := 0; i < 3; i++ {
-		job := &queue.Job{
+		job := &queue.StackScan{
 			RepoName:  "repo",
 			RepoURL:   "https://github.com/org/repo.git",
 			StackPath: "stack",

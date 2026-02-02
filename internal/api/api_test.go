@@ -49,13 +49,13 @@ func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVe
 }
 
 type scanResp struct {
-	Jobs       []string    `json:"jobs"`
-	Task       *queue.Task `json:"task"`
-	ActiveTask *queue.Task `json:"active_task"`
+	Stacks     []string    `json:"stacks"`
+	Scan       *queue.Scan `json:"scan"`
+	ActiveScan *queue.Scan `json:"active_scan"`
 	Error      string      `json:"error"`
 }
 
-func TestScanRepoCompletesTask(t *testing.T) {
+func TestScanRepoCompletesScan(t *testing.T) {
 	runner := &fakeRunner{
 		drifted: map[string]bool{
 			"envs/prod": true,
@@ -80,25 +80,25 @@ func TestScanRepoCompletesTask(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if sr.Task == nil || sr.Task.ID == "" {
-		t.Fatalf("expected task in response")
+	if sr.Scan == nil || sr.Scan.ID == "" {
+		t.Fatalf("expected scan in response")
 	}
-	if len(sr.Jobs) != 2 {
-		t.Fatalf("expected 2 jobs, got %d", len(sr.Jobs))
-	}
-
-	task := waitForTask(t, ts, sr.Task.ID, 5*time.Second)
-	if task.Status != queue.TaskStatusCompleted {
-		t.Fatalf("expected completed, got %s", task.Status)
-	}
-	if task.Total != 2 || task.Completed != 2 {
-		t.Fatalf("unexpected counts: total=%d completed=%d", task.Total, task.Completed)
-	}
-	if task.Drifted != 1 || task.Failed != 0 {
-		t.Fatalf("unexpected drift/failed: drifted=%d failed=%d", task.Drifted, task.Failed)
+	if len(sr.Stacks) != 2 {
+		t.Fatalf("expected 2 stacks, got %d", len(sr.Stacks))
 	}
 
-	// Ensure a new task can start after completion.
+	scan := waitForScan(t, ts, sr.Scan.ID, 5*time.Second)
+	if scan.Status != queue.ScanStatusCompleted {
+		t.Fatalf("expected completed, got %s", scan.Status)
+	}
+	if scan.Total != 2 || scan.Completed != 2 {
+		t.Fatalf("unexpected counts: total=%d completed=%d", scan.Total, scan.Completed)
+	}
+	if scan.Drifted != 1 || scan.Failed != 0 {
+		t.Fatalf("unexpected drift/failed: drifted=%d failed=%d", scan.Drifted, scan.Failed)
+	}
+
+	// Ensure a new scan can start after completion.
 	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request 2 failed: %v", err)
@@ -130,8 +130,8 @@ func TestScanRepoConflict(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if sr.Task == nil || sr.Task.ID == "" {
-		t.Fatalf("expected task in response")
+	if sr.Scan == nil || sr.Scan.ID == "" {
+		t.Fatalf("expected scan in response")
 	}
 
 	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
@@ -147,11 +147,11 @@ func TestScanRepoConflict(t *testing.T) {
 	if err := json.NewDecoder(resp2.Body).Decode(&sr2); err != nil {
 		t.Fatalf("decode response 2: %v", err)
 	}
-	if sr2.ActiveTask == nil || sr2.ActiveTask.ID != sr.Task.ID {
-		t.Fatalf("expected active_task to match original task")
+	if sr2.ActiveScan == nil || sr2.ActiveScan.ID != sr.Scan.ID {
+		t.Fatalf("expected active_scan to match original scan")
 	}
 
-	_ = q.FailTask(context.Background(), sr.Task.ID, "repo", "test cleanup")
+	_ = q.FailScan(context.Background(), sr.Scan.ID, "repo", "test cleanup")
 }
 
 func TestScanRepoInvalidJSON(t *testing.T) {
@@ -193,13 +193,13 @@ func TestCancelInflightOnNewTrigger(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp2.StatusCode)
 	}
 
-	task := getTask(t, ts, sr.Task.ID)
-	if task.Status != queue.TaskStatusCanceled {
-		t.Fatalf("expected canceled, got %s", task.Status)
+	scan := getScan(t, ts, sr.Scan.ID)
+	if scan.Status != queue.ScanStatusCanceled {
+		t.Fatalf("expected canceled, got %s", scan.Status)
 	}
 }
 
-func TestTaskVersionMapping(t *testing.T) {
+func TestScanVersionMapping(t *testing.T) {
 	runner := &fakeRunner{
 		drifted: map[string]bool{},
 	}
@@ -230,17 +230,17 @@ func TestTaskVersionMapping(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	task := getTask(t, ts, sr.Task.ID)
-	if task.TerraformVersion != "1.6.2" {
-		t.Fatalf("expected default tf version 1.6.2, got %q", task.TerraformVersion)
+	scan := getScan(t, ts, sr.Scan.ID)
+	if scan.TerraformVersion != "1.6.2" {
+		t.Fatalf("expected default tf version 1.6.2, got %q", scan.TerraformVersion)
 	}
-	if task.TerragruntVersion != "0.56.4" {
-		t.Fatalf("expected default tg version 0.56.4, got %q", task.TerragruntVersion)
+	if scan.TerragruntVersion != "0.56.4" {
+		t.Fatalf("expected default tg version 0.56.4, got %q", scan.TerragruntVersion)
 	}
-	if task.StackTFVersions["envs/prod"] != "1.5.7" {
-		t.Fatalf("expected prod stack tf override, got %q", task.StackTFVersions["envs/prod"])
+	if scan.StackTFVersions["envs/prod"] != "1.5.7" {
+		t.Fatalf("expected prod stack tf override, got %q", scan.StackTFVersions["envs/prod"])
 	}
-	if _, ok := task.StackTFVersions["envs/dev"]; ok {
+	if _, ok := scan.StackTFVersions["envs/dev"]; ok {
 		t.Fatalf("did not expect dev stack override")
 	}
 }
@@ -262,36 +262,36 @@ func TestScanRepoNoStacksDiscovered(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	keys, err := q.Client().Keys(ctx, "driftd:task:*").Result()
+	keys, err := q.Client().Keys(ctx, "driftd:scan:*").Result()
 	if err != nil {
-		t.Fatalf("list task keys: %v", err)
+		t.Fatalf("list scan keys: %v", err)
 	}
-	var taskKey string
+	var scanKey string
 	for _, key := range keys {
-		if strings.HasPrefix(key, "driftd:task:jobs:") || strings.HasPrefix(key, "driftd:task:last:") {
+		if strings.HasPrefix(key, "driftd:scan:stack_scans:") || strings.HasPrefix(key, "driftd:scan:last:") {
 			continue
 		}
-		if key == "driftd:task:repo:repo" {
+		if key == "driftd:scan:repo:repo" {
 			continue
 		}
-		taskKey = key
+		scanKey = key
 		break
 	}
-	if taskKey == "" {
-		t.Fatalf("expected task key to exist")
+	if scanKey == "" {
+		t.Fatalf("expected scan key to exist")
 	}
 
-	status, err := q.Client().HGet(ctx, taskKey, "status").Result()
+	status, err := q.Client().HGet(ctx, scanKey, "status").Result()
 	if err != nil {
-		t.Fatalf("get task status: %v", err)
+		t.Fatalf("get scan status: %v", err)
 	}
-	if status != queue.TaskStatusFailed {
+	if status != queue.ScanStatusFailed {
 		t.Fatalf("expected failed, got %s", status)
 	}
 
-	errMsg, err := q.Client().HGet(ctx, taskKey, "error").Result()
+	errMsg, err := q.Client().HGet(ctx, scanKey, "error").Result()
 	if err != nil {
-		t.Fatalf("get task error: %v", err)
+		t.Fatalf("get scan error: %v", err)
 	}
 	if errMsg != "no stacks discovered" {
 		t.Fatalf("expected error message, got %q", errMsg)
@@ -322,19 +322,19 @@ func TestScanSingleStack(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(sr.Jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(sr.Jobs))
+	if len(sr.Stacks) != 1 {
+		t.Fatalf("expected 1 stack, got %d", len(sr.Stacks))
 	}
-	if sr.Task == nil || sr.Task.ID == "" {
-		t.Fatalf("expected task in response")
+	if sr.Scan == nil || sr.Scan.ID == "" {
+		t.Fatalf("expected scan in response")
 	}
 
-	task := getTask(t, ts, sr.Task.ID)
-	if task.Status != queue.TaskStatusRunning {
-		t.Fatalf("expected running, got %s", task.Status)
+	scan := getScan(t, ts, sr.Scan.ID)
+	if scan.Status != queue.ScanStatusRunning {
+		t.Fatalf("expected running, got %s", scan.Status)
 	}
-	if task.Total != 1 || task.Queued != 1 {
-		t.Fatalf("unexpected counts: total=%d queued=%d", task.Total, task.Queued)
+	if scan.Total != 1 || scan.Queued != 1 {
+		t.Fatalf("unexpected counts: total=%d queued=%d", scan.Total, scan.Queued)
 	}
 }
 
@@ -488,8 +488,8 @@ func TestWebhookIgnoresNonInfraFiles(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
-	if _, err := q.GetActiveTask(context.Background(), "repo"); err != queue.ErrTaskNotFound {
-		t.Fatalf("expected no active task")
+	if _, err := q.GetActiveScan(context.Background(), "repo"); err != queue.ErrScanNotFound {
+		t.Fatalf("expected no active scan")
 	}
 }
 
@@ -535,15 +535,15 @@ func TestWebhookIgnoresUnmatchedInfraFiles(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
-	if _, err := q.GetActiveTask(context.Background(), "repo"); err != queue.ErrTaskNotFound {
-		t.Fatalf("expected no active task")
+	if _, err := q.GetActiveScan(context.Background(), "repo"); err != queue.ErrScanNotFound {
+		t.Fatalf("expected no active scan")
 	}
-	jobs, err := q.ListRepoJobs(context.Background(), "repo", 10)
+	stacks, err := q.ListRepoStackScans(context.Background(), "repo", 10)
 	if err != nil {
-		t.Fatalf("list jobs: %v", err)
+		t.Fatalf("list stacks: %v", err)
 	}
-	if len(jobs) != 0 {
-		t.Fatalf("expected no jobs, got %d", len(jobs))
+	if len(stacks) != 0 {
+		t.Fatalf("expected no stacks, got %d", len(stacks))
 	}
 }
 
@@ -562,21 +562,21 @@ func TestTriggerPriorityDoesNotCancelScheduledOverManual(t *testing.T) {
 	defer cleanup()
 
 	repoCfg := srv.cfg.GetRepo("repo")
-	task, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "manual", "", "")
+	scan, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "manual", "", "")
 	if err != nil {
-		t.Fatalf("start task: %v", err)
+		t.Fatalf("start scan: %v", err)
 	}
 
-	if _, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "scheduled", "", ""); err != queue.ErrRepoLocked {
+	if _, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "scheduled", "", ""); err != queue.ErrRepoLocked {
 		t.Fatalf("expected repo locked, got %v", err)
 	}
 
-	taskAfter, err := srv.queue.GetTask(context.Background(), task.ID)
+	scanAfter, err := srv.queue.GetScan(context.Background(), scan.ID)
 	if err != nil {
-		t.Fatalf("get task: %v", err)
+		t.Fatalf("get scan: %v", err)
 	}
-	if taskAfter.Status != queue.TaskStatusRunning {
-		t.Fatalf("expected running, got %s", taskAfter.Status)
+	if scanAfter.Status != queue.ScanStatusRunning {
+		t.Fatalf("expected running, got %s", scanAfter.Status)
 	}
 }
 
@@ -586,25 +586,25 @@ func TestTriggerPriorityCancelsOnNewerManual(t *testing.T) {
 	defer cleanup()
 
 	repoCfg := srv.cfg.GetRepo("repo")
-	first, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "manual", "", "")
+	first, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "manual", "", "")
 	if err != nil {
-		t.Fatalf("start task: %v", err)
+		t.Fatalf("start scan: %v", err)
 	}
 
-	second, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "webhook", "", "")
+	second, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "webhook", "", "")
 	if err != nil {
-		t.Fatalf("start task 2: %v", err)
+		t.Fatalf("start scan 2: %v", err)
 	}
 	if second.ID == first.ID {
-		t.Fatalf("expected new task id")
+		t.Fatalf("expected new scan id")
 	}
 
-	firstTask, err := srv.queue.GetTask(context.Background(), first.ID)
+	firstScan, err := srv.queue.GetScan(context.Background(), first.ID)
 	if err != nil {
-		t.Fatalf("get task: %v", err)
+		t.Fatalf("get scan: %v", err)
 	}
-	if firstTask.Status != queue.TaskStatusCanceled {
-		t.Fatalf("expected canceled, got %s", firstTask.Status)
+	if firstScan.Status != queue.ScanStatusCanceled {
+		t.Fatalf("expected canceled, got %s", firstScan.Status)
 	}
 }
 
@@ -656,7 +656,7 @@ func newTestServerWithConfig(t *testing.T, r worker.Runner, stacks []string, sta
 			Concurrency: 1,
 			LockTTL:     2 * time.Minute,
 			RetryOnce:   false,
-			TaskMaxAge:  1 * time.Minute,
+			ScanMaxAge:  1 * time.Minute,
 			RenewEvery:  10 * time.Second,
 		},
 		Repos: []config.RepoConfig{
@@ -706,46 +706,46 @@ func newTestServerWithConfig(t *testing.T, r worker.Runner, stacks []string, sta
 	return srv, server, q, cleanup
 }
 
-func waitForTask(t *testing.T, ts *httptest.Server, taskID string, timeout time.Duration) *queue.Task {
+func waitForScan(t *testing.T, ts *httptest.Server, scanID string, timeout time.Duration) *queue.Scan {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(ts.URL + "/api/tasks/" + taskID)
+		resp, err := http.Get(ts.URL + "/api/scans/" + scanID)
 		if err != nil {
-			t.Fatalf("get task: %v", err)
+			t.Fatalf("get scan: %v", err)
 		}
-		var task queue.Task
-		if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		var scan queue.Scan
+		if err := json.NewDecoder(resp.Body).Decode(&scan); err != nil {
 			resp.Body.Close()
-			t.Fatalf("decode task: %v", err)
+			t.Fatalf("decode scan: %v", err)
 		}
 		resp.Body.Close()
 
-		if task.Status != queue.TaskStatusRunning {
-			return &task
+		if scan.Status != queue.ScanStatusRunning {
+			return &scan
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	t.Fatalf("task %s did not complete within timeout", taskID)
+	t.Fatalf("scan %s did not complete within timeout", scanID)
 	return nil
 }
 
-func getTask(t *testing.T, ts *httptest.Server, taskID string) *queue.Task {
+func getScan(t *testing.T, ts *httptest.Server, scanID string) *queue.Scan {
 	t.Helper()
 
-	resp, err := http.Get(ts.URL + "/api/tasks/" + taskID)
+	resp, err := http.Get(ts.URL + "/api/scans/" + scanID)
 	if err != nil {
-		t.Fatalf("get task: %v", err)
+		t.Fatalf("get scan: %v", err)
 	}
 	defer resp.Body.Close()
 
-	var task queue.Task
-	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
-		t.Fatalf("decode task: %v", err)
+	var scan queue.Scan
+	if err := json.NewDecoder(resp.Body).Decode(&scan); err != nil {
+		t.Fatalf("decode scan: %v", err)
 	}
-	return &task
+	return &scan
 }
 
 type testVersions struct {

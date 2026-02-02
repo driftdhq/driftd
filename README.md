@@ -29,8 +29,8 @@ and repositories without adding risk to your apply pipeline.
 
 ## Quick Mental Model
 
-- **Task** = one scan of a repo
-- **Job** = one stack plan inside a task
+- **Scan** = one scan of a repo
+- **Stack** = one stack plan inside a scan
 - **Plan** = output saved to storage and shown in the UI
 
 ```
@@ -142,8 +142,8 @@ volumes:
 
 1. **Trigger** - Cron schedule or API call initiates a scan
 2. **Clone** - Server clones the repo and discovers stacks
-3. **Enqueue** - One job per stack is added to the Redis queue
-4. **Process** - Workers dequeue jobs, run `terraform plan`, save results
+3. **Enqueue** - One stack scan per stack is added to the Redis queue
+4. **Process** - Workers dequeue stack scans, run `terraform plan`, save results
 5. **Display** - Web UI shows drift status from stored plan outputs
 
 ---
@@ -188,15 +188,15 @@ flowchart TB
 | Component | Role |
 |-----------|------|
 | **serve** | Web UI, REST API, scheduler. Single replica. |
-| **worker** | Processes scan jobs. Scale horizontally based on workload. |
-| **Redis** | Job queue, task state, repo locks. Ephemeral - can be wiped safely. |
+| **worker** | Processes stack scans. Scale horizontally based on workload. |
+| **Redis** | Stack scan queue, scan state, repo locks. Ephemeral - can be wiped safely. |
 | **Storage** | Plan outputs and drift status. Mount a PVC for persistence. |
 
 ---
 
 ## Requirements
 
-- **Redis** - For task state, job queue, and distributed locking
+- **Redis** - For scan state, stack scan queue, and distributed locking
 - **Storage** - Filesystem path for plan outputs (PVC in Kubernetes)
 - **Git access** - SSH keys, HTTPS tokens, or GitHub App for private repos
 
@@ -237,8 +237,8 @@ See `helm/driftd/README.md` for full chart documentation.
 | Term | Description |
 |------|-------------|
 | **Repo** | A git repository containing Terraform or Terragrunt stacks |
-| **Task** | A single scan of a repo. Only one task can be active per repo. |
-| **Job** | A single stack plan within a task. Jobs run in parallel across workers. |
+| **Scan** | A single scan of a repo. Only one scan can be active per repo. |
+| **Stack** | A single stack plan within a scan. Stack scans run in parallel across workers. |
 | **Stack** | A directory containing `terragrunt.hcl` or `*.tf` files (ex: `envs/prod`) |
 
 ---
@@ -268,10 +268,10 @@ redis:
   db: 0
 
 worker:
-  concurrency: 5      # parallel jobs per worker process
+  concurrency: 5      # parallel stack scans per worker process
   lock_ttl: 30m       # repo lock timeout
-  retry_once: true    # retry failed jobs once
-  task_max_age: 6h    # max task duration before forced failure
+  retry_once: true    # retry failed stack scans once
+  scan_max_age: 6h    # max scan duration before forced failure
 
 workspace:
   retention: 5            # workspace snapshots to keep per repo
@@ -284,7 +284,7 @@ repos:
     ignore_paths:
       - "**/modules/**"
     schedule: "0 */6 * * *"  # cron expression (optional)
-    cancel_inflight_on_new_trigger: true  # cancel older task on newer trigger
+    cancel_inflight_on_new_trigger: true  # cancel older scan on newer trigger
     git:
       type: https
       https_token_env: GIT_TOKEN
@@ -416,8 +416,8 @@ If no version is specified, it uses the latest version.
 | GET | `/repos/{repo}` | Repository detail |
 | GET | `/repos/{repo}/stacks/{stack...}` | Stack detail with plan output |
 | GET | `/api/health` | Health check |
-| GET | `/api/tasks/{taskID}` | Task status |
-| GET | `/api/jobs/{jobID}` | Job status |
+| GET | `/api/scans/{scanID}` | Scan status |
+| GET | `/api/stacks/{stackID}` | Stack scan status |
 | POST | `/api/repos/{repo}/scan` | Trigger full repo scan |
 | POST | `/api/repos/{repo}/stacks/{stack...}` | Trigger single stack scan |
 | POST | `/api/webhooks/github` | GitHub webhook endpoint |
@@ -448,7 +448,7 @@ curl -X POST -u driftd:change-me http://localhost:8080/api/repos/my-infra/scan
 
 ```json
 {
-  "task": {
+  "scan": {
     "id": "my-infra:1706712345678",
     "status": "running",
     "total": 12,
@@ -464,7 +464,7 @@ curl -X POST -u driftd:change-me http://localhost:8080/api/repos/my-infra/scan
 ```json
 {
   "error": "Repository scan already in progress",
-  "active_task": { "id": "...", "status": "running", "completed": 140, "total": 500 }
+  "active_scan": { "id": "...", "status": "running", "completed": 140, "total": 500 }
 }
 ```
 
@@ -518,8 +518,8 @@ with `workspace.retention` and by pruning old plan outputs.
 
 ## Troubleshooting
 
-- **Repo locked**: A task is still running. Check `/api/tasks/{id}` and worker logs.
-- **Jobs stuck**: Confirm Redis connectivity and worker health.
+- **Repo locked**: A scan is still running. Check `/api/scans/{id}` and worker logs.
+- **Stacks stuck**: Confirm Redis connectivity and worker health.
 - **Missing stacks**: Ensure repo has `*.tf` or `terragrunt.hcl` in expected paths.
 - **Auth errors**: Validate SSH keys, tokens, or GitHub App configuration.
 

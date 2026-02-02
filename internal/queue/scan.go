@@ -12,17 +12,17 @@ import (
 )
 
 const (
-	TaskStatusRunning   = "running"
-	TaskStatusCompleted = "completed"
-	TaskStatusFailed    = "failed"
-	TaskStatusCanceled  = "canceled"
+	ScanStatusRunning   = "running"
+	ScanStatusCompleted = "completed"
+	ScanStatusFailed    = "failed"
+	ScanStatusCanceled  = "canceled"
 
-	taskRenewIntervalMin = 10 * time.Second
+	scanRenewIntervalMin = 10 * time.Second
 )
 
-var ErrTaskNotFound = errors.New("task not found")
+var ErrScanNotFound = errors.New("scan not found")
 
-type Task struct {
+type Scan struct {
 	ID        string    `json:"id"`
 	RepoName  string    `json:"repo_name"`
 	Trigger   string    `json:"trigger,omitempty"`
@@ -50,15 +50,15 @@ type Task struct {
 	Errored   int `json:"errored"`
 }
 
-func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor string, total int) (*Task, error) {
+func (q *Queue) StartScan(ctx context.Context, repoName, trigger, commit, actor string, total int) (*Scan, error) {
 	if total < 0 {
 		total = 0
 	}
 
-	taskID := fmt.Sprintf("%s:%d", repoName, time.Now().UnixNano())
+	scanID := fmt.Sprintf("%s:%d", repoName, time.Now().UnixNano())
 	lockKey := keyLockPrefix + repoName
 
-	acquired, err := q.client.SetNX(ctx, lockKey, taskID, q.lockTTL).Result()
+	acquired, err := q.client.SetNX(ctx, lockKey, scanID, q.lockTTL).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to acquire repo lock for %s: %w", repoName, err)
 	}
@@ -67,39 +67,39 @@ func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor 
 	}
 
 	now := time.Now()
-	task := &Task{
-		ID:        taskID,
+	scan := &Scan{
+		ID:        scanID,
 		RepoName:  repoName,
 		Trigger:   trigger,
 		Commit:    commit,
 		Actor:     actor,
-		Status:    TaskStatusRunning,
+		Status:    ScanStatusRunning,
 		CreatedAt: now,
 		StartedAt: now,
 		Total:     total,
 		Queued:    total,
 	}
 
-	taskKey := keyTaskPrefix + taskID
+	scanKey := keyScanPrefix + scanID
 	pipe := q.client.Pipeline()
-	pipe.HSet(ctx, taskKey, map[string]any{
-		"id":         task.ID,
-		"repo":       task.RepoName,
-		"trigger":    task.Trigger,
-		"commit":     task.Commit,
-		"actor":      task.Actor,
-		"status":     task.Status,
-		"created_at": task.CreatedAt.Unix(),
-		"started_at": task.StartedAt.Unix(),
+	pipe.HSet(ctx, scanKey, map[string]any{
+		"id":         scan.ID,
+		"repo":       scan.RepoName,
+		"trigger":    scan.Trigger,
+		"commit":     scan.Commit,
+		"actor":      scan.Actor,
+		"status":     scan.Status,
+		"created_at": scan.CreatedAt.Unix(),
+		"started_at": scan.StartedAt.Unix(),
 		"ended_at":   0,
 		"error":      "",
-		"total":      task.Total,
-		"queued":     task.Queued,
-		"running":    task.Running,
-		"completed":  task.Completed,
-		"failed":     task.Failed,
-		"drifted":    task.Drifted,
-		"errored":    task.Errored,
+		"total":      scan.Total,
+		"queued":     scan.Queued,
+		"running":    scan.Running,
+		"completed":  scan.Completed,
+		"failed":     scan.Failed,
+		"drifted":    scan.Drifted,
+		"errored":    scan.Errored,
 		"tf_version": "",
 		"tg_version": "",
 		"stack_tf":   "{}",
@@ -107,18 +107,18 @@ func (q *Queue) StartTask(ctx context.Context, repoName, trigger, commit, actor 
 		"workspace":  "",
 		"commit_sha": "",
 	})
-	pipe.Expire(ctx, taskKey, jobRetention)
-	pipe.Set(ctx, keyTaskRepo+repoName, taskID, jobRetention)
+	pipe.Expire(ctx, scanKey, scanRetention)
+	pipe.Set(ctx, keyScanRepo+repoName, scanID, scanRetention)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		q.releaseLock(ctx, repoName)
-		return nil, fmt.Errorf("failed to create task: %w", err)
+		return nil, fmt.Errorf("failed to create scan: %w", err)
 	}
 
-	return task, nil
+	return scan, nil
 }
 
-func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxAge, renewEvery time.Duration) {
+func (q *Queue) RenewScanLock(ctx context.Context, scanID, repoName string, maxAge, renewEvery time.Duration) {
 	start := time.Now()
 	if maxAge <= 0 {
 		maxAge = 6 * time.Hour
@@ -128,7 +128,7 @@ func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxA
 		interval = q.lockTTL / 3
 	}
 
-	minInterval := taskRenewIntervalMin
+	minInterval := scanRenewIntervalMin
 	if interval < minInterval {
 		interval = minInterval
 	}
@@ -144,18 +144,18 @@ func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxA
 		}
 
 		if time.Since(start) > maxAge {
-			_ = q.FailTask(context.Background(), taskID, repoName, "task exceeded maximum duration")
+			_ = q.FailScan(context.Background(), scanID, repoName, "scan exceeded maximum duration")
 			return
 		}
 
-		status, err := q.client.HGet(ctx, keyTaskPrefix+taskID, "status").Result()
+		status, err := q.client.HGet(ctx, keyScanPrefix+scanID, "status").Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				return
 			}
 			continue
 		}
-		if status != TaskStatusRunning {
+		if status != ScanStatusRunning {
 			return
 		}
 
@@ -166,7 +166,7 @@ func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxA
 			}
 			continue
 		}
-		if lockValue != taskID {
+		if lockValue != scanID {
 			return
 		}
 
@@ -174,20 +174,20 @@ func (q *Queue) RenewTaskLock(ctx context.Context, taskID, repoName string, maxA
 	}
 }
 
-func (q *Queue) GetTask(ctx context.Context, taskID string) (*Task, error) {
-	taskKey := keyTaskPrefix + taskID
-	values, err := q.client.HGetAll(ctx, taskKey).Result()
+func (q *Queue) GetScan(ctx context.Context, scanID string) (*Scan, error) {
+	scanKey := keyScanPrefix + scanID
+	values, err := q.client.HGetAll(ctx, scanKey).Result()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get task: %w", err)
+		return nil, fmt.Errorf("failed to get scan: %w", err)
 	}
 	if len(values) == 0 {
-		return nil, ErrTaskNotFound
+		return nil, ErrScanNotFound
 	}
 
-	return taskFromHash(values)
+	return scanFromHash(values)
 }
 
-func (q *Queue) SetTaskVersions(ctx context.Context, taskID, tfVersion, tgVersion string, stackTF, stackTG map[string]string) error {
+func (q *Queue) SetScanVersions(ctx context.Context, scanID, tfVersion, tgVersion string, stackTF, stackTG map[string]string) error {
 	tfJSON, err := json.Marshal(stackTF)
 	if err != nil {
 		return fmt.Errorf("marshal stack tf versions: %w", err)
@@ -197,7 +197,7 @@ func (q *Queue) SetTaskVersions(ctx context.Context, taskID, tfVersion, tgVersio
 		return fmt.Errorf("marshal stack tg versions: %w", err)
 	}
 
-	_, err = q.client.HSet(ctx, keyTaskPrefix+taskID, map[string]any{
+	_, err = q.client.HSet(ctx, keyScanPrefix+scanID, map[string]any{
 		"tf_version": tfVersion,
 		"tg_version": tgVersion,
 		"stack_tf":   string(tfJSON),
@@ -206,136 +206,137 @@ func (q *Queue) SetTaskVersions(ctx context.Context, taskID, tfVersion, tgVersio
 	return err
 }
 
-func (q *Queue) SetTaskTotal(ctx context.Context, taskID string, total int) error {
-	_, err := q.client.HSet(ctx, keyTaskPrefix+taskID, map[string]any{
+func (q *Queue) SetScanTotal(ctx context.Context, scanID string, total int) error {
+	_, err := q.client.HSet(ctx, keyScanPrefix+scanID, map[string]any{
 		"total":  total,
 		"queued": total,
 	}).Result()
 	return err
 }
 
-func (q *Queue) SetTaskWorkspace(ctx context.Context, taskID, workspacePath, commitSHA string) error {
-	_, err := q.client.HSet(ctx, keyTaskPrefix+taskID, map[string]any{
+func (q *Queue) SetScanWorkspace(ctx context.Context, scanID, workspacePath, commitSHA string) error {
+	_, err := q.client.HSet(ctx, keyScanPrefix+scanID, map[string]any{
 		"workspace":  workspacePath,
 		"commit_sha": commitSHA,
 	}).Result()
 	return err
 }
 
-func (q *Queue) FailTask(ctx context.Context, taskID, repoName, errMsg string) error {
-	taskKey := keyTaskPrefix + taskID
+func (q *Queue) FailScan(ctx context.Context, scanID, repoName, errMsg string) error {
+	scanKey := keyScanPrefix + scanID
 
 	pipe := q.client.Pipeline()
-	pipe.HSet(ctx, taskKey, map[string]any{
-		"status":   TaskStatusFailed,
+	pipe.HSet(ctx, scanKey, map[string]any{
+		"status":   ScanStatusFailed,
 		"ended_at": time.Now().Unix(),
 		"error":    errMsg,
 	})
 	pipe.Del(ctx, keyLockPrefix+repoName)
-	pipe.Del(ctx, keyTaskRepo+repoName)
+	pipe.Del(ctx, keyScanRepo+repoName)
 	_, err := pipe.Exec(ctx)
 	return err
 }
 
-func (q *Queue) CancelTask(ctx context.Context, taskID, repoName, reason string) error {
+func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string) error {
 	if reason == "" {
 		reason = "canceled"
 	}
-	taskKey := keyTaskPrefix + taskID
+	scanKey := keyScanPrefix + scanID
 
 	pipe := q.client.Pipeline()
-	pipe.HSet(ctx, taskKey, map[string]any{
-		"status":   TaskStatusCanceled,
+	pipe.HSet(ctx, scanKey, map[string]any{
+		"status":   ScanStatusCanceled,
 		"ended_at": time.Now().Unix(),
 		"error":    reason,
 	})
 	pipe.Del(ctx, keyLockPrefix+repoName)
-	pipe.Del(ctx, keyTaskRepo+repoName)
-	pipe.Set(ctx, keyTaskLast+repoName, taskID, jobRetention)
+	pipe.Del(ctx, keyScanRepo+repoName)
+	pipe.Set(ctx, keyScanLast+repoName, scanID, scanRetention)
 	_, err := pipe.Exec(ctx)
 	return err
 }
-func (q *Queue) GetActiveTask(ctx context.Context, repoName string) (*Task, error) {
-	taskID, err := q.client.Get(ctx, keyTaskRepo+repoName).Result()
+
+func (q *Queue) GetActiveScan(ctx context.Context, repoName string) (*Scan, error) {
+	scanID, err := q.client.Get(ctx, keyScanRepo+repoName).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, ErrTaskNotFound
+			return nil, ErrScanNotFound
 		}
-		return nil, fmt.Errorf("failed to get active task id: %w", err)
+		return nil, fmt.Errorf("failed to get active scan id: %w", err)
 	}
-	return q.GetTask(ctx, taskID)
+	return q.GetScan(ctx, scanID)
 }
 
-func (q *Queue) GetLastTask(ctx context.Context, repoName string) (*Task, error) {
-	taskID, err := q.client.Get(ctx, keyTaskLast+repoName).Result()
+func (q *Queue) GetLastScan(ctx context.Context, repoName string) (*Scan, error) {
+	scanID, err := q.client.Get(ctx, keyScanLast+repoName).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, ErrTaskNotFound
+			return nil, ErrScanNotFound
 		}
-		return nil, fmt.Errorf("failed to get last task id: %w", err)
+		return nil, fmt.Errorf("failed to get last scan id: %w", err)
 	}
-	return q.GetTask(ctx, taskID)
+	return q.GetScan(ctx, scanID)
 }
 
-func (q *Queue) AttachJobToTask(ctx context.Context, taskID, jobID string) error {
-	return q.client.SAdd(ctx, keyTaskJobs+taskID, jobID).Err()
+func (q *Queue) AttachStackScanToScan(ctx context.Context, scanID, stackScanID string) error {
+	return q.client.SAdd(ctx, keyScanStackScans+scanID, stackScanID).Err()
 }
 
-func (q *Queue) markTaskJobRunning(ctx context.Context, taskID string) error {
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", 1); err != nil {
+func (q *Queue) markScanStackScanRunning(ctx context.Context, scanID string) error {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", 1); err != nil {
 		return err
 	}
-	_, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "queued", -1)
+	_, err := q.incrFloor(ctx, keyScanPrefix+scanID, "queued", -1)
 	return err
 }
 
-func (q *Queue) markTaskJobRetry(ctx context.Context, taskID string) error {
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", -1); err != nil {
+func (q *Queue) markScanStackScanRetry(ctx context.Context, scanID string) error {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", -1); err != nil {
 		return err
 	}
-	_, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "queued", 1)
+	_, err := q.incrFloor(ctx, keyScanPrefix+scanID, "queued", 1)
 	return err
 }
 
-func (q *Queue) markTaskJobCompleted(ctx context.Context, taskID string, drifted bool) error {
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", -1); err != nil {
+func (q *Queue) markScanStackScanCompleted(ctx context.Context, scanID string, drifted bool) error {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", -1); err != nil {
 		return err
 	}
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "completed", 1); err != nil {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "completed", 1); err != nil {
 		return err
 	}
 	if drifted {
-		if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "drifted", 1); err != nil {
+		if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "drifted", 1); err != nil {
 			return err
 		}
 	}
-	return q.maybeFinishTask(ctx, taskID)
+	return q.maybeFinishScan(ctx, scanID)
 }
 
-func (q *Queue) markTaskJobFailed(ctx context.Context, taskID string) error {
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "running", -1); err != nil {
+func (q *Queue) markScanStackScanFailed(ctx context.Context, scanID string) error {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", -1); err != nil {
 		return err
 	}
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "failed", 1); err != nil {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "failed", 1); err != nil {
 		return err
 	}
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "errored", 1); err != nil {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "errored", 1); err != nil {
 		return err
 	}
-	return q.maybeFinishTask(ctx, taskID)
+	return q.maybeFinishScan(ctx, scanID)
 }
 
-func (q *Queue) MarkTaskEnqueueFailed(ctx context.Context, taskID string) error {
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "queued", -1); err != nil {
+func (q *Queue) MarkScanEnqueueFailed(ctx context.Context, scanID string) error {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "queued", -1); err != nil {
 		return err
 	}
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "failed", 1); err != nil {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "failed", 1); err != nil {
 		return err
 	}
-	if _, err := q.incrFloor(ctx, keyTaskPrefix+taskID, "errored", 1); err != nil {
+	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "errored", 1); err != nil {
 		return err
 	}
-	return q.maybeFinishTask(ctx, taskID)
+	return q.maybeFinishScan(ctx, scanID)
 }
 
 func (q *Queue) incrFloor(ctx context.Context, key, field string, delta int64) (int64, error) {
@@ -352,9 +353,9 @@ func (q *Queue) incrFloor(ctx context.Context, key, field string, delta int64) (
 	return val, nil
 }
 
-func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {
-	taskKey := keyTaskPrefix + taskID
-	values, err := q.client.HMGet(ctx, taskKey, "repo", "total", "completed", "failed").Result()
+func (q *Queue) maybeFinishScan(ctx context.Context, scanID string) error {
+	scanKey := keyScanPrefix + scanID
+	values, err := q.client.HMGet(ctx, scanKey, "repo", "total", "completed", "failed").Result()
 	if err != nil {
 		return err
 	}
@@ -368,33 +369,33 @@ func (q *Queue) maybeFinishTask(ctx context.Context, taskID string) error {
 	failed := toInt(values[3])
 
 	if total == 0 {
-		return q.finishTask(ctx, taskKey, repoName, taskID, 0)
+		return q.finishScan(ctx, scanKey, repoName, scanID, 0)
 	}
 	if completed+failed < total {
 		return nil
 	}
-	return q.finishTask(ctx, taskKey, repoName, taskID, failed)
+	return q.finishScan(ctx, scanKey, repoName, scanID, failed)
 }
 
-func (q *Queue) finishTask(ctx context.Context, taskKey, repoName, taskID string, failed int) error {
-	status := TaskStatusCompleted
+func (q *Queue) finishScan(ctx context.Context, scanKey, repoName, scanID string, failed int) error {
+	status := ScanStatusCompleted
 	if failed > 0 {
-		status = TaskStatusFailed
+		status = ScanStatusFailed
 	}
 
 	pipe := q.client.Pipeline()
-	pipe.HSet(ctx, taskKey, map[string]any{
+	pipe.HSet(ctx, scanKey, map[string]any{
 		"status":   status,
 		"ended_at": time.Now().Unix(),
 	})
 	pipe.Del(ctx, keyLockPrefix+repoName)
-	pipe.Del(ctx, keyTaskRepo+repoName)
-	pipe.Set(ctx, keyTaskLast+repoName, taskID, jobRetention)
+	pipe.Del(ctx, keyScanRepo+repoName)
+	pipe.Set(ctx, keyScanLast+repoName, scanID, scanRetention)
 	_, err := pipe.Exec(ctx)
 	return err
 }
 
-func taskFromHash(values map[string]string) (*Task, error) {
+func scanFromHash(values map[string]string) (*Scan, error) {
 	var stackTF map[string]string
 	var stackTG map[string]string
 	if raw := values["stack_tf"]; raw != "" {
@@ -404,7 +405,7 @@ func taskFromHash(values map[string]string) (*Task, error) {
 		_ = json.Unmarshal([]byte(raw), &stackTG)
 	}
 
-	task := &Task{
+	scan := &Scan{
 		ID:                values["id"],
 		RepoName:          values["repo"],
 		Trigger:           values["trigger"],
@@ -427,11 +428,11 @@ func taskFromHash(values map[string]string) (*Task, error) {
 		Errored:           toInt(values["errored"]),
 	}
 
-	task.CreatedAt = time.Unix(toInt64(values["created_at"]), 0)
-	task.StartedAt = time.Unix(toInt64(values["started_at"]), 0)
-	task.EndedAt = time.Unix(toInt64(values["ended_at"]), 0)
+	scan.CreatedAt = time.Unix(toInt64(values["created_at"]), 0)
+	scan.StartedAt = time.Unix(toInt64(values["started_at"]), 0)
+	scan.EndedAt = time.Unix(toInt64(values["ended_at"]), 0)
 
-	return task, nil
+	return scan, nil
 }
 
 func toInt(value any) int {

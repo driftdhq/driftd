@@ -113,42 +113,42 @@
     {{end}}
 </div>
 
-{{if .ActiveTask}}
-<div class="task-summary active">
+{{if .ActiveScan}}
+<div class="scan-summary active">
     <div>
         <strong>Scanning</strong>
-        <span class="meta">Task {{printf "%.7s" .ActiveTask.ID}}</span>
-        {{if and .Config .ActiveTask.CommitSHA}}
-            {{$commitURL := commitURL .Config.URL .ActiveTask.CommitSHA}}
+        <span class="meta">Scan {{printf "%.7s" .ActiveScan.ID}}</span>
+        {{if and .Config .ActiveScan.CommitSHA}}
+            {{$commitURL := commitURL .Config.URL .ActiveScan.CommitSHA}}
             {{if $commitURL}}
-                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .ActiveTask.CommitSHA}}</a></span>
+                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .ActiveScan.CommitSHA}}</a></span>
             {{else}}
-                <span class="meta">Commit {{printf "%.7s" .ActiveTask.CommitSHA}}</span>
+                <span class="meta">Commit {{printf "%.7s" .ActiveScan.CommitSHA}}</span>
             {{end}}
         {{end}}
     </div>
     <div class="progress">
         <div class="progress-bar">
             {{$pct := 0}}
-            {{if gt .ActiveTask.Total 0}}
-                {{$pct = div (mul (add .ActiveTask.Completed .ActiveTask.Failed) 100) .ActiveTask.Total}}
+            {{if gt .ActiveScan.Total 0}}
+                {{$pct = div (mul (add .ActiveScan.Completed .ActiveScan.Failed) 100) .ActiveScan.Total}}
             {{end}}
             <div class="progress-fill" style="width: {{$pct}}%"></div>
         </div>
-        <span class="meta">{{add .ActiveTask.Completed .ActiveTask.Failed}} / {{.ActiveTask.Total}}</span>
+        <span class="meta">{{add .ActiveScan.Completed .ActiveScan.Failed}} / {{.ActiveScan.Total}}</span>
     </div>
 </div>
-{{else if .LastTask}}
-<div class="task-summary">
+{{else if .LastScan}}
+<div class="scan-summary">
     <div>
         <strong>Last scan</strong>
-        <span class="meta">{{timeAgo .LastTask.EndedAt}}</span>
-        {{if and .Config .LastTask.CommitSHA}}
-            {{$commitURL := commitURL .Config.URL .LastTask.CommitSHA}}
+        <span class="meta">{{timeAgo .LastScan.EndedAt}}</span>
+        {{if and .Config .LastScan.CommitSHA}}
+            {{$commitURL := commitURL .Config.URL .LastScan.CommitSHA}}
             {{if $commitURL}}
-                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .LastTask.CommitSHA}}</a></span>
+                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .LastScan.CommitSHA}}</a></span>
             {{else}}
-                <span class="meta">Commit {{printf "%.7s" .LastTask.CommitSHA}}</span>
+                <span class="meta">Commit {{printf "%.7s" .LastScan.CommitSHA}}</span>
             {{end}}
         {{end}}
     </div>
@@ -179,7 +179,7 @@
 <p class="empty-state">Repository not found in configuration.</p>
 {{end}}
 
-{{if .ActiveTask}}
+{{if .ActiveScan}}
 <script>
     setTimeout(function () {
         window.location.reload();

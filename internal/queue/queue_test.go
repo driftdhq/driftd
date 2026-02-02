@@ -30,7 +30,7 @@ func newTestQueue(t *testing.T) *Queue {
 	return q
 }
 
-func dequeueJob(t *testing.T, q *Queue) *Job {
+func dequeueStackScan(t *testing.T, q *Queue) *StackScan {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -43,11 +43,11 @@ func dequeueJob(t *testing.T, q *Queue) *Job {
 	return job
 }
 
-func TestJobRetry(t *testing.T) {
+func TestStackScanRetry(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	job := &Job{
+	job := &StackScan{
 		RepoName:   "repo",
 		RepoURL:    "file:///repo",
 		StackPath:  "envs/dev",
@@ -58,12 +58,12 @@ func TestJobRetry(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	first := dequeueJob(t, q)
+	first := dequeueStackScan(t, q)
 	if err := q.Fail(ctx, first, "boom"); err != nil {
 		t.Fatalf("fail: %v", err)
 	}
 
-	retry := dequeueJob(t, q)
+	retry := dequeueStackScan(t, q)
 	if retry.Retries != 1 {
 		t.Fatalf("expected retries=1, got %d", retry.Retries)
 	}
@@ -75,7 +75,7 @@ func TestJobRetry(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
-	final, err := q.GetJob(ctx, job.ID)
+	final, err := q.GetStackScan(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -84,11 +84,11 @@ func TestJobRetry(t *testing.T) {
 	}
 }
 
-func TestJobRetryExhausted(t *testing.T) {
+func TestStackScanRetryExhausted(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	job := &Job{
+	job := &StackScan{
 		RepoName:   "repo",
 		RepoURL:    "file:///repo",
 		StackPath:  "envs/dev",
@@ -99,17 +99,17 @@ func TestJobRetryExhausted(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	first := dequeueJob(t, q)
+	first := dequeueStackScan(t, q)
 	if err := q.Fail(ctx, first, "boom"); err != nil {
 		t.Fatalf("fail: %v", err)
 	}
 
-	second := dequeueJob(t, q)
+	second := dequeueStackScan(t, q)
 	if err := q.Fail(ctx, second, "boom again"); err != nil {
 		t.Fatalf("fail 2: %v", err)
 	}
 
-	final, err := q.GetJob(ctx, job.ID)
+	final, err := q.GetStackScan(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -125,12 +125,12 @@ func TestLockAcquisition(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	first, err := q.StartTask(ctx, "repo", "manual", "", "", 0)
+	first, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
 	if err != nil {
-		t.Fatalf("start task: %v", err)
+		t.Fatalf("start scan: %v", err)
 	}
 
-	if _, err := q.StartTask(ctx, "repo", "manual", "", "", 0); err != ErrRepoLocked {
+	if _, err := q.StartScan(ctx, "repo", "manual", "", "", 0); err != ErrRepoLocked {
 		t.Fatalf("expected ErrRepoLocked, got %v", err)
 	}
 
@@ -142,8 +142,8 @@ func TestLockAcquisition(t *testing.T) {
 		t.Fatalf("expected repo to be locked")
 	}
 
-	if err := q.CancelTask(ctx, first.ID, "repo", "cleanup"); err != nil {
-		t.Fatalf("cancel task: %v", err)
+	if err := q.CancelScan(ctx, first.ID, "repo", "cleanup"); err != nil {
+		t.Fatalf("cancel scan: %v", err)
 	}
 
 	locked, err = q.IsRepoLocked(ctx, "repo")

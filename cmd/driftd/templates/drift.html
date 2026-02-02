@@ -15,17 +15,17 @@
     </form>
 </div>
 
-{{if .Task}}
-<div class="task-summary">
+{{if .Scan}}
+<div class="scan-summary">
     <div>
         <strong>Last scan</strong>
-        <span class="meta">{{timeAgo .Task.EndedAt}}</span>
-        {{if .Task.CommitSHA}}
-            {{$commitURL := commitURL .RepoURL .Task.CommitSHA}}
+        <span class="meta">{{timeAgo .Scan.EndedAt}}</span>
+        {{if .Scan.CommitSHA}}
+            {{$commitURL := commitURL .RepoURL .Scan.CommitSHA}}
             {{if $commitURL}}
-                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .Task.CommitSHA}}</a></span>
+                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .Scan.CommitSHA}}</a></span>
             {{else}}
-                <span class="meta">Commit {{printf "%.7s" .Task.CommitSHA}}</span>
+                <span class="meta">Commit {{printf "%.7s" .Scan.CommitSHA}}</span>
             {{end}}
         {{end}}
     </div>

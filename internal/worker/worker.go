@@ -91,43 +91,43 @@ func (w *Worker) processLoop(workerNum int) {
 			continue
 		}
 
-		w.processJob(job)
+		w.processStackScan(job)
 	}
 }
 
-func (w *Worker) processJob(job *queue.Job) {
-	log.Printf("Processing job %s: %s/%s", job.ID, job.RepoName, job.StackPath)
+func (w *Worker) processStackScan(job *queue.StackScan) {
+	log.Printf("Processing stack scan %s: %s/%s", job.ID, job.RepoName, job.StackPath)
 
 	var tfVersion, tgVersion string
 	var auth transport.AuthMethod
-	var taskID string
+	var scanID string
 	var workspacePath string
-	if job.TaskID != "" {
-		taskID = job.TaskID
-		if task, err := w.queue.GetTask(w.ctx, job.TaskID); err == nil && task != nil {
-			if task.Status == queue.TaskStatusCanceled {
-				_ = w.queue.CancelJob(w.ctx, job, "task canceled")
+	if job.ScanID != "" {
+		scanID = job.ScanID
+		if scan, err := w.queue.GetScan(w.ctx, job.ScanID); err == nil && scan != nil {
+			if scan.Status == queue.ScanStatusCanceled {
+				_ = w.queue.CancelStackScan(w.ctx, job, "scan canceled")
 				return
 			}
-			if v, ok := task.StackTFVersions[job.StackPath]; ok {
+			if v, ok := scan.StackTFVersions[job.StackPath]; ok {
 				tfVersion = v
 			} else {
-				tfVersion = task.TerraformVersion
+				tfVersion = scan.TerraformVersion
 			}
-			if v, ok := task.StackTGVersions[job.StackPath]; ok {
+			if v, ok := scan.StackTGVersions[job.StackPath]; ok {
 				tgVersion = v
 			} else {
-				tgVersion = task.TerragruntVersion
+				tgVersion = scan.TerragruntVersion
 			}
-			workspacePath = task.WorkspacePath
+			workspacePath = scan.WorkspacePath
 		}
 	}
 
 	// Create context with timeout for the plan execution
 	ctx, cancel := context.WithTimeout(w.ctx, 30*time.Minute)
 	defer cancel()
-	if taskID != "" {
-		go w.watchTaskCancel(ctx, cancel, taskID)
+	if scanID != "" {
+		go w.watchScanCancel(ctx, cancel, scanID)
 	}
 
 	if w.cfg != nil {
@@ -135,9 +135,9 @@ func (w *Worker) processJob(job *queue.Job) {
 			if workspacePath == "" {
 				authMethod, authErr := gitauth.AuthMethod(ctx, repoCfg)
 				if authErr != nil {
-					log.Printf("Job %s failed (git auth): %v", job.ID, authErr)
+					log.Printf("Stack scan %s failed (git auth): %v", job.ID, authErr)
 					if failErr := w.queue.Fail(w.ctx, job, authErr.Error()); failErr != nil {
-						log.Printf("Failed to mark job %s as failed: %v", job.ID, failErr)
+						log.Printf("Failed to mark stack scan %s as failed: %v", job.ID, failErr)
 					}
 					return
 				}
@@ -154,30 +154,30 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	if err != nil {
-		log.Printf("Job %s failed (internal error): %v", job.ID, err)
+		log.Printf("Stack scan %s failed (internal error): %v", job.ID, err)
 		if failErr := w.queue.Fail(w.ctx, job, err.Error()); failErr != nil {
-			log.Printf("Failed to mark job %s as failed: %v", job.ID, failErr)
+			log.Printf("Failed to mark stack scan %s as failed: %v", job.ID, failErr)
 		}
 		return
 	}
 
 	if result.Error != "" {
-		log.Printf("Job %s failed (plan error): %s", job.ID, result.Error)
+		log.Printf("Stack scan %s failed (plan error): %s", job.ID, result.Error)
 		if failErr := w.queue.Fail(w.ctx, job, result.Error); failErr != nil {
-			log.Printf("Failed to mark job %s as failed: %v", job.ID, failErr)
+			log.Printf("Failed to mark stack scan %s as failed: %v", job.ID, failErr)
 		}
 		return
 	}
 
-	log.Printf("Job %s completed: drifted=%v added=%d changed=%d destroyed=%d",
+	log.Printf("Stack scan %s completed: drifted=%v added=%d changed=%d destroyed=%d",
 		job.ID, result.Drifted, result.Added, result.Changed, result.Destroyed)
 
 	if completeErr := w.queue.Complete(w.ctx, job, result.Drifted); completeErr != nil {
-		log.Printf("Failed to mark job %s as completed: %v", job.ID, completeErr)
+		log.Printf("Failed to mark stack scan %s as completed: %v", job.ID, completeErr)
 	}
 }
 
-func (w *Worker) watchTaskCancel(ctx context.Context, cancel context.CancelFunc, taskID string) {
+func (w *Worker) watchScanCancel(ctx context.Context, cancel context.CancelFunc, scanID string) {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
@@ -188,11 +188,11 @@ func (w *Worker) watchTaskCancel(ctx context.Context, cancel context.CancelFunc,
 		case <-ticker.C:
 		}
 
-		task, err := w.queue.GetTask(ctx, taskID)
-		if err != nil || task == nil {
+		scan, err := w.queue.GetScan(ctx, scanID)
+		if err != nil || scan == nil {
 			continue
 		}
-		if task.Status == queue.TaskStatusCanceled {
+		if scan.Status == queue.ScanStatusCanceled {
 			cancel()
 			return
 		}

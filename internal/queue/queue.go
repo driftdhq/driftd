@@ -18,26 +18,27 @@ const (
 	StatusFailed    = "failed"
 	StatusCanceled  = "canceled"
 
-	keyQueue      = "driftd:queue:workitems"
-	keyJobPrefix  = "driftd:job:"
-	keyLockPrefix = "driftd:lock:repo:"
-	keyRepoJobs   = "driftd:jobs:repo:"
-	keyTaskPrefix = "driftd:task:"
-	keyTaskRepo   = "driftd:task:repo:"
-	keyTaskJobs   = "driftd:task:jobs:"
-	keyTaskLast   = "driftd:task:last:"
+	keyQueue           = "driftd:queue:workitems"
+	keyStackScanPrefix = "driftd:stack_scan:"
+	keyLockPrefix      = "driftd:lock:repo:"
+	keyRepoStackScans  = "driftd:stack_scans:repo:"
+	keyScanPrefix      = "driftd:scan:"
+	keyScanRepo        = "driftd:scan:repo:"
+	keyScanStackScans  = "driftd:scan:stack_scans:"
+	keyScanLast        = "driftd:scan:last:"
 
-	jobRetention = 7 * 24 * time.Hour // 7 days
+	stackScanRetention = 7 * 24 * time.Hour // 7 days
+	scanRetention      = 7 * 24 * time.Hour // 7 days
 )
 
 var (
-	ErrRepoLocked  = errors.New("repository scan already in progress")
-	ErrJobNotFound = errors.New("job not found")
+	ErrRepoLocked        = errors.New("repository scan already in progress")
+	ErrStackScanNotFound = errors.New("stack scan not found")
 )
 
-type Job struct {
+type StackScan struct {
 	ID          string    `json:"id"`
-	TaskID      string    `json:"task_id"`
+	ScanID      string    `json:"scan_id"`
 	RepoName    string    `json:"repo_name"`
 	RepoURL     string    `json:"repo_url"`
 	StackPath   string    `json:"stack_path"`
@@ -56,14 +57,14 @@ type Job struct {
 	Actor   string `json:"actor,omitempty"`
 }
 
-func (q *Queue) CancelJob(ctx context.Context, job *Job, reason string) error {
-	job.Status = StatusCanceled
-	job.CompletedAt = time.Now()
-	job.Error = reason
-	if err := q.updateJob(ctx, job); err != nil {
+func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reason string) error {
+	stackScan.Status = StatusCanceled
+	stackScan.CompletedAt = time.Now()
+	stackScan.Error = reason
+	if err := q.updateStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	return q.client.SRem(ctx, keyRepoJobs+job.RepoName, job.ID).Err()
+	return q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err()
 }
 
 type Queue struct {
@@ -95,56 +96,56 @@ func (q *Queue) Close() error {
 	return q.client.Close()
 }
 
-// Enqueue adds a job to the queue.
-func (q *Queue) Enqueue(ctx context.Context, job *Job) error {
-	// Set job defaults
-	job.Status = StatusPending
-	job.CreatedAt = time.Now()
-	if job.ID == "" {
-		job.ID = fmt.Sprintf("%s:%s:%d:%d", job.RepoName, job.StackPath, job.CreatedAt.UnixNano(), rand.Int31())
+// Enqueue adds a stack scan to the queue.
+func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
+	// Set stack scan defaults
+	stackScan.Status = StatusPending
+	stackScan.CreatedAt = time.Now()
+	if stackScan.ID == "" {
+		stackScan.ID = fmt.Sprintf("%s:%s:%d:%d", stackScan.RepoName, stackScan.StackPath, stackScan.CreatedAt.UnixNano(), rand.Int31())
 	}
 
-	// Store job
-	jobKey := keyJobPrefix + job.ID
-	jobData, err := json.Marshal(job)
+	// Store stack scan
+	stackScanKey := keyStackScanPrefix + stackScan.ID
+	stackScanData, err := json.Marshal(stackScan)
 	if err != nil {
-		return fmt.Errorf("failed to marshal job: %w", err)
+		return fmt.Errorf("failed to marshal stack scan: %w", err)
 	}
 
 	pipe := q.client.Pipeline()
-	pipe.Set(ctx, jobKey, jobData, jobRetention)
-	pipe.SAdd(ctx, keyRepoJobs+job.RepoName, job.ID)
-	if job.TaskID != "" {
-		pipe.SAdd(ctx, keyTaskJobs+job.TaskID, job.ID)
+	pipe.Set(ctx, stackScanKey, stackScanData, stackScanRetention)
+	pipe.SAdd(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID)
+	if stackScan.ScanID != "" {
+		pipe.SAdd(ctx, keyScanStackScans+stackScan.ScanID, stackScan.ID)
 	}
-	pipe.LPush(ctx, keyQueue, job.ID)
+	pipe.LPush(ctx, keyQueue, stackScan.ID)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("failed to enqueue job: %w", err)
+		return fmt.Errorf("failed to enqueue stack scan: %w", err)
 	}
 
 	return nil
 }
 
-// Dequeue blocks until a job is available, then returns it.
-// The job status is updated to "running" and the repo lock is acquired.
-func (q *Queue) Dequeue(ctx context.Context, workerID string) (*Job, error) {
+// Dequeue blocks until a stack scan is available, then returns it.
+// The stack scan status is updated to "running" and the repo lock is acquired.
+func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error) {
 	for {
-		// Block waiting for job (1 second timeout to allow checking for orphaned jobs)
+		// Block waiting for stack scan (1 second timeout to allow checking for orphaned stack scans)
 		result, err := q.client.BRPop(ctx, time.Second, keyQueue).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
-				job, findErr := q.findPendingJob(ctx)
+				stackScan, findErr := q.findPendingStackScan(ctx)
 				if findErr != nil {
 					return nil, findErr
 				}
-				if job == nil {
+				if stackScan == nil {
 					continue
 				}
-				if err := q.markJobRunning(ctx, job, workerID); err != nil {
+				if err := q.markStackScanRunning(ctx, stackScan, workerID); err != nil {
 					return nil, err
 				}
-				return job, nil
+				return stackScan, nil
 			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -152,40 +153,40 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*Job, error) {
 			return nil, fmt.Errorf("failed to dequeue: %w", err)
 		}
 
-		jobID := result[1]
-		job, err := q.GetJob(ctx, jobID)
+		stackScanID := result[1]
+		stackScan, err := q.GetStackScan(ctx, stackScanID)
 		if err != nil {
-			// Job expired or deleted, try next
+			// StackScan expired or deleted, try next
 			continue
 		}
 
-		if err := q.markJobRunning(ctx, job, workerID); err != nil {
+		if err := q.markStackScanRunning(ctx, stackScan, workerID); err != nil {
 			return nil, err
 		}
 
-		return job, nil
+		return stackScan, nil
 	}
 }
 
-func (q *Queue) markJobRunning(ctx context.Context, job *Job, workerID string) error {
-	job.Status = StatusRunning
-	job.StartedAt = time.Now()
-	job.WorkerID = workerID
-	if err := q.updateJob(ctx, job); err != nil {
+func (q *Queue) markStackScanRunning(ctx context.Context, stackScan *StackScan, workerID string) error {
+	stackScan.Status = StatusRunning
+	stackScan.StartedAt = time.Now()
+	stackScan.WorkerID = workerID
+	if err := q.updateStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	if job.TaskID != "" {
-		if err := q.markTaskJobRunning(ctx, job.TaskID); err != nil {
+	if stackScan.ScanID != "" {
+		if err := q.markScanStackScanRunning(ctx, stackScan.ScanID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (q *Queue) findPendingJob(ctx context.Context) (*Job, error) {
+func (q *Queue) findPendingStackScan(ctx context.Context) (*StackScan, error) {
 	var cursor uint64
 	for {
-		keys, next, err := q.client.Scan(ctx, cursor, keyJobPrefix+"*", 100).Result()
+		keys, next, err := q.client.Scan(ctx, cursor, keyStackScanPrefix+"*", 100).Result()
 		if err != nil {
 			return nil, err
 		}
@@ -197,12 +198,12 @@ func (q *Queue) findPendingJob(ctx context.Context) (*Job, error) {
 				}
 				return nil, err
 			}
-			var job Job
-			if err := json.Unmarshal([]byte(data), &job); err != nil {
+			var stackScan StackScan
+			if err := json.Unmarshal([]byte(data), &stackScan); err != nil {
 				continue
 			}
-			if job.Status == StatusPending {
-				return &job, nil
+			if stackScan.Status == StatusPending {
+				return &stackScan, nil
 			}
 		}
 		if next == 0 {
@@ -212,113 +213,113 @@ func (q *Queue) findPendingJob(ctx context.Context) (*Job, error) {
 	}
 }
 
-// Complete marks a job as completed and releases the repo lock.
-func (q *Queue) Complete(ctx context.Context, job *Job, drifted bool) error {
-	job.Status = StatusCompleted
-	job.CompletedAt = time.Now()
-	if err := q.updateJob(ctx, job); err != nil {
+// Complete marks a stack scan as completed and releases the repo lock.
+func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool) error {
+	stackScan.Status = StatusCompleted
+	stackScan.CompletedAt = time.Now()
+	if err := q.updateStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	if err := q.client.SRem(ctx, keyRepoJobs+job.RepoName, job.ID).Err(); err != nil {
+	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
 		return err
 	}
-	if job.TaskID != "" {
-		return q.markTaskJobCompleted(ctx, job.TaskID, drifted)
+	if stackScan.ScanID != "" {
+		return q.markScanStackScanCompleted(ctx, stackScan.ScanID, drifted)
 	}
 	return nil
 }
 
-// Fail marks a job as failed. If retries remain, re-queues it.
-func (q *Queue) Fail(ctx context.Context, job *Job, errMsg string) error {
-	job.Error = errMsg
-	job.Retries++
+// Fail marks a stack scan as failed. If retries remain, re-queues it.
+func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) error {
+	stackScan.Error = errMsg
+	stackScan.Retries++
 
-	if job.Retries <= job.MaxRetries {
+	if stackScan.Retries <= stackScan.MaxRetries {
 		// Re-queue for retry
-		job.Status = StatusPending
-		job.StartedAt = time.Time{}
-		job.WorkerID = ""
-		if err := q.updateJob(ctx, job); err != nil {
+		stackScan.Status = StatusPending
+		stackScan.StartedAt = time.Time{}
+		stackScan.WorkerID = ""
+		if err := q.updateStackScan(ctx, stackScan); err != nil {
 			return err
 		}
-		if job.TaskID != "" {
-			if err := q.markTaskJobRetry(ctx, job.TaskID); err != nil {
+		if stackScan.ScanID != "" {
+			if err := q.markScanStackScanRetry(ctx, stackScan.ScanID); err != nil {
 				return err
 			}
 		}
-		return q.client.LPush(ctx, keyQueue, job.ID).Err()
+		return q.client.LPush(ctx, keyQueue, stackScan.ID).Err()
 	}
 
-	job.Status = StatusFailed
-	job.CompletedAt = time.Now()
-	if err := q.updateJob(ctx, job); err != nil {
+	stackScan.Status = StatusFailed
+	stackScan.CompletedAt = time.Now()
+	if err := q.updateStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	if err := q.client.SRem(ctx, keyRepoJobs+job.RepoName, job.ID).Err(); err != nil {
+	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
 		return err
 	}
-	if job.TaskID != "" {
-		return q.markTaskJobFailed(ctx, job.TaskID)
+	if stackScan.ScanID != "" {
+		return q.markScanStackScanFailed(ctx, stackScan.ScanID)
 	}
 	return nil
 }
 
-// GetJob retrieves a job by ID.
-func (q *Queue) GetJob(ctx context.Context, jobID string) (*Job, error) {
-	jobKey := keyJobPrefix + jobID
-	data, err := q.client.Get(ctx, jobKey).Result()
+// GetStackScan retrieves a stack scan by ID.
+func (q *Queue) GetStackScan(ctx context.Context, stackScanID string) (*StackScan, error) {
+	stackScanKey := keyStackScanPrefix + stackScanID
+	data, err := q.client.Get(ctx, stackScanKey).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, ErrJobNotFound
+			return nil, ErrStackScanNotFound
 		}
-		return nil, fmt.Errorf("failed to get job: %w", err)
+		return nil, fmt.Errorf("failed to get stack scan: %w", err)
 	}
 
-	var job Job
-	if err := json.Unmarshal([]byte(data), &job); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal job: %w", err)
+	var stackScan StackScan
+	if err := json.Unmarshal([]byte(data), &stackScan); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal stack scan: %w", err)
 	}
-	return &job, nil
+	return &stackScan, nil
 }
 
-// ListRepoJobs returns recent jobs for a repo.
-func (q *Queue) ListRepoJobs(ctx context.Context, repoName string, limit int) ([]*Job, error) {
-	jobIDs, err := q.client.SMembers(ctx, keyRepoJobs+repoName).Result()
+// ListRepoStackScans returns recent stack scans for a repo.
+func (q *Queue) ListRepoStackScans(ctx context.Context, repoName string, limit int) ([]*StackScan, error) {
+	stackScanIDs, err := q.client.SMembers(ctx, keyRepoStackScans+repoName).Result()
 	if err != nil {
-		return nil, fmt.Errorf("failed to list job IDs: %w", err)
+		return nil, fmt.Errorf("failed to list stack scan IDs: %w", err)
 	}
 
-	if len(jobIDs) == 0 {
+	if len(stackScanIDs) == 0 {
 		return nil, nil
 	}
-	if limit > 0 && len(jobIDs) > limit {
-		jobIDs = jobIDs[:limit]
+	if limit > 0 && len(stackScanIDs) > limit {
+		stackScanIDs = stackScanIDs[:limit]
 	}
 
 	pipe := q.client.Pipeline()
-	cmds := make([]*redis.StringCmd, len(jobIDs))
-	for i, id := range jobIDs {
-		cmds[i] = pipe.Get(ctx, keyJobPrefix+id)
+	cmds := make([]*redis.StringCmd, len(stackScanIDs))
+	for i, id := range stackScanIDs {
+		cmds[i] = pipe.Get(ctx, keyStackScanPrefix+id)
 	}
 	_, err = pipe.Exec(ctx)
 	if err != nil && !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("failed to fetch jobs: %w", err)
+		return nil, fmt.Errorf("failed to fetch stack scans: %w", err)
 	}
 
-	var jobs []*Job
+	var stackScans []*StackScan
 	for _, cmd := range cmds {
 		data, err := cmd.Result()
 		if err != nil {
-			continue // Job expired
+			continue // StackScan expired
 		}
-		var job Job
-		if err := json.Unmarshal([]byte(data), &job); err != nil {
+		var stackScan StackScan
+		if err := json.Unmarshal([]byte(data), &stackScan); err != nil {
 			continue
 		}
-		jobs = append(jobs, &job)
+		stackScans = append(stackScans, &stackScan)
 	}
 
-	return jobs, nil
+	return stackScans, nil
 }
 
 // IsRepoLocked checks if a repo scan is in progress.
@@ -330,13 +331,13 @@ func (q *Queue) IsRepoLocked(ctx context.Context, repoName string) (bool, error)
 	return locked > 0, nil
 }
 
-func (q *Queue) updateJob(ctx context.Context, job *Job) error {
-	jobKey := keyJobPrefix + job.ID
-	jobData, err := json.Marshal(job)
+func (q *Queue) updateStackScan(ctx context.Context, stackScan *StackScan) error {
+	stackScanKey := keyStackScanPrefix + stackScan.ID
+	stackScanData, err := json.Marshal(stackScan)
 	if err != nil {
-		return fmt.Errorf("failed to marshal job: %w", err)
+		return fmt.Errorf("failed to marshal stack scan: %w", err)
 	}
-	return q.client.Set(ctx, jobKey, jobData, jobRetention).Err()
+	return q.client.Set(ctx, stackScanKey, stackScanData, stackScanRetention).Err()
 }
 
 func (q *Queue) releaseLock(ctx context.Context, repoName string) error {

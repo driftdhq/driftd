@@ -31,13 +31,13 @@ type WorkerConfig struct {
 	Concurrency int           `yaml:"concurrency"`
 	LockTTL     time.Duration `yaml:"lock_ttl"`
 	RetryOnce   bool          `yaml:"retry_once"`
-	TaskMaxAge  time.Duration `yaml:"task_max_age"`
+	ScanMaxAge  time.Duration `yaml:"scan_max_age"`
 	RenewEvery  time.Duration `yaml:"renew_every"`
 }
 
 type WorkspaceConfig struct {
 	Retention        int   `yaml:"retention"`          // number of workspace snapshots to keep per repo
-	CleanupAfterPlan *bool `yaml:"cleanup_after_plan"` // remove terraform/terragrunt artifacts from task workspaces
+	CleanupAfterPlan *bool `yaml:"cleanup_after_plan"` // remove terraform/terragrunt artifacts from scan workspaces
 }
 
 type WebhookConfig struct {
@@ -133,7 +133,7 @@ func Load(path string) (*Config, error) {
 			Concurrency: 5,
 			LockTTL:     30 * time.Minute,
 			RetryOnce:   true,
-			TaskMaxAge:  6 * time.Hour,
+			ScanMaxAge:  6 * time.Hour,
 			RenewEvery:  0,
 		},
 		Workspace: WorkspaceConfig{
@@ -186,8 +186,8 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	if cfg.Worker.LockTTL == 0 {
 		cfg.Worker.LockTTL = 30 * time.Minute
 	}
-	if cfg.Worker.TaskMaxAge == 0 {
-		cfg.Worker.TaskMaxAge = 6 * time.Hour
+	if cfg.Worker.ScanMaxAge == 0 {
+		cfg.Worker.ScanMaxAge = 6 * time.Hour
 	}
 	if cfg.Worker.RenewEvery == 0 {
 		cfg.Worker.RenewEvery = cfg.Worker.LockTTL / 3

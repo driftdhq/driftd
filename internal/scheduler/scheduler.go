@@ -70,18 +70,18 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
 		maxRetries = 1
 	}
 
-	task, err := s.queue.StartTask(ctx, repoName, "scheduled", "", "", 0)
+	scan, err := s.queue.StartScan(ctx, repoName, "scheduled", "", "", 0)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
-			activeTask, activeErr := s.queue.GetActiveTask(ctx, repoName)
-			if repoCfg != nil && repoCfg.CancelInflightEnabled() && activeErr == nil && activeTask != nil {
+			activeScan, activeErr := s.queue.GetActiveScan(ctx, repoName)
+			if repoCfg != nil && repoCfg.CancelInflightEnabled() && activeErr == nil && activeScan != nil {
 				newPriority := queue.TriggerPriority("scheduled")
-				activePriority := queue.TriggerPriority(activeTask.Trigger)
+				activePriority := queue.TriggerPriority(activeScan.Trigger)
 				if newPriority >= activePriority {
-					_ = s.queue.CancelTask(ctx, activeTask.ID, repoName, "superseded by new schedule")
-					task, err = s.queue.StartTask(ctx, repoName, "scheduled", "", "", 0)
+					_ = s.queue.CancelScan(ctx, activeScan.ID, repoName, "superseded by new schedule")
+					scan, err = s.queue.StartScan(ctx, repoName, "scheduled", "", "", 0)
 					if err != nil {
-						log.Printf("Failed to start task for %s after cancel: %v", repoName, err)
+						log.Printf("Failed to start scan for %s after cancel: %v", repoName, err)
 						return
 					}
 				} else {
@@ -93,68 +93,68 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
 				return
 			}
 		} else {
-			log.Printf("Failed to start task for %s: %v", repoName, err)
+			log.Printf("Failed to start scan for %s: %v", repoName, err)
 			return
 		}
 	}
 	// Use Background context because renewal must continue independent of the scheduler tick.
-	// The goroutine exits when task status changes to completed/failed/canceled.
-	go s.queue.RenewTaskLock(context.Background(), task.ID, repoName, s.cfg.Worker.TaskMaxAge, s.cfg.Worker.RenewEvery)
+	// The goroutine exits when scan status changes to completed/failed/canceled.
+	go s.queue.RenewScanLock(context.Background(), scan.ID, repoName, s.cfg.Worker.ScanMaxAge, s.cfg.Worker.RenewEvery)
 
 	auth, err := gitauth.AuthMethod(ctx, repoCfg)
 	if err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoName, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, err.Error())
 		log.Printf("Failed to resolve git auth for %s: %v", repoName, err)
 		return
 	}
 
-	workspacePath, commitSHA, err := cloneWorkspace(ctx, s.cfg.DataDir, repoCfg, task.ID, auth)
+	workspacePath, commitSHA, err := cloneWorkspace(ctx, s.cfg.DataDir, repoCfg, scan.ID, auth)
 	if err != nil {
 		if workspacePath != "" {
 			_ = os.RemoveAll(filepath.Dir(workspacePath))
 		}
-		_ = s.queue.FailTask(ctx, task.ID, repoName, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, err.Error())
 		log.Printf("Failed to clone workspace for %s: %v", repoName, err)
 		return
 	}
-	if err := s.queue.SetTaskWorkspace(ctx, task.ID, workspacePath, commitSHA); err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoName, fmt.Sprintf("failed to set workspace: %v", err))
+	if err := s.queue.SetScanWorkspace(ctx, scan.ID, workspacePath, commitSHA); err != nil {
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, fmt.Sprintf("failed to set workspace: %v", err))
 		log.Printf("Failed to set workspace for %s: %v", repoName, err)
 		return
 	}
 
 	discovered, err := stack.Discover(workspacePath, repoCfg.IgnorePaths)
 	if err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoName, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, err.Error())
 		log.Printf("Failed to discover stacks for %s: %v", repoName, err)
 		return
 	}
 	if len(discovered) == 0 {
-		_ = s.queue.FailTask(ctx, task.ID, repoName, "no stacks discovered")
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, "no stacks discovered")
 		log.Printf("No stacks discovered for %s", repoName)
 		return
 	}
 
 	versions, err := version.Detect(workspacePath, discovered)
 	if err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoName, err.Error())
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, err.Error())
 		log.Printf("Failed to detect versions for %s: %v", repoName, err)
 		return
 	}
-	if err := s.queue.SetTaskVersions(ctx, task.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt); err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoName, fmt.Sprintf("failed to set versions: %v", err))
+	if err := s.queue.SetScanVersions(ctx, scan.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt); err != nil {
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, fmt.Sprintf("failed to set versions: %v", err))
 		log.Printf("Failed to set versions for %s: %v", repoName, err)
 		return
 	}
-	if err := s.queue.SetTaskTotal(ctx, task.ID, len(discovered)); err != nil {
-		_ = s.queue.FailTask(ctx, task.ID, repoName, fmt.Sprintf("failed to set task total: %v", err))
-		log.Printf("Failed to set task total for %s: %v", repoName, err)
+	if err := s.queue.SetScanTotal(ctx, scan.ID, len(discovered)); err != nil {
+		_ = s.queue.FailScan(ctx, scan.ID, repoName, fmt.Sprintf("failed to set scan total: %v", err))
+		log.Printf("Failed to set scan total for %s: %v", repoName, err)
 		return
 	}
 
 	for _, stackPath := range discovered {
-		job := &queue.Job{
-			TaskID:     task.ID,
+		job := &queue.StackScan{
+			ScanID:     scan.ID,
 			RepoName:   repoName,
 			RepoURL:    repoURL,
 			StackPath:  stackPath,
@@ -163,7 +163,7 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
 		}
 
 		if err := s.queue.Enqueue(ctx, job); err != nil {
-			_ = s.queue.MarkTaskEnqueueFailed(ctx, task.ID)
+			_ = s.queue.MarkScanEnqueueFailed(ctx, scan.ID)
 			log.Printf("Failed to enqueue scheduled scan for %s/%s: %v", repoName, stackPath, err)
 			continue
 		}
@@ -172,8 +172,8 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
 	}
 }
 
-func cloneWorkspace(ctx context.Context, dataDir string, repoCfg *config.RepoConfig, taskID string, auth transport.AuthMethod) (string, string, error) {
-	base := filepath.Join(dataDir, "workspaces", repoCfg.Name, taskID, "repo")
+func cloneWorkspace(ctx context.Context, dataDir string, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (string, string, error) {
+	base := filepath.Join(dataDir, "workspaces", repoCfg.Name, scanID, "repo")
 	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
 		return base, "", err
 	}

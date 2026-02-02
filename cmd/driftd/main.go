@@ -55,7 +55,7 @@ Usage:
 
 Commands:
   serve    Start the web server (API + UI + scheduler)
-  worker   Start a worker process (job processing)
+  worker   Start a worker process (stack scan processing)
 
 Options:
   -config string   Path to config file (default "config.yaml")
@@ -160,6 +160,6 @@ func runWorker(args []string) {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	<-done
-	log.Println("Shutting down, waiting for in-flight jobs...")
+	log.Println("Shutting down, waiting for in-flight stack scans...")
 	w.Stop()
 }

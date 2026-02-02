@@ -48,7 +48,7 @@ config:
     concurrency: 5
     lock_ttl: 30m
     retry_once: true
-    task_max_age: 6h
+    scan_max_age: 6h
     renew_every: 10s
   workspace:
     retention: 5
