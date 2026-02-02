@@ -18,14 +18,15 @@ const (
 	StatusFailed    = "failed"
 	StatusCanceled  = "canceled"
 
-	keyQueue           = "driftd:queue:workitems"
-	keyStackScanPrefix = "driftd:stack_scan:"
-	keyLockPrefix      = "driftd:lock:repo:"
-	keyRepoStackScans  = "driftd:stack_scans:repo:"
-	keyScanPrefix      = "driftd:scan:"
-	keyScanRepo        = "driftd:scan:repo:"
-	keyScanStackScans  = "driftd:scan:stack_scans:"
-	keyScanLast        = "driftd:scan:last:"
+	keyQueue                 = "driftd:queue:workitems"
+	keyStackScanPrefix       = "driftd:stack_scan:"
+	keyLockPrefix            = "driftd:lock:repo:"
+	keyRepoStackScans        = "driftd:stack_scans:repo:"
+	keyRepoStackScansOrdered = "driftd:stack_scans:repo:ordered:"
+	keyScanPrefix            = "driftd:scan:"
+	keyScanRepo              = "driftd:scan:repo:"
+	keyScanStackScans        = "driftd:scan:stack_scans:"
+	keyScanLast              = "driftd:scan:last:"
 
 	stackScanRetention = 7 * 24 * time.Hour // 7 days
 	scanRetention      = 7 * 24 * time.Hour // 7 days
@@ -64,7 +65,10 @@ func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reaso
 	if err := q.updateStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	return q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err()
+	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+		return err
+	}
+	return q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err()
 }
 
 type Queue struct {
@@ -115,6 +119,10 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 	pipe := q.client.Pipeline()
 	pipe.Set(ctx, stackScanKey, stackScanData, stackScanRetention)
 	pipe.SAdd(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID)
+	pipe.ZAdd(ctx, keyRepoStackScansOrdered+stackScan.RepoName, redis.Z{
+		Score:  float64(stackScan.CreatedAt.Unix()),
+		Member: stackScan.ID,
+	})
 	if stackScan.ScanID != "" {
 		pipe.SAdd(ctx, keyScanStackScans+stackScan.ScanID, stackScan.ID)
 	}
@@ -223,6 +231,9 @@ func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool
 	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
 		return err
 	}
+	if err := q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+		return err
+	}
 	if stackScan.ScanID != "" {
 		return q.markScanStackScanCompleted(ctx, stackScan.ScanID, drifted)
 	}
@@ -258,6 +269,9 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
 		return err
 	}
+	if err := q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+		return err
+	}
 	if stackScan.ScanID != "" {
 		return q.markScanStackScanFailed(ctx, stackScan.ScanID)
 	}
@@ -284,16 +298,19 @@ func (q *Queue) GetStackScan(ctx context.Context, stackScanID string) (*StackSca
 
 // ListRepoStackScans returns recent stack scans for a repo.
 func (q *Queue) ListRepoStackScans(ctx context.Context, repoName string, limit int) ([]*StackScan, error) {
-	stackScanIDs, err := q.client.SMembers(ctx, keyRepoStackScans+repoName).Result()
+	stop := int64(-1)
+	if limit > 0 {
+		stop = int64(limit - 1)
+	}
+	stackScanIDs, err := q.client.ZRevRange(ctx, keyRepoStackScansOrdered+repoName, 0, stop).Result()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to list stack scan IDs: %w", err)
 	}
-
 	if len(stackScanIDs) == 0 {
 		return nil, nil
-	}
-	if limit > 0 && len(stackScanIDs) > limit {
-		stackScanIDs = stackScanIDs[:limit]
 	}
 
 	pipe := q.client.Pipeline()
