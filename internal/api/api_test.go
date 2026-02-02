@@ -3,6 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -352,7 +355,286 @@ func TestScanStackNotFound(t *testing.T) {
 	}
 }
 
+func TestAPIAuthToken(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.APIAuth.Token = "secret"
+		cfg.APIAuth.TokenHeader = "X-API-Token"
+	})
+	defer cleanup()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/health", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, ts.URL+"/api/health", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-API-Token", "secret")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestAPIBasicAuth(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.APIAuth.Username = "driftd"
+		cfg.APIAuth.Password = "change-me"
+	})
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/health")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/health", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.SetBasicAuth("driftd", "change-me")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestRateLimitScan(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.API.RateLimitPerMinute = 1
+	})
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request 2 failed: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", resp2.StatusCode)
+	}
+}
+
+func TestWebhookIgnoresNonInfraFiles(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Webhook.Enabled = true
+		cfg.Webhook.GitHubSecret = "secret"
+	})
+	defer cleanup()
+
+	payload := gitHubPushPayload{
+		Ref: "refs/heads/main",
+		Repository: struct {
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			DefaultBranch string `json:"default_branch"`
+		}{
+			Name:          "repo",
+			DefaultBranch: "main",
+		},
+		Commits: []struct {
+			Added    []string `json:"added"`
+			Modified []string `json:"modified"`
+			Removed  []string `json:"removed"`
+		}{
+			{Modified: []string{"README.md"}},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/webhooks/github", bytes.NewBuffer(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+computeTestHMAC(body, "secret"))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+	if _, err := q.GetActiveTask(context.Background(), "repo"); err != queue.ErrTaskNotFound {
+		t.Fatalf("expected no active task")
+	}
+}
+
+func TestWebhookIgnoresUnmatchedInfraFiles(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Webhook.Enabled = true
+		cfg.Webhook.GitHubSecret = "secret"
+	})
+	defer cleanup()
+
+	payload := gitHubPushPayload{
+		Ref: "refs/heads/main",
+		Repository: struct {
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			DefaultBranch string `json:"default_branch"`
+		}{
+			Name:          "repo",
+			DefaultBranch: "main",
+		},
+		Commits: []struct {
+			Added    []string `json:"added"`
+			Modified []string `json:"modified"`
+			Removed  []string `json:"removed"`
+		}{
+			{Modified: []string{"modules/vpc/main.tf"}},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/webhooks/github", bytes.NewBuffer(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+computeTestHMAC(body, "secret"))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
+	}
+	if _, err := q.GetActiveTask(context.Background(), "repo"); err != queue.ErrTaskNotFound {
+		t.Fatalf("expected no active task")
+	}
+	jobs, err := q.ListRepoJobs(context.Background(), "repo", 10)
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	if len(jobs) != 0 {
+		t.Fatalf("expected no jobs, got %d", len(jobs))
+	}
+}
+
+func TestSelectStacksForChanges(t *testing.T) {
+	stacks := []string{"envs/prod", "envs/dev"}
+	changes := []string{"envs/prod/main.tf"}
+	selected := selectStacksForChanges(stacks, changes)
+	if len(selected) != 1 || selected[0] != "envs/prod" {
+		t.Fatalf("unexpected selection: %#v", selected)
+	}
+}
+
+func TestTriggerPriorityDoesNotCancelScheduledOverManual(t *testing.T) {
+	runner := &fakeRunner{}
+	srv, _, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, nil)
+	defer cleanup()
+
+	repoCfg := srv.cfg.GetRepo("repo")
+	task, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "manual", "", "")
+	if err != nil {
+		t.Fatalf("start task: %v", err)
+	}
+
+	if _, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "scheduled", "", ""); err != queue.ErrRepoLocked {
+		t.Fatalf("expected repo locked, got %v", err)
+	}
+
+	taskAfter, err := srv.queue.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if taskAfter.Status != queue.TaskStatusRunning {
+		t.Fatalf("expected running, got %s", taskAfter.Status)
+	}
+}
+
+func TestTriggerPriorityCancelsOnNewerManual(t *testing.T) {
+	runner := &fakeRunner{}
+	srv, _, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, nil)
+	defer cleanup()
+
+	repoCfg := srv.cfg.GetRepo("repo")
+	first, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "manual", "", "")
+	if err != nil {
+		t.Fatalf("start task: %v", err)
+	}
+
+	second, _, err := srv.startTaskWithCancel(context.Background(), repoCfg, "webhook", "", "")
+	if err != nil {
+		t.Fatalf("start task 2: %v", err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("expected new task id")
+	}
+
+	firstTask, err := srv.queue.GetTask(context.Background(), first.ID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if firstTask.Status != queue.TaskStatusCanceled {
+		t.Fatalf("expected canceled, got %s", firstTask.Status)
+	}
+}
+
+func TestIsInfraFile(t *testing.T) {
+	cases := map[string]bool{
+		"main.tf":            true,
+		"vars.tf.json":       true,
+		"env.tfvars":         true,
+		"env.tfvars.json":    true,
+		"terragrunt.hcl":     true,
+		"modules/app.hcl":    true,
+		"README.md":          false,
+		"scripts/deploy.sh":  false,
+		"config.yaml":        false,
+		"module/outputs.txt": false,
+	}
+	for path, want := range cases {
+		if got := isInfraFile(path); got != want {
+			t.Fatalf("isInfraFile(%q)=%v, want %v", path, got, want)
+		}
+	}
+}
+
 func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker bool, versions *testVersions, cancelInflight bool) (*httptest.Server, *queue.Queue, func()) {
+	t.Helper()
+	_, server, q, cleanup := newTestServerWithConfig(t, r, stacks, startWorker, versions, cancelInflight, nil)
+	return server, q, cleanup
+}
+
+func newTestServerWithConfig(t *testing.T, r worker.Runner, stacks []string, startWorker bool, versions *testVersions, cancelInflight bool, mutate func(*config.Config)) (*Server, *httptest.Server, *queue.Queue, func()) {
 	t.Helper()
 
 	mr, err := miniredis.Run()
@@ -386,6 +668,10 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 		},
 	}
 
+	if mutate != nil {
+		mutate(cfg)
+	}
+
 	q, err := queue.New(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB, cfg.Worker.LockTTL)
 	if err != nil {
 		t.Fatalf("queue: %v", err)
@@ -417,7 +703,7 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 		mr.Close()
 	}
 
-	return server, q, cleanup
+	return srv, server, q, cleanup
 }
 
 func waitForTask(t *testing.T, ts *httptest.Server, taskID string, timeout time.Duration) *queue.Task {
@@ -534,4 +820,10 @@ func createTestRepo(t *testing.T, stacks []string, versions *testVersions) strin
 		t.Fatalf("git commit: %v", err)
 	}
 	return dir
+}
+
+func computeTestHMAC(payload []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
 }

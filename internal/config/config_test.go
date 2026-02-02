@@ -45,6 +45,28 @@ func TestLoadValidation(t *testing.T) {
 			t.Fatalf("expected error for large renew_every")
 		}
 	})
+
+	t.Run("cancel_inflight_defaults_true", func(t *testing.T) {
+		path := writeTempConfig(t, "repos:\n  - name: repo\n    url: https://example.com/repo.git\n")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.Repos[0].CancelInflightEnabled() {
+			t.Fatalf("expected cancel_inflight_on_new_trigger default true")
+		}
+	})
+
+	t.Run("cancel_inflight_false", func(t *testing.T) {
+		path := writeTempConfig(t, "repos:\n  - name: repo\n    url: https://example.com/repo.git\n    cancel_inflight_on_new_trigger: false\n")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Repos[0].CancelInflightEnabled() {
+			t.Fatalf("expected cancel_inflight_on_new_trigger false")
+		}
+	})
 }
 
 func writeTempConfig(t *testing.T, contents string) string {

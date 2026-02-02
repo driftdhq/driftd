@@ -821,6 +821,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 
 	targetStacks := selectStacksForChanges(stacks, changedFiles)
 	if len(targetStacks) == 0 {
+		_ = s.queue.FailTask(r.Context(), task.ID, repoName, "no matching stacks for webhook changes")
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}

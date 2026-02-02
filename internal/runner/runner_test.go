@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -98,6 +99,55 @@ func TestDetectToolTerragrunt(t *testing.T) {
 	}
 	if got := detectTool(dir); got != "terragrunt" {
 		t.Fatalf("expected terragrunt, got %s", got)
+	}
+}
+
+func TestFilteredEnv(t *testing.T) {
+	if err := os.Setenv("TF_TEST_VAR", "1"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("TERRAGRUNT_TEST_VAR", "2"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("SHOULD_NOT_LEAK", "nope"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("HOME", "/tmp"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("PATH", "/bin"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("TMPDIR", "/tmpdir"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	defer func() {
+		_ = os.Unsetenv("TF_TEST_VAR")
+		_ = os.Unsetenv("TERRAGRUNT_TEST_VAR")
+		_ = os.Unsetenv("SHOULD_NOT_LEAK")
+	}()
+
+	env := filteredEnv()
+	envMap := map[string]string{}
+	for _, entry := range env {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		envMap[parts[0]] = parts[1]
+	}
+
+	if envMap["TF_TEST_VAR"] != "1" {
+		t.Fatalf("expected TF_TEST_VAR in env")
+	}
+	if envMap["TERRAGRUNT_TEST_VAR"] != "2" {
+		t.Fatalf("expected TERRAGRUNT_TEST_VAR in env")
+	}
+	if _, ok := envMap["SHOULD_NOT_LEAK"]; ok {
+		t.Fatalf("unexpected SHOULD_NOT_LEAK in env")
+	}
+	if envMap["HOME"] == "" || envMap["PATH"] == "" || envMap["TMPDIR"] == "" {
+		t.Fatalf("expected HOME, PATH, TMPDIR to be present")
 	}
 }
 
