@@ -16,15 +16,15 @@
 
 ---
 
-## What is Driftd?
+## What is driftd?
 
-Driftd is a read-only drift detection service for Terraform and Terragrunt.
+driftd is a read-only drift detection service for Terraform and Terragrunt.
 It continuously runs `terraform plan` against your infrastructure code and
 surfaces drift in a web UI and API. It does **not** apply changes, manage state,
 run CI pipelines, or replace Terraform workflows—it is a visibility layer that
 fits alongside tools like Atlantis or CI-based applies.
 
-Use Driftd when you want fast, continuous insight into drift across many stacks
+Use driftd when you want fast, continuous insight into drift across many stacks
 and repositories without adding risk to your apply pipeline.
 
 ## Quick Mental Model
@@ -341,7 +341,7 @@ webhook:
   # max_files: 300
 ```
 
-Driftd listens on `POST /api/webhooks/github`. For push events on the default
+driftd listens on `POST /api/webhooks/github`. For push events on the default
 branch, it maps changed files to stacks and re-plans only affected stacks.
 
 When `webhook.enabled` is true, you must provide `github_secret` or `token` for authentication.
@@ -382,7 +382,7 @@ api:
 <details>
 <summary><b>Cloud Provider Credentials</b></summary>
 
-Driftd does not manage cloud credentials. Terraform runs with whatever credentials you provide:
+driftd does not manage cloud credentials. Terraform runs with whatever credentials you provide:
 
 - **Environment variables**: `AWS_ACCESS_KEY_ID`, `GOOGLE_APPLICATION_CREDENTIALS`, `ARM_*`
 - **Mounted config**: `~/.aws/credentials`, `~/.config/gcloud`
@@ -395,7 +395,7 @@ The Helm chart supports `server.envFrom` and `worker.envFrom` for mounting secre
 <details>
 <summary><b>Version Detection</b></summary>
 
-Driftd uses [tfswitch](https://tfswitch.warrensbox.com/) and [tgswitch](https://github.com/warrensbox/tgswitch) to detect versions from:
+driftd uses [tfswitch](https://tfswitch.warrensbox.com/) and [tgswitch](https://github.com/warrensbox/tgswitch) to detect versions from:
 
 - `.terraform-version` / `.terragrunt-version` files
 - `required_version` in terraform configuration
@@ -498,7 +498,7 @@ with `workspace.retention` and by pruning old plan outputs.
 
 ## Security Model
 
-- Read-only by design: Driftd never applies changes.
+- Read-only by design: driftd never applies changes.
 - Plan output can include secrets: treat stored plans as sensitive data.
 - Restrict API and UI access (VPN, reverse proxy, or built-in auth).
 - Webhooks should always be authenticated (HMAC or shared token).
