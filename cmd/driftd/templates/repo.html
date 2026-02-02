@@ -10,9 +10,9 @@
             <span class="stack-meta">{{.Total}} stacks</span>
         </div>
         <div class="stack-cell status">
-            {{if .Error}}<span class="badge badge-error">{{.Error}} error</span>{{end}}
-            {{if .Drifted}}<span class="badge badge-drift">{{.Drifted}} drift</span>{{end}}
-            {{if .Ok}}<span class="badge badge-ok">{{.Ok}} ok</span>{{end}}
+            {{if .Error}}<span class="badge badge-error">{{.Error}} {{pluralize "error" "errors" .Error}}</span>{{end}}
+            {{if .Drifted}}<span class="badge badge-drift">{{.Drifted}} {{pluralize "drift" "drifts" .Drifted}}</span>{{end}}
+            {{if .Ok}}<span class="badge badge-ok">{{.Ok}} {{pluralize "ok" "ok" .Ok}}</span>{{end}}
         </div>
         <div class="stack-cell changes">-</div>
         <div class="stack-cell run">-</div>
@@ -127,6 +127,14 @@
 <p class="empty-state">No scans yet. Click "Scan All Stacks" to start.</p>
 {{else}}
 <p class="empty-state">Repository not found in configuration.</p>
+{{end}}
+
+{{if .ActiveTask}}
+<script>
+    setTimeout(function () {
+        window.location.reload();
+    }, 5000);
+</script>
 {{end}}
 
 {{end}}

@@ -589,6 +589,22 @@ a:hover {
     box-shadow: var(--shadow);
 }
 
+.plan-output .plan-line {
+    display: inline;
+}
+
+.plan-output .plan-add {
+    color: var(--green);
+}
+
+.plan-output .plan-remove {
+    color: var(--red);
+}
+
+.plan-output .plan-change {
+    color: var(--yellow);
+}
+
 .empty-state {
     color: var(--text-muted);
     padding: 2rem;

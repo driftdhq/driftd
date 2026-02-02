@@ -40,7 +40,7 @@ func buildStackTree(repoName string, stacks []storage.StackStatus) []*stackNode 
 					Path:     strings.Join(pathParts, "/"),
 					RepoName: repoName,
 					Depth:    current.Depth + 1,
-					Open:     current.Depth+1 < 2,
+					Open:     true,
 				}
 				if current.children == nil {
 					current.children = make(map[string]*stackNode)

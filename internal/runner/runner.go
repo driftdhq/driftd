@@ -149,6 +149,7 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	if err := os.MkdirAll(dataDir, 0755); err == nil {
 		defer os.RemoveAll(dataDir)
 	}
+	ensureCacheDir(os.Getenv("TF_PLUGIN_CACHE_DIR"))
 
 	if tool == "terraform" {
 		initCmd := exec.CommandContext(ctx, tfBin, "init", "-input=false")
@@ -179,6 +180,13 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 
 	err := planCmd.Run()
 	return output.String(), err
+}
+
+func ensureCacheDir(path string) {
+	if path == "" {
+		path = "/cache/terraform/plugins"
+	}
+	_ = os.MkdirAll(path, 0755)
 }
 
 var planSummaryRegex = regexp.MustCompile(`Plan: (\d+) to add, (\d+) to change, (\d+) to destroy`)

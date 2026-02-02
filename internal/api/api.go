@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"html/template"
 	"io"
 	"io/fs"
@@ -59,10 +60,17 @@ type rateLimiterEntry struct {
 const csrfCookieName = "driftd_csrf"
 
 var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
 func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, staticFS fs.FS) (*Server, error) {
 	funcMap := template.FuncMap{
 		"timeAgo": timeAgo,
+		"pluralize": func(singular, plural string, count int) string {
+			if count == 1 {
+				return singular
+			}
+			return plural
+		},
 		"add": func(a, b int) int {
 			return a + b
 		},
@@ -312,6 +320,7 @@ func (s *Server) getRateLimiter(ip string) *rate.Limiter {
 type indexData struct {
 	Repos        []repoStatusData
 	ConfigRepos  []config.RepoConfig
+	RepoByName   map[string]repoStatusData
 	TotalRepos   int
 	TotalStacks  int
 	DriftedRepos int
@@ -389,11 +398,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data := indexData{
 		Repos:        repoData,
 		ConfigRepos:  s.cfg.Repos,
+		RepoByName:   map[string]repoStatusData{},
 		TotalRepos:   len(s.cfg.Repos),
 		TotalStacks:  totalStacks,
 		DriftedRepos: driftedRepos,
 		ActiveTasks:  activeTasks,
 		LockedRepos:  lockedRepos,
+	}
+	for _, repo := range repoData {
+		data.RepoByName[repo.Name] = repo
 	}
 
 	if err := s.tmplIndex.ExecuteTemplate(w, "layout", data); err != nil {
@@ -448,6 +461,7 @@ type stackPageData struct {
 	Result    *storage.RunResult
 	Task      *queue.Task
 	CSRFToken string
+	PlanHTML  template.HTML
 }
 
 func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
@@ -471,6 +485,7 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 		Result:    result,
 		Task:      lastTask,
 		CSRFToken: csrfTokenFromContext(r.Context()),
+		PlanHTML:  formatPlanOutput(result.PlanOutput),
 	}
 
 	if err := s.tmplDrift.ExecuteTemplate(w, "layout", data); err != nil {
@@ -1237,6 +1252,55 @@ func (s *Server) sanitizeErrorMessage(msg string) string {
 		msg = strings.ReplaceAll(msg, tmp, "<tmp>")
 	}
 	return msg
+}
+
+func formatPlanOutput(plan string) template.HTML {
+	if plan == "" {
+		return ""
+	}
+	clean := ansiEscapePattern.ReplaceAllString(plan, "")
+	lines := strings.Split(clean, "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		class := planLineClass(line)
+		escaped := html.EscapeString(line)
+		if class != "" {
+			b.WriteString(`<span class="plan-line `)
+			b.WriteString(class)
+			b.WriteString(`">`)
+			b.WriteString(escaped)
+			b.WriteString(`</span>`)
+		} else {
+			b.WriteString(escaped)
+		}
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return template.HTML(b.String())
+}
+
+func planLineClass(line string) string {
+	trimmed := strings.TrimLeft(line, " \t")
+	if trimmed == "" {
+		return ""
+	}
+	switch trimmed[0] {
+	case '+':
+		if strings.HasPrefix(trimmed, "+++") {
+			return ""
+		}
+		return "plan-add"
+	case '-':
+		if strings.HasPrefix(trimmed, "---") {
+			return ""
+		}
+		return "plan-remove"
+	case '~':
+		return "plan-change"
+	default:
+		return ""
+	}
 }
 
 func timeAgo(t time.Time) string {
