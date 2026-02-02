@@ -331,14 +331,15 @@ type indexData struct {
 }
 
 type repoStatusData struct {
-	Name      string
-	Drifted   bool
-	Stacks    int
-	Locked    bool
-	LastRun   time.Time
-	CommitSHA string
-	Active    bool
-	Progress  string
+	Name          string
+	Drifted       bool
+	Stacks        int
+	DriftedStacks int
+	Locked        bool
+	LastRun       time.Time
+	CommitSHA     string
+	Active        bool
+	Progress      string
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -369,14 +370,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		repoData = append(repoData, repoStatusData{
-			Name:      repo.Name,
-			Drifted:   repo.Drifted,
-			Stacks:    repo.Stacks,
-			Locked:    locked,
-			LastRun:   lastRun,
-			CommitSHA: commit,
-			Active:    active,
-			Progress:  progress,
+			Name:          repo.Name,
+			Drifted:       repo.Drifted,
+			Stacks:        repo.Stacks,
+			DriftedStacks: repo.DriftedStacks,
+			Locked:        locked,
+			LastRun:       lastRun,
+			CommitSHA:     commit,
+			Active:        active,
+			Progress:      progress,
 		})
 	}
 
@@ -793,6 +795,12 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(scanResponse{Error: s.sanitizeErrorMessage(err.Error())})
 		}
+		return
+	}
+
+	// Redirect for form POSTs (UI), return JSON for API
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		http.Redirect(w, r, fmt.Sprintf("/repos/%s/stacks/%s", repoName, stackPath), http.StatusSeeOther)
 		return
 	}
 

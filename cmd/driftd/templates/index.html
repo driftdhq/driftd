@@ -34,29 +34,21 @@
 {{if .ConfigRepos}}
 <section class="repos">
     {{range .ConfigRepos}}
+    {{$repo := index $.RepoByName .Name}}
     <a class="repo-card" href="/repos/{{.Name}}">
-        <div class="repo-header">
-            {{$repo := index $.RepoByName .Name}}
-            <span class="status-indicator {{if $repo.Drifted}}drifted{{else}}ok{{end}}"></span>
-            <span class="repo-name">{{.Name}}</span>
-        </div>
-        <div class="repo-meta">
-            <span>{{$repo.Stacks}} stacks discovered</span>
+        <span class="status-indicator {{if $repo.Drifted}}drifted{{else}}ok{{end}}"></span>
+        <span class="repo-name">{{.Name}}</span>
+        <span class="repo-meta">
+            {{if $repo.DriftedStacks}}<span class="drifted-count">{{$repo.DriftedStacks}} drifted stacks</span>{{end}}
             {{if $repo.Active}}
-                <span class="meta-pill">Scanning {{$repo.Progress}}</span>
+                <span>scanning {{$repo.Progress}}</span>
             {{else if not $repo.LastRun.IsZero}}
-                <span class="meta-pill">Last scan {{timeAgo $repo.LastRun}}</span>
+                <span>last scan {{timeAgo $repo.LastRun}}</span>
             {{end}}
             {{if $repo.CommitSHA}}
-                {{$repoCfg := index $.ConfigByName .Name}}
-                {{$commitURL := commitURL $repoCfg.URL $repo.CommitSHA}}
-                {{if $commitURL}}
-                    <span class="meta-pill">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" $repo.CommitSHA}}</a></span>
-                {{else}}
-                    <span class="meta-pill">Commit {{printf "%.7s" $repo.CommitSHA}}</span>
-                {{end}}
+                <span>commit {{printf "%.7s" $repo.CommitSHA}}</span>
             {{end}}
-        </div>
+        </span>
     </a>
     {{end}}
 </section>

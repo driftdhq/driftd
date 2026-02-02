@@ -24,9 +24,10 @@ type RunResult struct {
 }
 
 type RepoStatus struct {
-	Name    string
-	Drifted bool
-	Stacks  int
+	Name          string
+	Drifted       bool
+	Stacks        int
+	DriftedStacks int
 }
 
 type StackStatus struct {
@@ -117,18 +118,18 @@ func (s *Storage) ListRepos() ([]RepoStatus, error) {
 			continue
 		}
 
-		drifted := false
+		driftedCount := 0
 		for _, stack := range stacks {
 			if stack.Drifted {
-				drifted = true
-				break
+				driftedCount++
 			}
 		}
 
 		repos = append(repos, RepoStatus{
-			Name:    entry.Name(),
-			Drifted: drifted,
-			Stacks:  len(stacks),
+			Name:          entry.Name(),
+			Drifted:       driftedCount > 0,
+			Stacks:        len(stacks),
+			DriftedStacks: driftedCount,
 		})
 	}
 

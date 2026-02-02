@@ -108,7 +108,7 @@
     {{if .Config}}
     <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <button type="submit" class="btn btn-scan">Scan All Stacks</button>
+        <button type="submit" class="btn btn-scan" {{if .ActiveScan}}disabled{{end}}>Scan All Stacks</button>
     </form>
     {{end}}
 </div>
@@ -117,15 +117,7 @@
 <div class="scan-summary active">
     <div>
         <strong>Scanning</strong>
-        <span class="meta">Scan {{printf "%.7s" .ActiveScan.ID}}</span>
-        {{if and .Config .ActiveScan.CommitSHA}}
-            {{$commitURL := commitURL .Config.URL .ActiveScan.CommitSHA}}
-            {{if $commitURL}}
-                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .ActiveScan.CommitSHA}}</a></span>
-            {{else}}
-                <span class="meta">Commit {{printf "%.7s" .ActiveScan.CommitSHA}}</span>
-            {{end}}
-        {{end}}
+        {{if .ActiveScan.CommitSHA}}<span class="meta">commit {{printf "%.7s" .ActiveScan.CommitSHA}}</span>{{end}}
     </div>
     <div class="progress">
         <div class="progress-bar">
