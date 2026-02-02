@@ -35,10 +35,6 @@ var (
 	ErrJobNotFound = errors.New("job not found")
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 type Job struct {
 	ID          string    `json:"id"`
 	TaskID      string    `json:"task_id"`
