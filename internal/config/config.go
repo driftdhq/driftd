@@ -74,8 +74,15 @@ type RepoConfig struct {
 	Branch                     string         `yaml:"branch"`
 	IgnorePaths                []string       `yaml:"ignore_paths"`
 	Schedule                   string         `yaml:"schedule"` // cron expression, empty = no scheduled scans
-	CancelInflightOnNewTrigger bool           `yaml:"cancel_inflight_on_new_trigger"`
+	CancelInflightOnNewTrigger *bool          `yaml:"cancel_inflight_on_new_trigger"`
 	Git                        *GitAuthConfig `yaml:"git"`
+}
+
+func (r *RepoConfig) CancelInflightEnabled() bool {
+	if r == nil || r.CancelInflightOnNewTrigger == nil {
+		return true
+	}
+	return *r.CancelInflightOnNewTrigger
 }
 
 type GitAuthConfig struct {

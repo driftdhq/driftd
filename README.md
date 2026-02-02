@@ -283,6 +283,7 @@ repos:
     ignore_paths:
       - "**/modules/**"
     schedule: "0 */6 * * *"  # cron expression (optional)
+    cancel_inflight_on_new_trigger: true  # cancel older task on newer trigger
     git:
       type: https
       https_token_env: GIT_TOKEN

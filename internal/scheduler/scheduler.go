@@ -73,14 +73,19 @@ func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
 	task, err := s.queue.StartTask(ctx, repoName, "scheduled", "", "", 0)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
-			if repoCfg != nil && repoCfg.CancelInflightOnNewTrigger {
-				activeTask, activeErr := s.queue.GetActiveTask(ctx, repoName)
-				if activeErr == nil && activeTask != nil {
+			activeTask, activeErr := s.queue.GetActiveTask(ctx, repoName)
+			if repoCfg != nil && repoCfg.CancelInflightEnabled() && activeErr == nil && activeTask != nil {
+				newPriority := queue.TriggerPriority("scheduled")
+				activePriority := queue.TriggerPriority(activeTask.Trigger)
+				if newPriority >= activePriority {
 					_ = s.queue.CancelTask(ctx, activeTask.ID, repoName, "superseded by new schedule")
-				}
-				task, err = s.queue.StartTask(ctx, repoName, "scheduled", "", "", 0)
-				if err != nil {
-					log.Printf("Failed to start task for %s after cancel: %v", repoName, err)
+					task, err = s.queue.StartTask(ctx, repoName, "scheduled", "", "", 0)
+					if err != nil {
+						log.Printf("Failed to start task for %s after cancel: %v", repoName, err)
+						return
+					}
+				} else {
+					log.Printf("Skipping scheduled scan for %s: repo already running", repoName)
 					return
 				}
 			} else {

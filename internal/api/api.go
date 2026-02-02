@@ -806,7 +806,6 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	fullScan := s.cfg.Webhook.MaxFiles > 0 && len(changedFiles) >= s.cfg.Webhook.MaxFiles
 
 	trigger := "webhook"
 	task, stacks, err := s.startTaskWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
@@ -820,12 +819,10 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetStacks, selectionFullScan := selectStacksForChanges(stacks, changedFiles)
-	if selectionFullScan {
-		fullScan = true
-	}
-	if fullScan {
-		targetStacks = stacks
+	targetStacks := selectStacksForChanges(stacks, changedFiles)
+	if len(targetStacks) == 0 {
+		w.WriteHeader(http.StatusAccepted)
+		return
 	}
 	if err := s.queue.SetTaskTotal(r.Context(), task.ID, len(targetStacks)); err != nil {
 		_ = s.queue.FailTask(r.Context(), task.ID, repoName, fmt.Sprintf("failed to set task total: %v", err))
@@ -874,6 +871,9 @@ func extractChangedFiles(payload gitHubPushPayload, maxFiles int) []string {
 			if path == "" {
 				continue
 			}
+			if !isInfraFile(path) {
+				continue
+			}
 			if _, ok := seen[path]; ok {
 				continue
 			}
@@ -887,9 +887,9 @@ func extractChangedFiles(payload gitHubPushPayload, maxFiles int) []string {
 	return files
 }
 
-func selectStacksForChanges(stacks []string, changedFiles []string) ([]string, bool) {
+func selectStacksForChanges(stacks []string, changedFiles []string) []string {
 	if len(stacks) == 0 || len(changedFiles) == 0 {
-		return nil, true
+		return nil
 	}
 
 	stackSet := map[string]struct{}{}
@@ -915,9 +915,7 @@ func selectStacksForChanges(stacks []string, changedFiles []string) ([]string, b
 				matched = true
 			}
 		}
-		if !matched {
-			return nil, true
-		}
+		_ = matched
 	}
 
 	var out []string
@@ -925,7 +923,22 @@ func selectStacksForChanges(stacks []string, changedFiles []string) ([]string, b
 		out = append(out, stack)
 	}
 	sort.Strings(out)
-	return out, false
+	return out
+}
+
+func isInfraFile(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	if base == "terragrunt.hcl" {
+		return true
+	}
+	if strings.HasSuffix(base, ".tf") ||
+		strings.HasSuffix(base, ".tf.json") ||
+		strings.HasSuffix(base, ".tfvars") ||
+		strings.HasSuffix(base, ".tfvars.json") ||
+		strings.HasSuffix(base, ".hcl") {
+		return true
+	}
+	return false
 }
 
 func (s *Server) validateWebhookRequest(w http.ResponseWriter, r *http.Request, body []byte) bool {
@@ -991,12 +1004,16 @@ func (s *Server) startTaskWithCancel(ctx context.Context, repoCfg *config.RepoCo
 	}
 
 	task, err := s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, 0)
-	if err != nil && err == queue.ErrRepoLocked && repoCfg.CancelInflightOnNewTrigger {
+	if err != nil && err == queue.ErrRepoLocked {
 		activeTask, activeErr := s.queue.GetActiveTask(ctx, repoCfg.Name)
-		if activeErr == nil && activeTask != nil {
-			_ = s.queue.CancelTask(ctx, activeTask.ID, repoCfg.Name, "superseded by new trigger")
+		if repoCfg.CancelInflightEnabled() && activeErr == nil && activeTask != nil {
+			newPriority := queue.TriggerPriority(trigger)
+			activePriority := queue.TriggerPriority(activeTask.Trigger)
+			if newPriority >= activePriority {
+				_ = s.queue.CancelTask(ctx, activeTask.ID, repoCfg.Name, "superseded by new trigger")
+				task, err = s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, 0)
+			}
 		}
-		task, err = s.queue.StartTask(ctx, repoCfg.Name, trigger, commit, actor, 0)
 	}
 	if err != nil {
 		return nil, nil, err

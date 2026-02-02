@@ -362,6 +362,8 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 
 	repoDir := createTestRepo(t, stacks, versions)
 
+	cancelInflightFlag := cancelInflight
+
 	cfg := &config.Config{
 		DataDir: t.TempDir(),
 		Redis: config.RedisConfig{
@@ -379,7 +381,7 @@ func newTestServer(t *testing.T, r worker.Runner, stacks []string, startWorker b
 			{
 				Name:                       "repo",
 				URL:                        repoDir,
-				CancelInflightOnNewTrigger: cancelInflight,
+				CancelInflightOnNewTrigger: &cancelInflightFlag,
 			},
 		},
 	}
