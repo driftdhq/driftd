@@ -493,7 +493,7 @@ a:hover {
     flex-wrap: wrap;
 }
 
-.task-summary {
+.scan-summary {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -506,11 +506,11 @@ a:hover {
     box-shadow: var(--shadow);
 }
 
-.task-summary.active {
+.scan-summary.active {
     border-color: rgba(53, 192, 132, 0.7);
 }
 
-.task-summary .meta {
+.scan-summary .meta {
     color: var(--text-muted);
     margin-left: 0.5rem;
     font-size: 0.875rem;
@@ -632,7 +632,7 @@ a:hover {
     }
 
     .repo-card,
-    .task-summary {
+    .scan-summary {
         flex-direction: column;
         align-items: flex-start;
     }

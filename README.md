@@ -37,10 +37,10 @@ and repositories without adding risk to your apply pipeline.
 Trigger (cron/API/webhook)
         │
         ▼
-     Task (repo)
+     Scan (repo)
         │
         ▼
-  Jobs (stacks)  ──>  Workers run plans  ──>  Storage + UI
+     Stacks  ──>  Workers run plans  ──>  Storage + UI
 ```
 
 ---
@@ -131,7 +131,7 @@ volumes:
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Trigger   │────►│   Clone &   │────►│   Enqueue   │────►│   Workers   │
-│ (cron/API)  │     │   Discover  │     │    Jobs     │     │  Run Plans  │
+│ (cron/API)  │     │   Discover  │     │   Stacks    │     │  Run Plans  │
 └─────────────┘     └─────────────┘     └─────────────┘     └──────┬──────┘
                                                                    │
                     ┌─────────────┐     ┌─────────────┐            │
@@ -179,7 +179,7 @@ flowchart TB
         W3["driftd worker"]
     end
 
-    Server <--> |"tasks/jobs"| Redis
+    Server <--> |"scans/stacks"| Redis
     Server --> |"clone repos"| Storage
     W1 & W2 & W3 <--> |"dequeue"| Redis
     W1 & W2 & W3 <--> |"read/write"| Storage
