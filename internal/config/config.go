@@ -36,7 +36,8 @@ type WorkerConfig struct {
 }
 
 type WorkspaceConfig struct {
-	Retention int `yaml:"retention"` // number of workspace snapshots to keep per repo
+	Retention        int   `yaml:"retention"`          // number of workspace snapshots to keep per repo
+	CleanupAfterPlan *bool `yaml:"cleanup_after_plan"` // remove terraform/terragrunt artifacts from task workspaces
 }
 
 type WebhookConfig struct {
@@ -83,6 +84,13 @@ func (r *RepoConfig) CancelInflightEnabled() bool {
 		return true
 	}
 	return *r.CancelInflightOnNewTrigger
+}
+
+func (w WorkspaceConfig) CleanupAfterPlanEnabled() bool {
+	if w.CleanupAfterPlan == nil {
+		return true
+	}
+	return *w.CleanupAfterPlan
 }
 
 type GitAuthConfig struct {
@@ -186,6 +194,10 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.Workspace.Retention <= 0 {
 		cfg.Workspace.Retention = 5
+	}
+	if cfg.Workspace.CleanupAfterPlan == nil {
+		enabled := true
+		cfg.Workspace.CleanupAfterPlan = &enabled
 	}
 	if cfg.Webhook.TokenHeader == "" {
 		cfg.Webhook.TokenHeader = "X-Webhook-Token"

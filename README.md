@@ -274,7 +274,8 @@ worker:
   task_max_age: 6h    # max task duration before forced failure
 
 workspace:
-  retention: 5        # workspace snapshots to keep per repo
+  retention: 5            # workspace snapshots to keep per repo
+  cleanup_after_plan: true # remove terraform/terragrunt artifacts from workspaces
 
 repos:
   - name: my-infra

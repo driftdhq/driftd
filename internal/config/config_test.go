@@ -67,6 +67,28 @@ func TestLoadValidation(t *testing.T) {
 			t.Fatalf("expected cancel_inflight_on_new_trigger false")
 		}
 	})
+
+	t.Run("cleanup_after_plan_defaults_true", func(t *testing.T) {
+		path := writeTempConfig(t, "repos:\n  - name: repo\n    url: https://example.com/repo.git\n")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.Workspace.CleanupAfterPlanEnabled() {
+			t.Fatalf("expected cleanup_after_plan default true")
+		}
+	})
+
+	t.Run("cleanup_after_plan_false", func(t *testing.T) {
+		path := writeTempConfig(t, "workspace:\n  cleanup_after_plan: false\nrepos:\n  - name: repo\n    url: https://example.com/repo.git\n")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Workspace.CleanupAfterPlanEnabled() {
+			t.Fatalf("expected cleanup_after_plan false")
+		}
+	})
 }
 
 func writeTempConfig(t *testing.T, contents string) string {

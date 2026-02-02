@@ -147,6 +147,11 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	result, err := w.runner.Run(ctx, job.RepoName, job.RepoURL, job.StackPath, tfVersion, tgVersion, auth, workspacePath)
+	if workspacePath != "" && w.cfg != nil && w.cfg.Workspace.CleanupAfterPlanEnabled() {
+		if err := runner.CleanupWorkspaceArtifacts(workspacePath); err != nil {
+			log.Printf("Failed to cleanup workspace artifacts for %s: %v", workspacePath, err)
+		}
+	}
 
 	if err != nil {
 		log.Printf("Job %s failed (internal error): %v", job.ID, err)
