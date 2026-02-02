@@ -361,7 +361,7 @@ a:hover {
 .stack-tree-header,
 .stack-row {
     display: grid;
-    grid-template-columns: minmax(260px, 2fr) 140px 160px 150px 110px;
+    grid-template-columns: minmax(300px, 2fr) 120px 120px 80px;
     gap: 0.75rem;
     align-items: center;
     padding: 0.8rem 1rem;
@@ -390,9 +390,17 @@ a:hover {
 .stack-cell.stack-name {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding-left: calc(var(--depth, 0) * 14px);
+    gap: 0.4rem;
+    padding-left: calc(var(--depth, 0) * 1.25rem);
     min-width: 0;
+}
+
+.stack-folder .stack-label {
+    color: var(--text-muted);
+}
+
+.stack-file .stack-link {
+    color: var(--text);
 }
 
 .stack-link {
@@ -426,35 +434,15 @@ a:hover {
     background: rgba(77, 215, 255, 0.08);
 }
 
-.stack-caret {
-    width: 0.7rem;
-    height: 0.7rem;
-    display: inline-block;
-    border-right: 2px solid var(--text-muted);
-    border-bottom: 2px solid var(--text-muted);
-    transform: rotate(-45deg);
-    margin-right: 0.35rem;
-    transition: transform 0.15s ease;
-}
-
-.stack-group[open] .stack-caret {
-    transform: rotate(45deg);
-}
-
-.stack-leaf-dot {
-    width: 0.45rem;
-    height: 0.45rem;
-    border-radius: 50%;
-    background: var(--text-muted);
-    display: inline-block;
+.folder-icon {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    width: 1rem;
+    text-align: center;
 }
 
 .stack-group-children {
     border-top: 1px solid var(--border);
-}
-
-.stack-group-row .stack-meta {
-    font-weight: 500;
 }
 
 /* Badges */
@@ -657,7 +645,6 @@ a:hover {
         grid-template-columns: minmax(200px, 1fr) 110px;
     }
 
-    .stack-cell.changes,
     .stack-cell.run,
     .stack-cell.actions {
         display: none;
