@@ -71,6 +71,7 @@ func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, st
 			}
 			return plural
 		},
+		"commitURL": commitURL,
 		"add": func(a, b int) int {
 			return a + b
 		},
@@ -321,6 +322,7 @@ type indexData struct {
 	Repos        []repoStatusData
 	ConfigRepos  []config.RepoConfig
 	RepoByName   map[string]repoStatusData
+	ConfigByName map[string]config.RepoConfig
 	TotalRepos   int
 	TotalStacks  int
 	DriftedRepos int
@@ -399,6 +401,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Repos:        repoData,
 		ConfigRepos:  s.cfg.Repos,
 		RepoByName:   map[string]repoStatusData{},
+		ConfigByName: map[string]config.RepoConfig{},
 		TotalRepos:   len(s.cfg.Repos),
 		TotalStacks:  totalStacks,
 		DriftedRepos: driftedRepos,
@@ -407,6 +410,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, repo := range repoData {
 		data.RepoByName[repo.Name] = repo
+	}
+	for _, repo := range s.cfg.Repos {
+		data.ConfigByName[repo.Name] = repo
 	}
 
 	if err := s.tmplIndex.ExecuteTemplate(w, "layout", data); err != nil {
@@ -457,6 +463,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 
 type stackPageData struct {
 	RepoName  string
+	RepoURL   string
 	Path      string
 	Result    *storage.RunResult
 	Task      *queue.Task
@@ -472,6 +479,7 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	repoCfg := s.cfg.GetRepo(repoName)
 	result, err := s.storage.GetResult(repoName, stackPath)
 	if err != nil {
 		http.Error(w, "Stack not found", http.StatusNotFound)
@@ -481,11 +489,15 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 
 	data := stackPageData{
 		RepoName:  repoName,
+		RepoURL:   "",
 		Path:      stackPath,
 		Result:    result,
 		Task:      lastTask,
 		CSRFToken: csrfTokenFromContext(r.Context()),
 		PlanHTML:  formatPlanOutput(result.PlanOutput),
+	}
+	if repoCfg != nil {
+		data.RepoURL = repoCfg.URL
 	}
 
 	if err := s.tmplDrift.ExecuteTemplate(w, "layout", data); err != nil {
@@ -1298,6 +1310,31 @@ func planLineClass(line string) string {
 		return "plan-remove"
 	case '~':
 		return "plan-change"
+	default:
+		return ""
+	}
+}
+
+func commitURL(repoURL, sha string) string {
+	if repoURL == "" || sha == "" {
+		return ""
+	}
+	clean := strings.TrimSuffix(repoURL, ".git")
+	switch {
+	case strings.HasPrefix(clean, "git@github.com:"):
+		clean = strings.TrimPrefix(clean, "git@github.com:")
+		return "https://github.com/" + clean + "/commit/" + sha
+	case strings.HasPrefix(clean, "git@gitlab.com:"):
+		clean = strings.TrimPrefix(clean, "git@gitlab.com:")
+		return "https://gitlab.com/" + clean + "/-/commit/" + sha
+	case strings.HasPrefix(clean, "https://github.com/"):
+		return clean + "/commit/" + sha
+	case strings.HasPrefix(clean, "http://github.com/"):
+		return strings.Replace(clean, "http://github.com/", "https://github.com/", 1) + "/commit/" + sha
+	case strings.HasPrefix(clean, "https://gitlab.com/"):
+		return clean + "/-/commit/" + sha
+	case strings.HasPrefix(clean, "http://gitlab.com/"):
+		return strings.Replace(clean, "http://gitlab.com/", "https://gitlab.com/", 1) + "/-/commit/" + sha
 	default:
 		return ""
 	}

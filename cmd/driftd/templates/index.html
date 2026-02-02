@@ -18,7 +18,7 @@
         <span class="overview-value">{{.TotalStacks}}</span>
     </div>
     <div class="overview-card">
-        <span class="overview-label">Active Tasks</span>
+        <span class="overview-label">Active Scans</span>
         <span class="overview-value">{{.ActiveTasks}}</span>
     </div>
     <div class="overview-card">
@@ -43,12 +43,18 @@
         <div class="repo-meta">
             <span>{{$repo.Stacks}} stacks discovered</span>
             {{if $repo.Active}}
-                <span class="meta-pill">Running {{$repo.Progress}}</span>
+                <span class="meta-pill">Scanning {{$repo.Progress}}</span>
             {{else if not $repo.LastRun.IsZero}}
-                <span class="meta-pill">Last run {{timeAgo $repo.LastRun}}</span>
+                <span class="meta-pill">Last scan {{timeAgo $repo.LastRun}}</span>
             {{end}}
             {{if $repo.CommitSHA}}
-                <span class="meta-pill">Commit {{printf "%.7s" $repo.CommitSHA}}</span>
+                {{$repoCfg := index $.ConfigByName .Name}}
+                {{$commitURL := commitURL $repoCfg.URL $repo.CommitSHA}}
+                {{if $commitURL}}
+                    <span class="meta-pill">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" $repo.CommitSHA}}</a></span>
+                {{else}}
+                    <span class="meta-pill">Commit {{printf "%.7s" $repo.CommitSHA}}</span>
+                {{end}}
             {{end}}
         </div>
     </a>

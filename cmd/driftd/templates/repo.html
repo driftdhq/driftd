@@ -18,6 +18,42 @@
         <div class="stack-cell run">-</div>
         <div class="stack-cell actions"></div>
     </summary>
+    {{if .Status}}
+    <div class="stack-row stack-leaf stack-leaf-inline" style="--depth: {{add .Depth 1}}">
+        <div class="stack-cell stack-name">
+            <span class="stack-leaf-dot" aria-hidden="true"></span>
+            <a href="/repos/{{.RepoName}}/stacks/{{.Path}}" class="stack-link">{{.Name}}</a>
+            <span class="stack-meta">{{.Path}}</span>
+        </div>
+        <div class="stack-cell status">
+            {{if .Status.Error}}
+            <span class="badge badge-error">Error</span>
+            {{else if .Status.Drifted}}
+            <span class="badge badge-drift">Drift</span>
+            {{else}}
+            <span class="badge badge-ok">OK</span>
+            {{end}}
+        </div>
+        <div class="stack-cell changes">
+            {{if or .Status.Added .Status.Changed .Status.Destroyed}}
+            <span class="changes">
+                {{if .Status.Added}}<span class="add">+{{.Status.Added}}</span>{{end}}
+                {{if .Status.Changed}}<span class="change">~{{.Status.Changed}}</span>{{end}}
+                {{if .Status.Destroyed}}<span class="destroy">-{{.Status.Destroyed}}</span>{{end}}
+            </span>
+            {{else}}
+            -
+            {{end}}
+        </div>
+        <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
+        <div class="stack-cell actions">
+            <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                <button type="submit" class="btn btn-small">Scan</button>
+            </form>
+        </div>
+    </div>
+    {{end}}
     <div class="stack-group-children">
         {{range .Children}}
             {{template "stack-node" .}}
@@ -80,9 +116,16 @@
 {{if .ActiveTask}}
 <div class="task-summary active">
     <div>
-        <strong>Running</strong>
+        <strong>Scanning</strong>
         <span class="meta">Task {{printf "%.7s" .ActiveTask.ID}}</span>
-        {{if .ActiveTask.CommitSHA}}<span class="meta">Commit {{printf "%.7s" .ActiveTask.CommitSHA}}</span>{{end}}
+        {{if and .Config .ActiveTask.CommitSHA}}
+            {{$commitURL := commitURL .Config.URL .ActiveTask.CommitSHA}}
+            {{if $commitURL}}
+                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .ActiveTask.CommitSHA}}</a></span>
+            {{else}}
+                <span class="meta">Commit {{printf "%.7s" .ActiveTask.CommitSHA}}</span>
+            {{end}}
+        {{end}}
     </div>
     <div class="progress">
         <div class="progress-bar">
@@ -98,9 +141,16 @@
 {{else if .LastTask}}
 <div class="task-summary">
     <div>
-        <strong>Last run</strong>
+        <strong>Last scan</strong>
         <span class="meta">{{timeAgo .LastTask.EndedAt}}</span>
-        {{if .LastTask.CommitSHA}}<span class="meta">Commit {{printf "%.7s" .LastTask.CommitSHA}}</span>{{end}}
+        {{if and .Config .LastTask.CommitSHA}}
+            {{$commitURL := commitURL .Config.URL .LastTask.CommitSHA}}
+            {{if $commitURL}}
+                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .LastTask.CommitSHA}}</a></span>
+            {{else}}
+                <span class="meta">Commit {{printf "%.7s" .LastTask.CommitSHA}}</span>
+            {{end}}
+        {{end}}
     </div>
 </div>
 {{end}}

@@ -18,9 +18,16 @@
 {{if .Task}}
 <div class="task-summary">
     <div>
-        <strong>Last task</strong>
+        <strong>Last scan</strong>
         <span class="meta">{{timeAgo .Task.EndedAt}}</span>
-        {{if .Task.CommitSHA}}<span class="meta">Commit {{printf "%.7s" .Task.CommitSHA}}</span>{{end}}
+        {{if .Task.CommitSHA}}
+            {{$commitURL := commitURL .RepoURL .Task.CommitSHA}}
+            {{if $commitURL}}
+                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .Task.CommitSHA}}</a></span>
+            {{else}}
+                <span class="meta">Commit {{printf "%.7s" .Task.CommitSHA}}</span>
+            {{end}}
+        {{end}}
     </div>
 </div>
 {{end}}
