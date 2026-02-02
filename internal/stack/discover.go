@@ -3,6 +3,7 @@ package stack
 import (
 	"io/fs"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -61,7 +62,32 @@ func Discover(repoDir string, ignore []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return stacks, nil
+	sort.Strings(stacks)
+	return filterParentStacks(stacks), nil
+}
+
+func filterParentStacks(stacks []string) []string {
+	if len(stacks) < 2 {
+		return stacks
+	}
+	var filtered []string
+	for i, stack := range stacks {
+		prefix := stack
+		if prefix != "" {
+			prefix += "/"
+		}
+		hasChild := false
+		for j := i + 1; j < len(stacks); j++ {
+			if strings.HasPrefix(stacks[j], prefix) {
+				hasChild = true
+				break
+			}
+		}
+		if !hasChild {
+			filtered = append(filtered, stack)
+		}
+	}
+	return filtered
 }
 
 func addStack(dir string, seen map[string]struct{}, stacks *[]string) {

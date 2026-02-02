@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
@@ -40,7 +42,6 @@ type repoStatusData struct {
 type repoPageData struct {
 	Name       string
 	Stacks     []storage.StackStatus
-	StackTree  []*stackNode
 	Config     *config.RepoConfig
 	Locked     bool
 	ActiveScan *queue.Scan
@@ -146,8 +147,8 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stacks, _ := s.storage.ListStacks(repoName)
+	stacks = filterParentStackStatuses(stacks)
 	csrfToken := csrfTokenFromContext(r.Context())
-	stackTree := buildStackTree(repoName, stacks, csrfToken)
 	repoCfg := s.cfg.GetRepo(repoName)
 	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
 	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
@@ -156,7 +157,6 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	data := repoPageData{
 		Name:       repoName,
 		Stacks:     stacks,
-		StackTree:  stackTree,
 		Config:     repoCfg,
 		Locked:     locked,
 		ActiveScan: activeScan,
@@ -167,6 +167,33 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	if err := s.tmplRepo.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("template error: %v", err)
 	}
+}
+
+func filterParentStackStatuses(stacks []storage.StackStatus) []storage.StackStatus {
+	if len(stacks) < 2 {
+		return stacks
+	}
+	sort.Slice(stacks, func(i, j int) bool {
+		return stacks[i].Path < stacks[j].Path
+	})
+	filtered := make([]storage.StackStatus, 0, len(stacks))
+	for i, stack := range stacks {
+		prefix := stack.Path
+		if prefix != "" {
+			prefix += "/"
+		}
+		hasChild := false
+		for j := i + 1; j < len(stacks); j++ {
+			if strings.HasPrefix(stacks[j].Path, prefix) {
+				hasChild = true
+				break
+			}
+		}
+		if !hasChild {
+			filtered = append(filtered, stack)
+		}
+	}
+	return filtered
 }
 
 func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {

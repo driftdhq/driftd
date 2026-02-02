@@ -1,66 +1,5 @@
 {{define "title"}}{{.Name}}{{end}}
 
-{{define "stack-node"}}
-{{if .Children}}
-<details class="stack-group" {{if .Open}}open{{end}}>
-    <summary class="stack-row stack-folder" style="--depth: {{.Depth}}">
-        <div class="stack-cell stack-name">
-            <span class="folder-icon">{{if .Open}}▾{{else}}▸{{end}}</span>
-            <span class="stack-label">{{.Name}}/</span>
-        </div>
-        <div class="stack-cell status">
-            {{if .Error}}<span class="badge badge-error">{{.Error}} errors</span>{{end}}
-            {{if .Drifted}}<span class="badge badge-drift">{{.Drifted}} drifted</span>{{end}}
-        </div>
-        <div class="stack-cell run">-</div>
-        <div class="stack-cell actions"></div>
-    </summary>
-    {{if .Status}}
-    <div class="stack-row stack-file" style="--depth: {{add .Depth 1}}">
-        <div class="stack-cell stack-name">
-            <a href="/repos/{{.RepoName}}/stacks/{{.Path}}" class="stack-link">{{.Name}}</a>
-        </div>
-        <div class="stack-cell status">
-            {{if .Status.Error}}<span class="badge badge-error">error</span>
-            {{else if .Status.Drifted}}<span class="badge badge-drift">drifted</span>
-            {{else}}<span class="badge badge-ok">ok</span>{{end}}
-        </div>
-        <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
-        <div class="stack-cell actions">
-            <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="inline-form">
-                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-                <button type="submit" class="btn btn-small">Scan</button>
-            </form>
-        </div>
-    </div>
-    {{end}}
-    <div class="stack-group-children">
-        {{range .Children}}
-            {{template "stack-node" .}}
-        {{end}}
-    </div>
-</details>
-{{else}}
-<div class="stack-row stack-file" style="--depth: {{.Depth}}">
-    <div class="stack-cell stack-name">
-        <a href="/repos/{{.RepoName}}/stacks/{{.Path}}" class="stack-link">{{.Name}}</a>
-    </div>
-    <div class="stack-cell status">
-        {{if .Status.Error}}<span class="badge badge-error">error</span>
-        {{else if .Status.Drifted}}<span class="badge badge-drift">drifted</span>
-        {{else}}<span class="badge badge-ok">ok</span>{{end}}
-    </div>
-    <div class="stack-cell run">{{timeAgo .Status.RunAt}}</div>
-    <div class="stack-cell actions">
-        <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="inline-form">
-            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-            <button type="submit" class="btn btn-small">Scan</button>
-        </form>
-    </div>
-</div>
-{{end}}
-{{end}}
-
 {{define "content"}}
 <nav class="breadcrumb">
     <a href="/">Repositories</a> / <span>{{.Name}}</span>
@@ -121,8 +60,24 @@
             <div class="stack-cell actions"></div>
         </div>
         <div class="stack-tree-body">
-            {{range .StackTree}}
-                {{template "stack-node" .}}
+            {{range .Stacks}}
+            <div class="stack-row stack-file">
+                <div class="stack-cell stack-name">
+                    <a href="/repos/{{$.Name}}/stacks/{{.Path}}" class="stack-link">{{.Path}}</a>
+                </div>
+                <div class="stack-cell status">
+                    {{if .Error}}<span class="badge badge-error">error</span>
+                    {{else if .Drifted}}<span class="badge badge-drift">drifted</span>
+                    {{else}}<span class="badge badge-ok">ok</span>{{end}}
+                </div>
+                <div class="stack-cell run">{{timeAgo .RunAt}}</div>
+                <div class="stack-cell actions">
+                    <form method="POST" action="/repos/{{$.Name}}/stacks/{{.Path}}" class="inline-form">
+                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                        <button type="submit" class="btn btn-small">Scan</button>
+                    </form>
+                </div>
+            </div>
             {{end}}
         </div>
     </div>
