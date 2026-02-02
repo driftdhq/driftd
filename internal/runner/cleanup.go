@@ -19,6 +19,12 @@ func CleanupWorkspaceArtifacts(root string) error {
 		if err != nil {
 			return err
 		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if info, infoErr := entry.Info(); infoErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
 		name := entry.Name()
 		if entry.IsDir() {
 			if _, ok := cleanupDirNames[name]; ok {
@@ -30,7 +36,7 @@ func CleanupWorkspaceArtifacts(root string) error {
 			return nil
 		}
 
-		if name == ".terraform.lock.hcl" || isTerraformStateFile(name) {
+		if name == ".terraform.lock.hcl" || name == "crash.log" || name == ".terraform.tfstate.lock.info" || name == "errored.tfstate" || isTerraformStateFile(name) {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				return err
 			}

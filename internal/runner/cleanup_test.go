@@ -26,6 +26,9 @@ func TestCleanupWorkspaceArtifacts(t *testing.T) {
 
 	files := []string{
 		filepath.Join(root, ".terraform.lock.hcl"),
+		filepath.Join(root, "crash.log"),
+		filepath.Join(root, ".terraform.tfstate.lock.info"),
+		filepath.Join(root, "errored.tfstate"),
 		filepath.Join(root, "terraform.tfstate"),
 		filepath.Join(root, "terraform.tfstate.backup"),
 		filepath.Join(root, "envs", "prod", "state.tfstate"),
@@ -71,5 +74,30 @@ func TestCleanupWorkspaceArtifacts(t *testing.T) {
 		if _, err := os.Stat(file); err != nil {
 			t.Fatalf("expected keep file present: %s (%v)", file, err)
 		}
+	}
+}
+
+func TestCleanupSkipsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	targetDir := t.TempDir()
+	targetFile := filepath.Join(targetDir, "crash.log")
+	if err := os.WriteFile(targetFile, []byte("x"), 0644); err != nil {
+		t.Fatalf("write target file: %v", err)
+	}
+
+	linkPath := filepath.Join(root, "crash.log")
+	if err := os.Symlink(targetFile, linkPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	if err := CleanupWorkspaceArtifacts(root); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+
+	if _, err := os.Lstat(linkPath); err != nil {
+		t.Fatalf("expected symlink preserved: %v", err)
+	}
+	if _, err := os.Stat(targetFile); err != nil {
+		t.Fatalf("expected target preserved: %v", err)
 	}
 }
