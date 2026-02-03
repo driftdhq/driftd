@@ -170,6 +170,8 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	if tool == "terragrunt" {
 		planCmd = exec.CommandContext(ctx, tgBin, "plan", "-detailed-exitcode", "-input=false")
 		planCmd.Env = append(filteredEnv(),
+			fmt.Sprintf("TG_TF_PATH=%s", tfBin),
+			fmt.Sprintf("TG_DOWNLOAD_DIR=%s", filepath.Join(os.TempDir(), "driftd-tg", safePath(stackPath))),
 			fmt.Sprintf("TERRAGRUNT_TFPATH=%s", tfBin),
 			fmt.Sprintf("TERRAGRUNT_DOWNLOAD=%s", filepath.Join(os.TempDir(), "driftd-tg", safePath(stackPath))),
 			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
@@ -187,7 +189,7 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	planCmd.Stderr = &output
 
 	err := planCmd.Run()
-	return output.String(), err
+	return cleanTerragruntOutput(tool, output.String()), err
 }
 
 func ensureCacheDir(path string) {
@@ -195,6 +197,36 @@ func ensureCacheDir(path string) {
 		path = "/cache/terraform/plugins"
 	}
 	_ = os.MkdirAll(path, 0755)
+}
+
+func cleanTerragruntOutput(tool, output string) string {
+	if tool != "terragrunt" {
+		return output
+	}
+	lines := strings.Split(output, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		raw := line
+		line = strings.TrimPrefix(line, "STDOUT ")
+		line = strings.TrimPrefix(line, "INFO   ")
+		line = strings.TrimPrefix(line, "WARN   ")
+		line = strings.TrimPrefix(line, "ERROR  ")
+		if idx := strings.Index(line, "terraform.planonly: "); idx != -1 {
+			line = line[idx+len("terraform.planonly: "):]
+			cleaned = append(cleaned, line)
+			continue
+		}
+		if idx := strings.Index(line, "terraform: "); idx != -1 {
+			line = line[idx+len("terraform: "):]
+			cleaned = append(cleaned, line)
+			continue
+		}
+		if raw != line {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.Join(cleaned, "\n")
 }
 
 var planSummaryRegex = regexp.MustCompile(`Plan: (\d+) to add, (\d+) to change, (\d+) to destroy`)

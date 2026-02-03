@@ -151,6 +151,20 @@ func TestFilteredEnv(t *testing.T) {
 	}
 }
 
+func TestCleanTerragruntOutput(t *testing.T) {
+	input := "INFO   terraform.planonly: Initializing...\nSTDOUT terraform.planonly: Plan: 1 to add\nWARN   Something else\n"
+	got := cleanTerragruntOutput("terragrunt", input)
+	if strings.Contains(got, "terraform.planonly:") {
+		t.Fatalf("expected terragrunt prefixes to be stripped, got: %q", got)
+	}
+	if strings.Contains(got, "Something else") {
+		t.Fatalf("expected non-terraform terragrunt logs to be removed, got: %q", got)
+	}
+	if !strings.Contains(got, "Plan: 1 to add") {
+		t.Fatalf("expected terraform output to remain, got: %q", got)
+	}
+}
+
 func execCommand(name string, args ...string) *exec.Cmd {
 	return exec.Command(name, args...)
 }

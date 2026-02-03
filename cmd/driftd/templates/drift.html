@@ -51,14 +51,38 @@
         <p>Infrastructure matches the declared state.</p>
         {{end}}
     </div>
-    <p class="run-time">Last run: {{timeAgo .Result.RunAt}}</p>
 </div>
 
 {{if .Result.PlanOutput}}
 <section class="plan-output">
-    <h2>Plan Output</h2>
+    <div class="plan-output-header">
+        <h2>Plan Output</h2>
+        <button type="button" class="btn btn-small btn-copy" data-copy-target="plan-output-raw">Copy</button>
+    </div>
+    <textarea id="plan-output-raw" class="sr-only">{{.Result.PlanOutput}}</textarea>
     <pre>{{.PlanHTML}}</pre>
 </section>
+<script>
+    (function () {
+        const btn = document.querySelector(".btn-copy");
+        const target = document.getElementById(btn?.dataset.copyTarget || "");
+        if (!btn || !target) return;
+        btn.addEventListener("click", async () => {
+            try {
+                await navigator.clipboard.writeText(target.value || "");
+                btn.textContent = "Copied";
+                setTimeout(() => {
+                    btn.textContent = "Copy";
+                }, 1500);
+            } catch (err) {
+                btn.textContent = "Copy failed";
+                setTimeout(() => {
+                    btn.textContent = "Copy";
+                }, 1500);
+            }
+        });
+    })();
+</script>
 {{end}}
 {{else}}
 <p class="empty-state">No scan results available. Click "Rescan" to run a drift check.</p>

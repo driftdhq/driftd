@@ -16,7 +16,9 @@ var tgInstallMu sync.Mutex
 
 func ensureTerraformBinary(ctx context.Context, workDir, version string) (string, error) {
 	if version == "" {
-		if path, err := exec.LookPath("terraform"); err == nil {
+		if defaultVersion := os.Getenv("DRIFTD_DEFAULT_TERRAFORM_VERSION"); defaultVersion != "" {
+			version = defaultVersion
+		} else if path, err := exec.LookPath("terraform"); err == nil {
 			if !filepath.IsAbs(path) {
 				if abs, err := filepath.Abs(path); err == nil {
 					path = abs
@@ -25,8 +27,9 @@ func ensureTerraformBinary(ctx context.Context, workDir, version string) (string
 			if fileExists(path) {
 				return path, nil
 			}
+		} else {
+			return "", fmt.Errorf("terraform not found; set DRIFTD_DEFAULT_TERRAFORM_VERSION or install terraform in PATH")
 		}
-		version = getenv("DRIFTD_TERRAFORM_DEFAULT_VERSION", "latest")
 	}
 	cacheDir := getenv("TFSWITCH_HOME", "/cache/terraform/versions")
 	target := filepath.Join(cacheDir, version, "terraform")
@@ -52,7 +55,16 @@ func ensureTerraformBinary(ctx context.Context, workDir, version string) (string
 		defer restore()
 	}
 
-	if err := runSwitch(ctx, workDir, "tfswitch", cacheDir, target); err != nil {
+	switchDir := workDir
+	if fileExists(filepath.Join(workDir, "terragrunt.hcl")) {
+		tmpDir, err := os.MkdirTemp("", "driftd-switch-*")
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(tmpDir)
+		switchDir = tmpDir
+	}
+	if err := runSwitch(ctx, switchDir, "tfswitch", cacheDir, target, version); err != nil {
 		return "", err
 	}
 	if !fileExists(target) {
@@ -63,7 +75,9 @@ func ensureTerraformBinary(ctx context.Context, workDir, version string) (string
 
 func ensureTerragruntBinary(ctx context.Context, workDir, version string) (string, error) {
 	if version == "" {
-		if path, err := exec.LookPath("terragrunt"); err == nil {
+		if defaultVersion := os.Getenv("DRIFTD_DEFAULT_TERRAGRUNT_VERSION"); defaultVersion != "" {
+			version = defaultVersion
+		} else if path, err := exec.LookPath("terragrunt"); err == nil {
 			if !filepath.IsAbs(path) {
 				if abs, err := filepath.Abs(path); err == nil {
 					path = abs
@@ -72,8 +86,9 @@ func ensureTerragruntBinary(ctx context.Context, workDir, version string) (strin
 			if fileExists(path) {
 				return path, nil
 			}
+		} else {
+			return "", fmt.Errorf("terragrunt not found; set DRIFTD_DEFAULT_TERRAGRUNT_VERSION or install terragrunt in PATH")
 		}
-		version = getenv("DRIFTD_TERRAGRUNT_DEFAULT_VERSION", "latest")
 	}
 	cacheDir := getenv("TGSWITCH_HOME", "/cache/terragrunt/versions")
 	target := filepath.Join(cacheDir, version, "terragrunt")
@@ -99,13 +114,50 @@ func ensureTerragruntBinary(ctx context.Context, workDir, version string) (strin
 		defer restore()
 	}
 
-	if err := runSwitch(ctx, workDir, "tgswitch", cacheDir, target); err != nil {
+	switchDir := workDir
+	if fileExists(filepath.Join(workDir, "terragrunt.hcl")) {
+		tmpDir, err := os.MkdirTemp("", "driftd-switch-*")
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(tmpDir)
+		switchDir = tmpDir
+	}
+	if err := runSwitch(ctx, switchDir, "tgswitch", cacheDir, target, version); err != nil {
 		return "", err
 	}
 	if !fileExists(target) {
 		return "", fmt.Errorf("terragrunt binary not found after tgswitch")
 	}
 	return target, nil
+}
+
+func EnsureDefaultBinaries(ctx context.Context) error {
+	tfVersion := os.Getenv("DRIFTD_DEFAULT_TERRAFORM_VERSION")
+	tgVersion := os.Getenv("DRIFTD_DEFAULT_TERRAGRUNT_VERSION")
+
+	if tfVersion == "" && tgVersion == "" {
+		return nil
+	}
+
+	workDir, err := os.MkdirTemp("", "driftd-defaults-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(workDir)
+
+	if tfVersion != "" {
+		if _, err := ensureTerraformBinary(ctx, workDir, tfVersion); err != nil {
+			return fmt.Errorf("install default terraform %s: %w", tfVersion, err)
+		}
+	}
+	if tgVersion != "" {
+		if _, err := ensureTerragruntBinary(ctx, workDir, tgVersion); err != nil {
+			return fmt.Errorf("install default terragrunt %s: %w", tgVersion, err)
+		}
+	}
+
+	return nil
 }
 
 func ensurePlanOnlyWrapper(workDir, tfBin string) (string, error) {
@@ -155,8 +207,12 @@ func planOnlyWrapperPath(workDir, tfBin string) (string, error) {
 	return filepath.Join(workDir, ".driftd", "terraform.planonly"), nil
 }
 
-func runSwitch(ctx context.Context, workDir, switchCmd, cacheDir, target string) error {
-	cmd := exec.CommandContext(ctx, switchCmd, "-b", target)
+func runSwitch(ctx context.Context, workDir, switchCmd, cacheDir, target, version string) error {
+	args := []string{"-b", target}
+	if version != "" {
+		args = append(args, version)
+	}
+	cmd := exec.CommandContext(ctx, switchCmd, args...)
 	cmd.Dir = workDir
 	cmd.Env = append(filteredEnv(),
 		fmt.Sprintf("%s=%s", switchHomeEnv(switchCmd), cacheDir),

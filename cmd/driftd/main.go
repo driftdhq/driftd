@@ -107,6 +107,10 @@ func runServe(args []string) {
 
 	repoProvider := repos.NewCombinedProvider(cfg, repoStore, cfg.DataDir)
 
+	if err := runner.EnsureDefaultBinaries(context.Background()); err != nil {
+		log.Fatalf("failed to install default terraform/terragrunt: %v", err)
+	}
+
 	// Start scheduler
 	sched := scheduler.New(q, cfg, repoProvider)
 	if err := sched.Start(); err != nil {
@@ -194,6 +198,10 @@ func runWorker(args []string) {
 		log.Fatalf("failed to load repo store: %v", err)
 	}
 	repoProvider := repos.NewCombinedProvider(cfg, repoStore, cfg.DataDir)
+
+	if err := runner.EnsureDefaultBinaries(context.Background()); err != nil {
+		log.Fatalf("failed to install default terraform/terragrunt: %v", err)
+	}
 
 	// Start worker
 	w := worker.New(q, run, cfg.Worker.Concurrency, cfg, repoProvider)

@@ -23,8 +23,11 @@ func Discover(repoDir string, ignore []string) ([]string, error) {
 	patterns := append([]string{}, defaultIgnore...)
 	patterns = append(patterns, ignore...)
 
-	seen := map[string]struct{}{}
-	var stacks []string
+	seenTG := map[string]struct{}{}
+	seenTF := map[string]struct{}{}
+	var terragruntStacks []string
+	var terraformStacks []string
+	rootHasTerragrunt := false
 
 	err := filepath.WalkDir(repoDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -50,11 +53,14 @@ func Discover(repoDir string, ignore []string) ([]string, error) {
 		dir := filepath.ToSlash(filepath.Dir(rel))
 		base := filepath.Base(rel)
 		if base == "terragrunt.hcl" {
-			addStack(dir, seen, &stacks)
+			if dir == "." {
+				rootHasTerragrunt = true
+			}
+			addStack(dir, seenTG, &terragruntStacks)
 			return nil
 		}
 		if strings.HasSuffix(base, ".tf") {
-			addStack(dir, seen, &stacks)
+			addStack(dir, seenTF, &terraformStacks)
 			return nil
 		}
 		return nil
@@ -62,8 +68,13 @@ func Discover(repoDir string, ignore []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(stacks)
-	return filterParentStacks(stacks), nil
+	if rootHasTerragrunt && len(terragruntStacks) > 0 {
+		sort.Strings(terragruntStacks)
+		return filterParentStacks(terragruntStacks), nil
+	}
+	all := append(terragruntStacks, terraformStacks...)
+	sort.Strings(all)
+	return filterParentStacks(all), nil
 }
 
 func filterParentStacks(stacks []string) []string {

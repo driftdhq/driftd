@@ -14,7 +14,11 @@ server:
   tolerations: []
   affinity: {}
   envFrom: []
-  extraEnv: []
+  extraEnv:
+    - name: DRIFTD_DEFAULT_TERRAFORM_VERSION
+      value: "1.14.4"
+    - name: DRIFTD_DEFAULT_TERRAGRUNT_VERSION
+      value: "0.99.1"
   # extraEnv:
   #   - name: LOG_LEVEL
   #     value: debug
@@ -26,7 +30,11 @@ worker:
   tolerations: []
   affinity: {}
   envFrom: []
-  extraEnv: []
+  extraEnv:
+    - name: DRIFTD_DEFAULT_TERRAFORM_VERSION
+      value: "1.14.4"
+    - name: DRIFTD_DEFAULT_TERRAGRUNT_VERSION
+      value: "0.99.1"
   # extraEnv:
   #   # Direct value
   #   - name: TF_VAR_region
