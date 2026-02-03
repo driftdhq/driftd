@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/gitauth"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/runner"
@@ -47,7 +48,15 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 	}
 
 	if w.cfg != nil {
-		if repoCfg := w.cfg.GetRepo(job.RepoName); repoCfg != nil {
+		var repoCfg *config.RepoConfig
+		if w.provider != nil {
+			if resolved, err := w.provider.Get(job.RepoName); err == nil {
+				repoCfg = resolved
+			}
+		} else {
+			repoCfg = w.cfg.GetRepo(job.RepoName)
+		}
+		if repoCfg != nil {
 			if workspacePath == "" {
 				authMethod, authErr := gitauth.AuthMethod(ctx, repoCfg)
 				if authErr != nil {

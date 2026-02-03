@@ -15,6 +15,7 @@ import (
 	"github.com/driftdhq/driftd/internal/api"
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/driftdhq/driftd/internal/scheduler"
 	"github.com/driftdhq/driftd/internal/secrets"
@@ -104,17 +105,28 @@ func runServe(args []string) {
 		log.Fatalf("failed to load repo store: %v", err)
 	}
 
-	srv, err := api.New(cfg, store, q, templatesFS, staticFS, api.WithRepoStore(repoStore))
-	if err != nil {
-		log.Fatalf("failed to create server: %v", err)
-	}
+	repoProvider := repos.NewCombinedProvider(cfg, repoStore, cfg.DataDir)
 
 	// Start scheduler
-	sched := scheduler.New(q, cfg)
+	sched := scheduler.New(q, cfg, repoProvider)
 	if err := sched.Start(); err != nil {
 		log.Fatalf("failed to start scheduler: %v", err)
 	}
 	defer sched.Stop()
+
+	srv, err := api.New(
+		cfg,
+		store,
+		q,
+		templatesFS,
+		staticFS,
+		api.WithRepoStore(repoStore),
+		api.WithRepoProvider(repoProvider),
+		api.WithSchedulerCallbacks(sched.OnRepoAdded, sched.OnRepoUpdated, sched.OnRepoDeleted),
+	)
+	if err != nil {
+		log.Fatalf("failed to create server: %v", err)
+	}
 
 	// Handle shutdown
 	done := make(chan os.Signal, 1)
@@ -167,8 +179,24 @@ func runWorker(args []string) {
 	}
 	defer q.Close()
 
+	// Initialize encryption and repo store for dynamic repos
+	keyStore := secrets.NewKeyStore(cfg.DataDir)
+	encKey, err := keyStore.LoadOrGenerate()
+	if err != nil {
+		log.Fatalf("failed to initialize encryption: %v", err)
+	}
+	encryptor, err := secrets.NewEncryptor(encKey)
+	if err != nil {
+		log.Fatalf("failed to create encryptor: %v", err)
+	}
+	repoStore := secrets.NewRepoStore(cfg.DataDir, encryptor)
+	if err := repoStore.Load(); err != nil {
+		log.Fatalf("failed to load repo store: %v", err)
+	}
+	repoProvider := repos.NewCombinedProvider(cfg, repoStore, cfg.DataDir)
+
 	// Start worker
-	w := worker.New(q, run, cfg.Worker.Concurrency, cfg)
+	w := worker.New(q, run, cfg.Worker.Concurrency, cfg, repoProvider)
 	w.Start()
 
 	// Handle shutdown

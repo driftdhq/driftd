@@ -10,6 +10,7 @@ import (
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
@@ -23,13 +24,14 @@ type Worker struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	cfg         *config.Config
+	provider    repos.Provider
 }
 
 type Runner interface {
 	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error)
 }
 
-func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config) *Worker {
+func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config, provider repos.Provider) *Worker {
 	hostname, _ := os.Hostname()
 	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 
@@ -43,6 +45,7 @@ func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config) *Worker 
 		ctx:         ctx,
 		cancel:      cancel,
 		cfg:         cfg,
+		provider:    provider,
 	}
 }
 

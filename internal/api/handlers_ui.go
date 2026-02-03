@@ -116,12 +116,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	configRepos := s.listConfiguredRepos()
 	data := indexData{
 		Repos:        repoData,
-		ConfigRepos:  s.cfg.Repos,
+		ConfigRepos:  configRepos,
 		RepoByName:   map[string]repoStatusData{},
 		ConfigByName: map[string]config.RepoConfig{},
-		TotalRepos:   len(s.cfg.Repos),
+		TotalRepos:   len(configRepos),
 		TotalStacks:  totalStacks,
 		DriftedRepos: driftedRepos,
 		ActiveScans:  activeScans,
@@ -130,7 +131,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	for _, repo := range repoData {
 		data.RepoByName[repo.Name] = repo
 	}
-	for _, repo := range s.cfg.Repos {
+	for _, repo := range configRepos {
 		data.ConfigByName[repo.Name] = repo
 	}
 
@@ -149,7 +150,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	stacks, _ := s.storage.ListStacks(repoName)
 	stacks = filterParentStackStatuses(stacks)
 	csrfToken := csrfTokenFromContext(r.Context())
-	repoCfg := s.cfg.GetRepo(repoName)
+	repoCfg, _ := s.getRepoConfig(repoName)
 	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
 	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
 	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
@@ -204,7 +205,7 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repoCfg := s.cfg.GetRepo(repoName)
+	repoCfg, _ := s.getRepoConfig(repoName)
 	result, err := s.storage.GetResult(repoName, stackPath)
 	if err != nil {
 		http.Error(w, "Stack not found", http.StatusNotFound)
@@ -231,13 +232,13 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 }
 
 type settingsData struct {
-	CSRFToken          string
+	CSRFToken           string
 	DynamicReposEnabled bool
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	data := settingsData{
-		CSRFToken:          csrfTokenFromContext(r.Context()),
+		CSRFToken:           csrfTokenFromContext(r.Context()),
 		DynamicReposEnabled: s.repoStore != nil,
 	}
 

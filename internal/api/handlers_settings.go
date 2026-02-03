@@ -13,10 +13,10 @@ import (
 type RepoRequest struct {
 	Name                       string   `json:"name"`
 	URL                        string   `json:"url"`
-	Branch                     string   `json:"branch,omitempty"`
+	Branch                     *string  `json:"branch,omitempty"`
 	IgnorePaths                []string `json:"ignore_paths,omitempty"`
-	Schedule                   string   `json:"schedule,omitempty"`
-	CancelInflightOnNewTrigger bool     `json:"cancel_inflight_on_new_trigger,omitempty"`
+	Schedule                   *string  `json:"schedule,omitempty"`
+	CancelInflightOnNewTrigger *bool    `json:"cancel_inflight_on_new_trigger,omitempty"`
 
 	// Auth configuration
 	AuthType string `json:"auth_type"` // "https", "ssh", "github_app"
@@ -214,10 +214,10 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 	entry := &secrets.RepoEntry{
 		Name:                       req.Name,
 		URL:                        req.URL,
-		Branch:                     req.Branch,
+		Branch:                     derefString(req.Branch),
 		IgnorePaths:                req.IgnorePaths,
-		Schedule:                   req.Schedule,
-		CancelInflightOnNewTrigger: req.CancelInflightOnNewTrigger,
+		Schedule:                   derefString(req.Schedule),
+		CancelInflightOnNewTrigger: derefBool(req.CancelInflightOnNewTrigger, true),
 		Git: secrets.RepoGitConfig{
 			Type: req.AuthType,
 		},
@@ -252,6 +252,12 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 			})
 			return
 		}
+		if req.SSHKnownHosts == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "ssh_known_hosts is required for ssh auth",
+			})
+			return
+		}
 		creds.SSHPrivateKey = req.SSHPrivateKey
 		creds.SSHKnownHosts = req.SSHKnownHosts
 
@@ -279,8 +285,8 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 	}
 
 	// Register with scheduler if schedule is set
-	if req.Schedule != "" && s.onRepoAdded != nil {
-		s.onRepoAdded(req.Name, req.Schedule)
+	if entry.Schedule != "" && s.onRepoAdded != nil {
+		s.onRepoAdded(req.Name, entry.Schedule)
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
@@ -322,9 +328,9 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Use existing values if not provided
-	if req.Name == "" {
-		req.Name = existing.Name
+	if req.Name != "" && req.Name != existing.Name {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "renaming repositories is not supported"})
+		return
 	}
 	if req.URL == "" {
 		req.URL = existing.URL
@@ -335,16 +341,30 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 
 	// Build updated entry
 	entry := &secrets.RepoEntry{
-		Name:                       req.Name,
+		Name:                       existing.Name,
 		URL:                        req.URL,
-		Branch:                     req.Branch,
-		IgnorePaths:                req.IgnorePaths,
-		Schedule:                   req.Schedule,
-		CancelInflightOnNewTrigger: req.CancelInflightOnNewTrigger,
+		Branch:                     existing.Branch,
+		IgnorePaths:                existing.IgnorePaths,
+		Schedule:                   existing.Schedule,
+		CancelInflightOnNewTrigger: existing.CancelInflightOnNewTrigger,
 		Git: secrets.RepoGitConfig{
 			Type: req.AuthType,
 		},
 	}
+	if req.Branch != nil {
+		entry.Branch = *req.Branch
+	}
+	if req.IgnorePaths != nil {
+		entry.IgnorePaths = req.IgnorePaths
+	}
+	if req.Schedule != nil {
+		entry.Schedule = *req.Schedule
+	}
+	if req.CancelInflightOnNewTrigger != nil {
+		entry.CancelInflightOnNewTrigger = *req.CancelInflightOnNewTrigger
+	}
+
+	authChanged := req.AuthType != "" && req.AuthType != existing.Git.Type
 
 	// Only update credentials if provided
 	var creds *secrets.RepoCredentials
@@ -352,12 +372,24 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		creds = &secrets.RepoCredentials{}
 		switch req.AuthType {
 		case "github_app":
+			if req.GitHubAppID == 0 || req.GitHubInstallationID == 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{
+					"error": "github_app_id and github_installation_id are required for github_app auth",
+				})
+				return
+			}
 			entry.Git.GitHubApp = &secrets.RepoGitHubApp{
 				AppID:          req.GitHubAppID,
 				InstallationID: req.GitHubInstallationID,
 			}
 			creds.GitHubAppPrivateKey = req.GitHubPrivateKey
 		case "ssh":
+			if req.SSHKnownHosts == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{
+					"error": "ssh_known_hosts is required for ssh auth",
+				})
+				return
+			}
 			creds.SSHPrivateKey = req.SSHPrivateKey
 			creds.SSHKnownHosts = req.SSHKnownHosts
 		case "https":
@@ -380,6 +412,12 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 			entry.Git.GitHubApp.InstallationID = req.GitHubInstallationID
 		}
 	}
+	if authChanged && creds == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "credentials are required when changing auth_type",
+		})
+		return
+	}
 
 	if err := s.repoStore.Update(repoName, entry, creds); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -388,7 +426,7 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 
 	// Update scheduler if schedule changed
 	if s.onRepoUpdated != nil {
-		s.onRepoUpdated(req.Name, req.Schedule)
+		s.onRepoUpdated(entry.Name, entry.Schedule)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -443,4 +481,18 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func derefString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func derefBool(v *bool, fallback bool) bool {
+	if v == nil {
+		return fallback
+	}
+	return *v
 }

@@ -1,0 +1,91 @@
+package secrets
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/driftdhq/driftd/internal/config"
+)
+
+// RepoConfigFromEntry converts a dynamic RepoEntry and credentials into a RepoConfig.
+func RepoConfigFromEntry(entry *RepoEntry, creds *RepoCredentials, dataDir string) (*config.RepoConfig, error) {
+	if entry == nil {
+		return nil, fmt.Errorf("repo entry required")
+	}
+
+	cfg := &config.RepoConfig{
+		Name:        entry.Name,
+		URL:         entry.URL,
+		Branch:      entry.Branch,
+		IgnorePaths: entry.IgnorePaths,
+		Schedule:    entry.Schedule,
+	}
+	cancel := entry.CancelInflightOnNewTrigger
+	cfg.CancelInflightOnNewTrigger = &cancel
+
+	if entry.Git.Type == "" {
+		return cfg, nil
+	}
+	if creds == nil {
+		return nil, fmt.Errorf("credentials required for git auth type %s", entry.Git.Type)
+	}
+
+	gitCfg := &config.GitAuthConfig{Type: entry.Git.Type}
+
+	switch entry.Git.Type {
+	case "github_app":
+		if entry.Git.GitHubApp == nil {
+			return nil, fmt.Errorf("github_app config required")
+		}
+		if creds.GitHubAppPrivateKey == "" {
+			return nil, fmt.Errorf("github_app private key required")
+		}
+		gitCfg.GitHubApp = &config.GitHubAppConfig{
+			AppID:          entry.Git.GitHubApp.AppID,
+			InstallationID: entry.Git.GitHubApp.InstallationID,
+			PrivateKey:     creds.GitHubAppPrivateKey,
+		}
+	case "https":
+		gitCfg.HTTPSUsername = creds.HTTPSUsername
+		gitCfg.HTTPSToken = creds.HTTPSToken
+	case "ssh":
+		if creds.SSHPrivateKey == "" {
+			return nil, fmt.Errorf("ssh private key required")
+		}
+		keyPath, knownHostsPath, err := writeSSHCredentials(entry.Name, dataDir, creds)
+		if err != nil {
+			return nil, err
+		}
+		gitCfg.SSHKeyPath = keyPath
+		gitCfg.SSHKnownHostsPath = knownHostsPath
+	default:
+		return nil, fmt.Errorf("unsupported git auth type: %s", entry.Git.Type)
+	}
+
+	cfg.Git = gitCfg
+	return cfg, nil
+}
+
+func writeSSHCredentials(repoName, dataDir string, creds *RepoCredentials) (string, string, error) {
+	baseDir := filepath.Join(dataDir, "repo-creds", repoName)
+	if err := os.MkdirAll(baseDir, 0700); err != nil {
+		return "", "", fmt.Errorf("failed to create credentials dir: %w", err)
+	}
+
+	keyPath := filepath.Join(baseDir, "id_ssh")
+	if err := os.WriteFile(keyPath, []byte(creds.SSHPrivateKey), 0600); err != nil {
+		return "", "", fmt.Errorf("failed to write ssh key: %w", err)
+	}
+
+	if creds.SSHKnownHosts == "" {
+		return keyPath, "", fmt.Errorf("ssh known_hosts required")
+	}
+
+	knownHostsPath := filepath.Join(baseDir, "known_hosts")
+	if err := os.WriteFile(knownHostsPath, []byte(creds.SSHKnownHosts), 0600); err != nil {
+		return "", "", fmt.Errorf("failed to write known_hosts: %w", err)
+	}
+
+	return keyPath, knownHostsPath, nil
+}

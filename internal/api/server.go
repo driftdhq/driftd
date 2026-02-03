@@ -9,6 +9,7 @@ import (
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -17,15 +18,16 @@ import (
 )
 
 type Server struct {
-	cfg       *config.Config
-	storage   *storage.Storage
-	queue     *queue.Queue
-	repoStore *secrets.RepoStore
-	tmplIndex *template.Template
-	tmplRepo  *template.Template
-	tmplDrift *template.Template
+	cfg          *config.Config
+	storage      *storage.Storage
+	queue        *queue.Queue
+	repoStore    *secrets.RepoStore
+	repoProvider repos.Provider
+	tmplIndex    *template.Template
+	tmplRepo     *template.Template
+	tmplDrift    *template.Template
 	tmplSettings *template.Template
-	staticFS  fs.FS
+	staticFS     fs.FS
 
 	rateLimitMu  sync.Mutex
 	rateLimiters map[string]*rateLimiterEntry
@@ -48,6 +50,13 @@ type ServerOption func(*Server)
 func WithRepoStore(rs *secrets.RepoStore) ServerOption {
 	return func(s *Server) {
 		s.repoStore = rs
+	}
+}
+
+// WithRepoProvider sets a repository provider for resolving dynamic repos.
+func WithRepoProvider(provider repos.Provider) ServerOption {
+	return func(s *Server) {
+		s.repoProvider = provider
 	}
 }
 
@@ -157,6 +166,7 @@ func (s *Server) Handler() http.Handler {
 
 		// Settings API routes
 		r.Route("/settings", func(r chi.Router) {
+			r.Use(s.settingsAuthMiddleware)
 			r.Get("/repos", s.handleListSettingsRepos)
 			r.Post("/repos", s.handleCreateSettingsRepo)
 			r.Get("/repos/{repo}", s.handleGetSettingsRepo)

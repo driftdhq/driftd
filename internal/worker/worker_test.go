@@ -83,7 +83,7 @@ func newTestQueue(t *testing.T) *queue.Queue {
 func TestWorkerStartStop(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
-	w := New(q, r, 2, nil)
+	w := New(q, r, 2, nil, nil)
 
 	w.Start()
 
@@ -105,7 +105,7 @@ func TestWorkerProcessesStackScan(t *testing.T) {
 		Destroyed: 0,
 	}
 
-	w := New(q, r, 1, nil)
+	w := New(q, r, 1, nil, nil)
 	w.Start()
 	defer w.Stop()
 
@@ -156,7 +156,7 @@ func TestWorkerHandlesRunnerError(t *testing.T) {
 		Error: "terraform init failed",
 	}
 
-	w := New(q, r, 1, nil)
+	w := New(q, r, 1, nil, nil)
 	w.Start()
 	defer w.Stop()
 
@@ -200,7 +200,7 @@ func TestWorkerUsesScanVersions(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 
-	w := New(q, r, 1, nil)
+	w := New(q, r, 1, nil, nil)
 	w.Start()
 	defer w.Stop()
 
@@ -254,7 +254,7 @@ func TestWorkerUsesStackVersionOverride(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 
-	w := New(q, r, 1, nil)
+	w := New(q, r, 1, nil, nil)
 	w.Start()
 	defer w.Stop()
 
@@ -310,7 +310,7 @@ func TestWorkerCancelsStackScanWhenScanCanceled(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 
-	w := New(q, r, 1, nil)
+	w := New(q, r, 1, nil, nil)
 	w.Start()
 	defer w.Stop()
 
@@ -368,7 +368,7 @@ func TestWorkerUsesWorkspacePath(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 
-	w := New(q, r, 1, nil)
+	w := New(q, r, 1, nil, nil)
 	w.Start()
 	defer w.Stop()
 
@@ -427,7 +427,7 @@ func TestWorkerWithConfig(t *testing.T) {
 		},
 	}
 
-	w := New(q, r, 1, cfg)
+	w := New(q, r, 1, cfg, nil)
 	w.Start()
 	defer w.Stop()
 
@@ -468,7 +468,7 @@ func TestWorkerConcurrency(t *testing.T) {
 	r := newMockRunner()
 
 	// Use 3 concurrent workers
-	w := New(q, r, 3, nil)
+	w := New(q, r, 3, nil, nil)
 	w.Start()
 	defer w.Stop()
 

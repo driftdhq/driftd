@@ -9,6 +9,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/secrets"
 )
 
 var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -53,6 +56,57 @@ func (s *Server) sanitizeErrorMessage(msg string) string {
 		msg = strings.ReplaceAll(msg, tmp, "<tmp>")
 	}
 	return msg
+}
+
+func (s *Server) getRepoConfig(name string) (*config.RepoConfig, error) {
+	if s.repoProvider != nil {
+		return s.repoProvider.Get(name)
+	}
+	if repo := s.cfg.GetRepo(name); repo != nil {
+		return repo, nil
+	}
+	return nil, secrets.ErrRepoNotFound
+}
+
+func (s *Server) listConfiguredRepos() []config.RepoConfig {
+	repos := make([]config.RepoConfig, 0, len(s.cfg.Repos))
+	seen := make(map[string]struct{}, len(s.cfg.Repos))
+
+	for _, repo := range s.cfg.Repos {
+		repos = append(repos, repo)
+		seen[repo.Name] = struct{}{}
+	}
+
+	if s.repoStore == nil {
+		return repos
+	}
+
+	for _, entry := range s.repoStore.List() {
+		if _, ok := seen[entry.Name]; ok {
+			continue
+		}
+		cancel := entry.CancelInflightOnNewTrigger
+		repo := config.RepoConfig{
+			Name:                       entry.Name,
+			URL:                        entry.URL,
+			Branch:                     entry.Branch,
+			IgnorePaths:                entry.IgnorePaths,
+			Schedule:                   entry.Schedule,
+			CancelInflightOnNewTrigger: &cancel,
+		}
+		if entry.Git.Type != "" {
+			repo.Git = &config.GitAuthConfig{Type: entry.Git.Type}
+			if entry.Git.GitHubApp != nil {
+				repo.Git.GitHubApp = &config.GitHubAppConfig{
+					AppID:          entry.Git.GitHubApp.AppID,
+					InstallationID: entry.Git.GitHubApp.InstallationID,
+				}
+			}
+		}
+		repos = append(repos, repo)
+	}
+
+	return repos
 }
 
 func formatPlanOutput(plan string) template.HTML {

@@ -75,8 +75,8 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repoCfg := s.cfg.GetRepo(repoName)
-	if repoCfg == nil {
+	repoCfg, err := s.getRepoConfig(repoName)
+	if err != nil || repoCfg == nil {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(scanResponse{Error: "Repository not configured"})
 		return

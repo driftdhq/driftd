@@ -65,6 +65,30 @@ func (s *Server) apiAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) settingsAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.apiAuthEnabled() {
+			s.apiAuthMiddleware(next).ServeHTTP(w, r)
+			return
+		}
+
+		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
+			username, password, ok := r.BasicAuth()
+			if ok &&
+				subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.UIAuth.Username)) == 1 &&
+				subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.UIAuth.Password)) == 1 {
+				next.ServeHTTP(w, r)
+				return
+			}
+			w.Header().Set("WWW-Authenticate", `Basic realm="driftd"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	})
+}
+
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := s.ensureCSRFToken(w, r)

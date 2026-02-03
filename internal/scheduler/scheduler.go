@@ -6,11 +6,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/gitauth"
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/stack"
 	"github.com/driftdhq/driftd/internal/version"
 	"github.com/go-git/go-git/v5"
@@ -20,36 +22,37 @@ import (
 )
 
 type Scheduler struct {
-	cron  *cron.Cron
-	queue *queue.Queue
-	cfg   *config.Config
+	cron     *cron.Cron
+	queue    *queue.Queue
+	cfg      *config.Config
+	provider repos.Provider
+
+	mu      sync.Mutex
+	entries map[string]cron.EntryID
 }
 
-func New(q *queue.Queue, cfg *config.Config) *Scheduler {
+func New(q *queue.Queue, cfg *config.Config, provider repos.Provider) *Scheduler {
 	return &Scheduler{
-		cron:  cron.New(),
-		queue: q,
-		cfg:   cfg,
+		cron:     cron.New(),
+		queue:    q,
+		cfg:      cfg,
+		provider: provider,
+		entries:  make(map[string]cron.EntryID),
 	}
 }
 
 func (s *Scheduler) Start() error {
-	for _, repo := range s.cfg.Repos {
+	repos, err := s.provider.List()
+	if err != nil {
+		return err
+	}
+	for _, repo := range repos {
 		if repo.Schedule == "" {
 			continue
 		}
-
-		// Capture loop variables for closure
-		repoName := repo.Name
-		repoURL := repo.URL
-		_, err := s.cron.AddFunc(repo.Schedule, func() {
-			s.enqueueRepoScans(repoName, repoURL)
-		})
-		if err != nil {
+		if err := s.scheduleRepo(repo.Name, repo.Schedule); err != nil {
 			return err
 		}
-
-		log.Printf("Scheduled scans for %s: %s", repoName, repo.Schedule)
 	}
 
 	s.cron.Start()
@@ -61,9 +64,69 @@ func (s *Scheduler) Stop() {
 	<-ctx.Done()
 }
 
-func (s *Scheduler) enqueueRepoScans(repoName, repoURL string) {
+func (s *Scheduler) OnRepoAdded(name, schedule string) {
+	if schedule == "" {
+		return
+	}
+	if err := s.scheduleRepo(name, schedule); err != nil {
+		log.Printf("Failed to schedule repo %s: %v", name, err)
+	}
+}
+
+func (s *Scheduler) OnRepoUpdated(name, schedule string) {
+	if schedule == "" {
+		s.unscheduleRepo(name)
+		return
+	}
+	if err := s.scheduleRepo(name, schedule); err != nil {
+		log.Printf("Failed to reschedule repo %s: %v", name, err)
+	}
+}
+
+func (s *Scheduler) OnRepoDeleted(name string) {
+	s.unscheduleRepo(name)
+}
+
+func (s *Scheduler) scheduleRepo(name, schedule string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if entryID, ok := s.entries[name]; ok {
+		s.cron.Remove(entryID)
+		delete(s.entries, name)
+	}
+
+	repoName := name
+	entryID, err := s.cron.AddFunc(schedule, func() {
+		s.enqueueRepoScans(repoName)
+	})
+	if err != nil {
+		return err
+	}
+	s.entries[name] = entryID
+	log.Printf("Scheduled scans for %s: %s", name, schedule)
+	return nil
+}
+
+func (s *Scheduler) unscheduleRepo(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if entryID, ok := s.entries[name]; ok {
+		s.cron.Remove(entryID)
+		delete(s.entries, name)
+		log.Printf("Removed schedule for %s", name)
+	}
+}
+
+func (s *Scheduler) enqueueRepoScans(repoName string) {
 	ctx := context.Background()
-	repoCfg := s.cfg.GetRepo(repoName)
+	repoCfg, err := s.provider.Get(repoName)
+	if err != nil || repoCfg == nil {
+		log.Printf("Failed to find repo config for %s: %v", repoName, err)
+		return
+	}
+	repoURL := repoCfg.URL
 
 	maxRetries := 0
 	if s.cfg.Worker.RetryOnce {
