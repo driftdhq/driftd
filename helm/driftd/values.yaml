@@ -41,7 +41,7 @@ config:
   data_dir: /data
   listen_addr: ":8080"
   redis:
-    addr: "redis:6379"
+    addr: "driftd-redis-master:6379"
     password: ""
     db: 0
   worker:
@@ -53,3 +53,18 @@ config:
   workspace:
     retention: 5
   repos: []
+
+# Redis subchart configuration
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  image:
+    registry: docker.io
+    repository: bitnami/redis
+    tag: latest
+    digest: sha256:412da89feed59b1a45b0c1fd9d07cdb2e2283cf4db2e5a1604762ad03d53af6d  # Redis 8.4.0
+  master:
+    persistence:
+      enabled: false

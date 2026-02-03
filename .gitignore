@@ -8,3 +8,6 @@
 .DS_Store
 
 .idea
+
+# Helm dependency charts (downloaded via helm dep update)
+helm/*/charts/
