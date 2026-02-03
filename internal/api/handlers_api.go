@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -315,4 +316,56 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scan)
+}
+
+func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
+	repoName := chi.URLParam(r, "repo")
+	if !isValidRepoName(repoName) {
+		http.Error(w, "Invalid repository name", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	type snapshot struct {
+		ActiveScan *queue.Scan           `json:"active_scan,omitempty"`
+		LastScan   *queue.Scan           `json:"last_scan,omitempty"`
+		Stacks     []storage.StackStatus `json:"stacks,omitempty"`
+	}
+
+	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
+	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
+	stacks, _ := s.storage.ListStacks(repoName)
+	payload, _ := json.Marshal(snapshot{
+		ActiveScan: activeScan,
+		LastScan:   lastScan,
+		Stacks:     stacks,
+	})
+	fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", payload)
+	flusher.Flush()
+
+	sub := s.queue.Client().Subscribe(r.Context(), "driftd:events:"+repoName)
+	defer sub.Close()
+
+	ch := sub.Channel()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: update\ndata: %s\n\n", msg.Payload)
+			flusher.Flush()
+		}
+	}
 }

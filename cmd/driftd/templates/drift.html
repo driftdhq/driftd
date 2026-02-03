@@ -8,71 +8,60 @@
 </nav>
 
 <div class="stack-header">
-    <h1>{{.Path}}</h1>
+    <div class="stack-title">
+        <h1>{{.Path}}</h1>
+        {{if .Result}}
+            {{if .Result.Error}}
+            <span class="badge badge-error">error</span>
+            {{else if .Result.Drifted}}
+            <span class="badge badge-drift">drifted</span>
+            {{else}}
+            <span class="badge badge-ok">healthy</span>
+            {{end}}
+        {{end}}
+    </div>
     <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="scan-form">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <button type="submit" class="btn btn-scan">Rescan</button>
     </form>
 </div>
 
-{{if .Scan}}
-<div class="scan-summary">
-    <div>
-        <strong>Last scan</strong>
-        <span class="meta">{{timeAgo .Scan.EndedAt}}</span>
-        {{if .Scan.CommitSHA}}
-            {{$commitURL := commitURL .RepoURL .Scan.CommitSHA}}
-            {{if $commitURL}}
-                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .Scan.CommitSHA}}</a></span>
-            {{else}}
-                <span class="meta">Commit {{printf "%.7s" .Scan.CommitSHA}}</span>
-            {{end}}
-        {{end}}
-    </div>
-</div>
-{{end}}
-
-
 {{if .Result}}
-<div class="drift-summary">
-    <div class="status-box {{if .Result.Error}}error{{else if .Result.Drifted}}drifted{{else}}ok{{end}}">
-        {{if .Result.Error}}
-        <h2>Error</h2>
-        <p>{{.Result.Error}}</p>
-        {{else if .Result.Drifted}}
-        <h2>Drift Detected</h2>
-        <p class="changes-summary">
-            {{if .Result.Added}}<span class="add">+{{.Result.Added}} to add</span>{{end}}
-            {{if .Result.Changed}}<span class="change">~{{.Result.Changed}} to change</span>{{end}}
-            {{if .Result.Destroyed}}<span class="destroy">-{{.Result.Destroyed}} to destroy</span>{{end}}
-        </p>
-        {{else}}
-        <h2>No Drift</h2>
-        <p>Infrastructure matches the declared state.</p>
-        {{end}}
-    </div>
-</div>
-
 {{if .Result.PlanOutput}}
 <section class="plan-output">
     <div class="plan-output-header">
-        <h2>Plan Output</h2>
+        <div class="plan-output-title">
+            <h2>Plan Output</h2>
+            {{if .Scan}}
+                <span class="meta">last scan {{timeAgo .Scan.EndedAt}}</span>
+                {{if .Scan.CommitSHA}}
+                    {{$commitURL := commitURL .RepoURL .Scan.CommitSHA}}
+                    {{if $commitURL}}
+                        <span class="meta">commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .Scan.CommitSHA}}</a></span>
+                    {{else}}
+                        <span class="meta">commit {{printf "%.7s" .Scan.CommitSHA}}</span>
+                    {{end}}
+                {{end}}
+            {{end}}
+        </div>
         <button type="button" class="btn btn-small btn-copy" data-copy-target="plan-output-raw">Copy</button>
     </div>
     <textarea id="plan-output-raw" class="sr-only">{{.Result.PlanOutput}}</textarea>
     <pre>{{.PlanHTML}}</pre>
 </section>
-<script>
-    (function () {
-        const btn = document.querySelector(".btn-copy");
-        const target = document.getElementById(btn?.dataset.copyTarget || "");
-        if (!btn || !target) return;
-        btn.addEventListener("click", async () => {
-            try {
-                await navigator.clipboard.writeText(target.value || "");
-                btn.textContent = "Copied";
-                setTimeout(() => {
-                    btn.textContent = "Copy";
+    <script>
+        (function () {
+            const btn = document.querySelector(".btn-copy");
+            const target = document.getElementById(btn?.dataset.copyTarget || "");
+            if (!btn || !target) return;
+            const stripAnsi = (text) => text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
+            btn.addEventListener("click", async () => {
+                try {
+                    const raw = target.value || "";
+                    await navigator.clipboard.writeText(stripAnsi(raw));
+                    btn.textContent = "Copied";
+                    setTimeout(() => {
+                        btn.textContent = "Copy";
                 }, 1500);
             } catch (err) {
                 btn.textContent = "Copy failed";

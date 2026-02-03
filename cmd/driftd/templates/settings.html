@@ -160,7 +160,7 @@ let deleteRepoName = "";
 
 async function loadRepos() {
     try {
-        const resp = await fetch("/api/settings/repos");
+        const resp = await fetch("/api/settings/repos", {credentials: "same-origin"});
         const repos = await resp.json();
         renderRepos(repos);
     } catch (err) {
@@ -217,7 +217,7 @@ function showAddRepoModal() {
 
 async function editRepo(name) {
     try {
-        const resp = await fetch(`/api/settings/repos/${encodeURIComponent(name)}`);
+        const resp = await fetch(`/api/settings/repos/${encodeURIComponent(name)}`, {credentials: "same-origin"});
         const repo = await resp.json();
 
         document.getElementById("modal-title").textContent = "Edit Repository";
@@ -291,6 +291,7 @@ async function saveRepo(e) {
         const resp = await fetch(url, {
             method: method,
             headers: {"Content-Type": "application/json"},
+            credentials: "same-origin",
             body: JSON.stringify(data),
         });
 
@@ -324,6 +325,7 @@ async function confirmDelete() {
     try {
         const resp = await fetch(`/api/settings/repos/${encodeURIComponent(deleteRepoName)}`, {
             method: "DELETE",
+            credentials: "same-origin",
         });
 
         if (!resp.ok) {

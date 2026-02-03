@@ -15,6 +15,16 @@ import (
 func (w *Worker) processStackScan(job *queue.StackScan) {
 	log.Printf("Processing stack scan %s: %s/%s", job.ID, job.RepoName, job.StackPath)
 
+	now := time.Now()
+	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
+		Type:      "stack_update",
+		RepoName:  job.RepoName,
+		ScanID:    job.ScanID,
+		StackPath: job.StackPath,
+		Status:    "running",
+		RunAt:     &now,
+	})
+
 	var tfVersion, tgVersion string
 	var auth transport.AuthMethod
 	var scanID string
@@ -83,6 +93,7 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 		if failErr := w.queue.Fail(w.ctx, job, err.Error()); failErr != nil {
 			log.Printf("Failed to mark stack scan %s as failed: %v", job.ID, failErr)
 		}
+		w.publishStackFailure(job, err.Error())
 		return
 	}
 
@@ -91,6 +102,7 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 		if failErr := w.queue.Fail(w.ctx, job, result.Error); failErr != nil {
 			log.Printf("Failed to mark stack scan %s as failed: %v", job.ID, failErr)
 		}
+		w.publishStackFailure(job, result.Error)
 		return
 	}
 
@@ -100,6 +112,56 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 	if completeErr := w.queue.Complete(w.ctx, job, result.Drifted); completeErr != nil {
 		log.Printf("Failed to mark stack scan %s as completed: %v", job.ID, completeErr)
 	}
+	w.publishStackCompletion(job, result)
+}
+
+func (w *Worker) publishStackFailure(job *queue.StackScan, errMsg string) {
+	now := time.Now()
+	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
+		Type:      "stack_update",
+		RepoName:  job.RepoName,
+		ScanID:    job.ScanID,
+		StackPath: job.StackPath,
+		Status:    "failed",
+		Error:     errMsg,
+		RunAt:     &now,
+	})
+	w.publishScanUpdate(job)
+}
+
+func (w *Worker) publishStackCompletion(job *queue.StackScan, result *runner.RunResult) {
+	now := time.Now()
+	drifted := result.Drifted
+	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
+		Type:      "stack_update",
+		RepoName:  job.RepoName,
+		ScanID:    job.ScanID,
+		StackPath: job.StackPath,
+		Status:    "completed",
+		Drifted:   &drifted,
+		RunAt:     &now,
+	})
+	w.publishScanUpdate(job)
+}
+
+func (w *Worker) publishScanUpdate(job *queue.StackScan) {
+	if job.ScanID == "" {
+		return
+	}
+	scan, err := w.queue.GetScan(w.ctx, job.ScanID)
+	if err != nil || scan == nil {
+		return
+	}
+	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
+		Type:       "scan_update",
+		RepoName:   job.RepoName,
+		ScanID:     scan.ID,
+		Status:     scan.Status,
+		Completed:  scan.Completed,
+		Failed:     scan.Failed,
+		Total:      scan.Total,
+		DriftedCnt: scan.Drifted,
+	})
 }
 
 func (w *Worker) watchScanCancel(ctx context.Context, cancel context.CancelFunc, scanID string) {

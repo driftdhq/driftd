@@ -61,7 +61,7 @@
         </div>
         <div class="stack-tree-body">
             {{range .Stacks}}
-            <div class="stack-row stack-file">
+            <div class="stack-row stack-file" data-stack-path="{{.Path}}">
                 <div class="stack-cell stack-name">
                     <a href="/repos/{{$.Name}}/stacks/{{.Path}}" class="stack-link">{{.Path}}</a>
                 </div>
@@ -95,5 +95,88 @@
     }, 5000);
 </script>
 {{end}}
+
+<script>
+    (function () {
+        if (!window.EventSource) return;
+        const repoName = "{{.Name}}";
+        const source = new EventSource(`/api/repos/${encodeURIComponent(repoName)}/events`);
+
+        const formatStatus = (status, drifted, error) => {
+            if (error) return '<span class="badge badge-error">error</span>';
+            if (status === "running") return '<span class="badge badge-running">running</span>';
+            if (drifted) return '<span class="badge badge-drift">drifted</span>';
+            return '<span class="badge badge-ok">ok</span>';
+        };
+
+        const updateRow = (stack) => {
+            if (!stack || !stack.path) return;
+            const row = document.querySelector(`.stack-row[data-stack-path="${CSS.escape(stack.path)}"]`);
+            if (!row) return;
+            const statusCell = row.querySelector(".stack-cell.status");
+            if (statusCell) {
+                statusCell.innerHTML = formatStatus(stack.status, stack.drifted, stack.error);
+            }
+            const runCell = row.querySelector(".stack-cell.run");
+            if (runCell) {
+                if (stack.status === "running") {
+                    runCell.textContent = "running...";
+                } else if (stack.run_at) {
+                    runCell.textContent = "just now";
+                }
+            }
+        };
+
+        const updateScanProgress = (scan) => {
+            if (!scan) return;
+            const summary = document.querySelector(".scan-summary.active");
+            if (!summary) return;
+            const progressFill = summary.querySelector(".progress-fill");
+            const progressMeta = summary.querySelector(".progress .meta");
+            if (!progressFill || !progressMeta) return;
+            const done = (scan.completed || 0) + (scan.failed || 0);
+            const total = scan.total || 0;
+            const pct = total > 0 ? Math.floor((done * 100) / total) : 0;
+            progressFill.style.width = `${pct}%`;
+            progressMeta.textContent = `${done} / ${total}`;
+        };
+
+        source.addEventListener("snapshot", (e) => {
+            const data = JSON.parse(e.data || "{}");
+            if (Array.isArray(data.stacks)) {
+                data.stacks.forEach((stack) => {
+                    updateRow({
+                        path: stack.path,
+                        drifted: stack.drifted,
+                        error: stack.error,
+                        status: stack.error ? "failed" : (stack.drifted ? "completed" : "completed"),
+                        run_at: stack.run_at,
+                    });
+                });
+            }
+            updateScanProgress(data.active_scan);
+        });
+
+        source.addEventListener("update", (e) => {
+            const data = JSON.parse(e.data || "{}");
+            if (data.type === "stack_update") {
+                updateRow({
+                    path: data.stack_path,
+                    drifted: data.drifted,
+                    error: data.error,
+                    status: data.status,
+                    run_at: data.run_at,
+                });
+            }
+            if (data.type === "scan_update") {
+                updateScanProgress({
+                    completed: data.completed,
+                    failed: data.failed,
+                    total: data.total,
+                });
+            }
+        });
+    })();
+</script>
 
 {{end}}

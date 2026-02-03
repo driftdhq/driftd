@@ -158,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/stacks/{stackID}", s.handleGetStackScan)
 		r.Get("/scans/{scanID}", s.handleGetScan)
 		r.Get("/repos/{repo}/stacks", s.handleListRepoStackScans)
+		r.Get("/repos/{repo}/events", s.handleRepoEvents)
 		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/scan", s.handleScanRepo)
 		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/stacks/*", s.handleScanStack)
 		if s.cfg.Webhook.Enabled {

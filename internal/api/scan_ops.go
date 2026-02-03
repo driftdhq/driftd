@@ -33,6 +33,13 @@ func (s *Server) startScanWithCancel(ctx context.Context, repoCfg *config.RepoCo
 			return nil, nil, err
 		}
 	}
+	_ = s.queue.PublishEvent(ctx, repoCfg.Name, queue.RepoEvent{
+		Type:     "scan_update",
+		RepoName: repoCfg.Name,
+		ScanID:   scan.ID,
+		Status:   scan.Status,
+		Total:    scan.Total,
+	})
 
 	// Use Background context because renewal must continue independent of the HTTP request.
 	// The goroutine exits when scan status changes to completed/failed/canceled.

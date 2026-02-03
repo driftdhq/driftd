@@ -85,7 +85,7 @@ func (s *Server) settingsAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		next.ServeHTTP(w, r)
 	})
 }
 
