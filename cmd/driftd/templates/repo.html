@@ -88,14 +88,6 @@
 <p class="empty-state">Repository not found in configuration.</p>
 {{end}}
 
-{{if .ActiveScan}}
-<script>
-    setTimeout(function () {
-        window.location.reload();
-    }, 5000);
-</script>
-{{end}}
-
 <script>
     (function () {
         if (!window.EventSource) return;
