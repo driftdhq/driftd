@@ -34,8 +34,14 @@ spec:
               mountPath: /data
             - name: cache
               mountPath: /cache
+          {{- with .Values.server.envFrom }}
           envFrom:
-{{- toYaml .Values.server.envFrom | nindent 12 }}
+{{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.server.extraEnv }}
+          env:
+{{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
 {{- toYaml .Values.server.resources | nindent 12 }}
       volumes:

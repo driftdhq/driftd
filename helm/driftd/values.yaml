@@ -14,6 +14,10 @@ server:
   tolerations: []
   affinity: {}
   envFrom: []
+  extraEnv: []
+  # extraEnv:
+  #   - name: LOG_LEVEL
+  #     value: debug
 
 worker:
   replicas: 2
@@ -22,6 +26,23 @@ worker:
   tolerations: []
   affinity: {}
   envFrom: []
+  extraEnv: []
+  # extraEnv:
+  #   # Direct value
+  #   - name: TF_VAR_region
+  #     value: us-east-1
+  #   # From secret
+  #   - name: CLOUDFLARE_API_TOKEN
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: provider-credentials
+  #         key: cloudflare-api-token
+  #   # From configmap
+  #   - name: TF_CLI_CONFIG_FILE
+  #     valueFrom:
+  #       configMapKeyRef:
+  #         name: terraform-config
+  #         key: terraformrc
 
 storage:
   data:
