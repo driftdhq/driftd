@@ -16,7 +16,17 @@ var tgInstallMu sync.Mutex
 
 func ensureTerraformBinary(ctx context.Context, workDir, version string) (string, error) {
 	if version == "" {
-		return "terraform", nil
+		if path, err := exec.LookPath("terraform"); err == nil {
+			if !filepath.IsAbs(path) {
+				if abs, err := filepath.Abs(path); err == nil {
+					path = abs
+				}
+			}
+			if fileExists(path) {
+				return path, nil
+			}
+		}
+		version = getenv("DRIFTD_TERRAFORM_DEFAULT_VERSION", "latest")
 	}
 	cacheDir := getenv("TFSWITCH_HOME", "/cache/terraform/versions")
 	target := filepath.Join(cacheDir, version, "terraform")
@@ -53,7 +63,17 @@ func ensureTerraformBinary(ctx context.Context, workDir, version string) (string
 
 func ensureTerragruntBinary(ctx context.Context, workDir, version string) (string, error) {
 	if version == "" {
-		return "terragrunt", nil
+		if path, err := exec.LookPath("terragrunt"); err == nil {
+			if !filepath.IsAbs(path) {
+				if abs, err := filepath.Abs(path); err == nil {
+					path = abs
+				}
+			}
+			if fileExists(path) {
+				return path, nil
+			}
+		}
+		version = getenv("DRIFTD_TERRAGRUNT_DEFAULT_VERSION", "latest")
 	}
 	cacheDir := getenv("TGSWITCH_HOME", "/cache/terragrunt/versions")
 	target := filepath.Join(cacheDir, version, "terragrunt")

@@ -144,7 +144,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/repos/{repo}", s.handleRepo)
 		r.Post("/repos/{repo}/scan", s.handleScanRepoUI)
 		r.Get("/repos/{repo}/stacks/*", s.handleStack)
-		r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
+		r.Post("/repos/{repo}/stacks/*", s.handleScanStackUI)
 		r.Get("/settings", s.handleSettings)
 		r.Get("/settings/repos", s.handleSettings)
 	})

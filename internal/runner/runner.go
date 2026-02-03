@@ -149,12 +149,16 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	if err := os.MkdirAll(dataDir, 0755); err == nil {
 		defer os.RemoveAll(dataDir)
 	}
-	ensureCacheDir(os.Getenv("TF_PLUGIN_CACHE_DIR"))
+	pluginCacheDir := filepath.Join(dataDir, "plugin-cache")
+	ensureCacheDir(pluginCacheDir)
 
 	if tool == "terraform" {
 		initCmd := exec.CommandContext(ctx, tfBin, "init", "-input=false")
 		initCmd.Dir = workDir
-		initCmd.Env = append(filteredEnv(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
+		initCmd.Env = append(filteredEnv(),
+			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
+			fmt.Sprintf("TF_PLUGIN_CACHE_DIR=%s", pluginCacheDir),
+		)
 		initCmd.Stdout = &output
 		initCmd.Stderr = &output
 		if err := initCmd.Run(); err != nil {
@@ -169,10 +173,14 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 			fmt.Sprintf("TERRAGRUNT_TFPATH=%s", tfBin),
 			fmt.Sprintf("TERRAGRUNT_DOWNLOAD=%s", filepath.Join(os.TempDir(), "driftd-tg", safePath(stackPath))),
 			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
+			fmt.Sprintf("TF_PLUGIN_CACHE_DIR=%s", pluginCacheDir),
 		)
 	} else {
 		planCmd = exec.CommandContext(ctx, tfBin, "plan", "-detailed-exitcode", "-input=false")
-		planCmd.Env = append(filteredEnv(), fmt.Sprintf("TF_DATA_DIR=%s", dataDir))
+		planCmd.Env = append(filteredEnv(),
+			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
+			fmt.Sprintf("TF_PLUGIN_CACHE_DIR=%s", pluginCacheDir),
+		)
 	}
 	planCmd.Dir = workDir
 	planCmd.Stdout = &output

@@ -4,30 +4,26 @@
 <div class="page-header">
     <div>
         <h1>Repositories</h1>
-        <p class="page-subtitle">Terraform drift status across all configured stacks.</p>
+        <p class="page-subtitle">Terraform drift status across all configured repositories.</p>
     </div>
 </div>
 
 <section class="overview">
     <div class="overview-card">
-        <span class="overview-label">Repos</span>
-        <span class="overview-value">{{.TotalRepos}}</span>
-    </div>
-    <div class="overview-card">
         <span class="overview-label">Stacks</span>
         <span class="overview-value">{{.TotalStacks}}</span>
     </div>
     <div class="overview-card">
+        <span class="overview-label">Healthy</span>
+        <span class="overview-value">{{.HealthyPct}}%</span>
+    </div>
+    <div class="overview-card">
+        <span class="overview-label">Drifted</span>
+        <span class="overview-value">{{.DriftedStacks}}</span>
+    </div>
+    <div class="overview-card">
         <span class="overview-label">Active Scans</span>
         <span class="overview-value">{{.ActiveScans}}</span>
-    </div>
-    <div class="overview-card">
-        <span class="overview-label">Drifted Repos</span>
-        <span class="overview-value">{{.DriftedRepos}}</span>
-    </div>
-    <div class="overview-card">
-        <span class="overview-label">Locked Repos</span>
-        <span class="overview-value">{{.LockedRepos}}</span>
     </div>
 </section>
 
