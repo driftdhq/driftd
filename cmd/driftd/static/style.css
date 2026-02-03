@@ -80,6 +80,25 @@ header nav {
     letter-spacing: 0.02em;
 }
 
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-left: auto;
+    margin-right: 1.5rem;
+}
+
+.nav-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.2s;
+}
+
+.nav-link:hover {
+    color: var(--text);
+}
+
 .theme-toggle {
     border: 1px solid var(--border);
     background: var(--panel);
@@ -668,6 +687,319 @@ a:hover {
 
     .stack-cell.run,
     .stack-cell.actions {
+        display: none;
+    }
+}
+
+/* Settings Page */
+.settings-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+}
+
+.tab {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    border-radius: 8px 8px 0 0;
+    transition: color 0.2s, background 0.2s;
+}
+
+.tab:hover {
+    color: var(--text);
+}
+
+.tab.active {
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-bottom-color: transparent;
+    margin-bottom: -1px;
+}
+
+.settings-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.section-header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.settings-table {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.settings-table-header,
+.settings-table-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 100px 80px 150px;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    align-items: center;
+}
+
+.settings-table-header {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-table-row {
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-table-row:last-child {
+    border-bottom: none;
+}
+
+.settings-table-row:hover {
+    background: rgba(77, 215, 255, 0.04);
+}
+
+.col-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.url-truncate {
+    display: block;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.source-badge {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+}
+
+.source-config {
+    background: rgba(77, 215, 255, 0.15);
+    color: var(--accent);
+}
+
+.source-dynamic {
+    background: rgba(53, 192, 132, 0.15);
+    color: var(--green);
+}
+
+.badge-github_app,
+.badge-ssh,
+.badge-https {
+    background: rgba(77, 215, 255, 0.1);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.badge-none {
+    background: rgba(255, 107, 107, 0.1);
+    color: var(--red);
+    font-size: 0.75rem;
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.modal-small {
+    max-width: 400px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.modal-header h3 {
+    margin: 0;
+}
+
+.modal-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--text);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+}
+
+/* Forms */
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(77, 215, 255, 0.2);
+}
+
+.form-group input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 0.3rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.form-group textarea {
+    resize: vertical;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8rem;
+}
+
+.auth-fields {
+    background: rgba(77, 215, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+/* Danger button */
+.btn-danger {
+    background: var(--red);
+    border-color: var(--red);
+    color: #fff;
+}
+
+.btn-danger:hover {
+    background: #ff5252;
+    border-color: #ff5252;
+}
+
+.btn-danger-outline {
+    background: transparent;
+    border-color: var(--red);
+    color: var(--red);
+}
+
+.btn-danger-outline:hover {
+    background: rgba(255, 107, 107, 0.1);
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+.loading {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 2rem;
+}
+
+.error {
+    color: var(--red);
+    text-align: center;
+    padding: 2rem;
+}
+
+@media (max-width: 768px) {
+    .settings-table-header,
+    .settings-table-row {
+        grid-template-columns: 1fr 1fr auto;
+    }
+
+    .col-url,
+    .col-source {
         display: none;
     }
 }

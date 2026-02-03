@@ -229,3 +229,19 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 		log.Printf("template error: %v", err)
 	}
 }
+
+type settingsData struct {
+	CSRFToken          string
+	DynamicReposEnabled bool
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	data := settingsData{
+		CSRFToken:          csrfTokenFromContext(r.Context()),
+		DynamicReposEnabled: s.repoStore != nil,
+	}
+
+	if err := s.tmplSettings.ExecuteTemplate(w, "layout", data); err != nil {
+		log.Printf("template error: %v", err)
+	}
+}

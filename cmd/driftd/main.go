@@ -17,6 +17,7 @@ import (
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/driftdhq/driftd/internal/scheduler"
+	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/driftdhq/driftd/internal/worker"
 )
@@ -88,7 +89,22 @@ func runServe(args []string) {
 	}
 	defer q.Close()
 
-	srv, err := api.New(cfg, store, q, templatesFS, staticFS)
+	// Initialize encryption and repo store
+	keyStore := secrets.NewKeyStore(cfg.DataDir)
+	encKey, err := keyStore.LoadOrGenerate()
+	if err != nil {
+		log.Fatalf("failed to initialize encryption: %v", err)
+	}
+	encryptor, err := secrets.NewEncryptor(encKey)
+	if err != nil {
+		log.Fatalf("failed to create encryptor: %v", err)
+	}
+	repoStore := secrets.NewRepoStore(cfg.DataDir, encryptor)
+	if err := repoStore.Load(); err != nil {
+		log.Fatalf("failed to load repo store: %v", err)
+	}
+
+	srv, err := api.New(cfg, store, q, templatesFS, staticFS, api.WithRepoStore(repoStore))
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}

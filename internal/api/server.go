@@ -9,6 +9,7 @@ import (
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,13 +20,20 @@ type Server struct {
 	cfg       *config.Config
 	storage   *storage.Storage
 	queue     *queue.Queue
+	repoStore *secrets.RepoStore
 	tmplIndex *template.Template
 	tmplRepo  *template.Template
 	tmplDrift *template.Template
+	tmplSettings *template.Template
 	staticFS  fs.FS
 
 	rateLimitMu  sync.Mutex
 	rateLimiters map[string]*rateLimiterEntry
+
+	// Callbacks for scheduler integration
+	onRepoAdded   func(name, schedule string)
+	onRepoUpdated func(name, schedule string)
+	onRepoDeleted func(name string)
 }
 
 type rateLimiterEntry struct {
@@ -33,7 +41,26 @@ type rateLimiterEntry struct {
 	lastSeen time.Time
 }
 
-func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, staticFS fs.FS) (*Server, error) {
+// ServerOption is a functional option for configuring the Server.
+type ServerOption func(*Server)
+
+// WithRepoStore sets the dynamic repository store.
+func WithRepoStore(rs *secrets.RepoStore) ServerOption {
+	return func(s *Server) {
+		s.repoStore = rs
+	}
+}
+
+// WithSchedulerCallbacks sets callbacks for scheduler integration when repos change.
+func WithSchedulerCallbacks(onAdded, onUpdated func(name, schedule string), onDeleted func(name string)) ServerOption {
+	return func(s *Server) {
+		s.onRepoAdded = onAdded
+		s.onRepoUpdated = onUpdated
+		s.onRepoDeleted = onDeleted
+	}
+}
+
+func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, staticFS fs.FS, opts ...ServerOption) (*Server, error) {
 	funcMap := template.FuncMap{
 		"timeAgo": timeAgo,
 		"pluralize": func(singular, plural string, count int) string {
@@ -69,17 +96,28 @@ func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, st
 	if err != nil {
 		return nil, err
 	}
+	tmplSettings, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/layout.html", "templates/settings.html")
+	if err != nil {
+		return nil, err
+	}
 
-	return &Server{
+	srv := &Server{
 		cfg:          cfg,
 		storage:      s,
 		queue:        q,
 		tmplIndex:    tmplIndex,
 		tmplRepo:     tmplRepo,
 		tmplDrift:    tmplDrift,
+		tmplSettings: tmplSettings,
 		staticFS:     staticFS,
 		rateLimiters: make(map[string]*rateLimiterEntry),
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(srv)
+	}
+
+	return srv, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -98,6 +136,8 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/repos/{repo}/scan", s.handleScanRepoUI)
 		r.Get("/repos/{repo}/stacks/*", s.handleStack)
 		r.Post("/repos/{repo}/stacks/*", s.handleScanStack)
+		r.Get("/settings", s.handleSettings)
+		r.Get("/settings/repos", s.handleSettings)
 	})
 
 	// API routes
@@ -114,6 +154,16 @@ func (s *Server) Handler() http.Handler {
 		if s.cfg.Webhook.Enabled {
 			r.Post("/webhooks/github", s.handleGitHubWebhook)
 		}
+
+		// Settings API routes
+		r.Route("/settings", func(r chi.Router) {
+			r.Get("/repos", s.handleListSettingsRepos)
+			r.Post("/repos", s.handleCreateSettingsRepo)
+			r.Get("/repos/{repo}", s.handleGetSettingsRepo)
+			r.Put("/repos/{repo}", s.handleUpdateSettingsRepo)
+			r.Delete("/repos/{repo}", s.handleDeleteSettingsRepo)
+			r.Post("/repos/{repo}/test", s.handleTestRepoConnection)
+		})
 	})
 
 	// Static files from embedded FS

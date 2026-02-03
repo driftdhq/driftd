@@ -1,0 +1,369 @@
+{{define "title"}}Settings{{end}}
+
+{{define "content"}}
+<nav class="breadcrumb">
+    <a href="/">Repositories</a> / <span>Settings</span>
+</nav>
+
+<div class="page-header">
+    <h1>Settings</h1>
+</div>
+
+<div class="settings-tabs">
+    <button class="tab active" data-tab="repos">Repositories</button>
+</div>
+
+<section id="repos-tab" class="settings-section">
+    <div class="section-header">
+        <h2>Repositories</h2>
+        {{if .DynamicReposEnabled}}
+        <button class="btn btn-scan" onclick="showAddRepoModal()">Add Repository</button>
+        {{end}}
+    </div>
+
+    <div id="repos-list" class="repos-settings-list">
+        <p class="loading">Loading repositories...</p>
+    </div>
+</section>
+
+<!-- Add/Edit Repository Modal -->
+<div id="repo-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeModal()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">Add Repository</h3>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="repo-form" onsubmit="saveRepo(event)">
+            <input type="hidden" id="repo-original-name" value="">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+            <div class="form-group">
+                <label for="repo-name">Name</label>
+                <input type="text" id="repo-name" name="name" required
+                       pattern="[a-zA-Z0-9_-]+"
+                       title="Alphanumeric, hyphens, and underscores only"
+                       placeholder="my-infra-repo">
+            </div>
+
+            <div class="form-group">
+                <label for="repo-url">Git URL</label>
+                <input type="text" id="repo-url" name="url" required
+                       placeholder="https://github.com/org/repo.git">
+            </div>
+
+            <div class="form-group">
+                <label for="repo-branch">Branch (optional)</label>
+                <input type="text" id="repo-branch" name="branch" placeholder="main">
+            </div>
+
+            <div class="form-group">
+                <label for="repo-auth-type">Authentication</label>
+                <select id="repo-auth-type" name="auth_type" onchange="toggleAuthFields()" required>
+                    <option value="">Select auth method</option>
+                    <option value="github_app">GitHub App</option>
+                    <option value="ssh">SSH Key</option>
+                    <option value="https">HTTPS Token</option>
+                </select>
+            </div>
+
+            <!-- GitHub App Fields -->
+            <div id="github-app-fields" class="auth-fields" style="display: none;">
+                <div class="form-group">
+                    <label for="github-app-id">App ID</label>
+                    <input type="number" id="github-app-id" name="github_app_id">
+                </div>
+                <div class="form-group">
+                    <label for="github-installation-id">Installation ID</label>
+                    <input type="number" id="github-installation-id" name="github_installation_id">
+                </div>
+                <div class="form-group">
+                    <label for="github-private-key">Private Key (PEM)</label>
+                    <textarea id="github-private-key" name="github_private_key" rows="6"
+                              placeholder="-----BEGIN RSA PRIVATE KEY-----"></textarea>
+                    <small>Leave blank when editing to keep existing key</small>
+                </div>
+            </div>
+
+            <!-- SSH Fields -->
+            <div id="ssh-fields" class="auth-fields" style="display: none;">
+                <div class="form-group">
+                    <label for="ssh-private-key">Private Key</label>
+                    <textarea id="ssh-private-key" name="ssh_private_key" rows="6"
+                              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+                    <small>Leave blank when editing to keep existing key</small>
+                </div>
+                <div class="form-group">
+                    <label for="ssh-known-hosts">Known Hosts (optional)</label>
+                    <textarea id="ssh-known-hosts" name="ssh_known_hosts" rows="3"
+                              placeholder="github.com ssh-rsa AAAA..."></textarea>
+                </div>
+            </div>
+
+            <!-- HTTPS Fields -->
+            <div id="https-fields" class="auth-fields" style="display: none;">
+                <div class="form-group">
+                    <label for="https-username">Username (optional)</label>
+                    <input type="text" id="https-username" name="https_username"
+                           placeholder="x-access-token">
+                </div>
+                <div class="form-group">
+                    <label for="https-token">Token</label>
+                    <input type="password" id="https-token" name="https_token"
+                           placeholder="ghp_xxxx">
+                    <small>Leave blank when editing to keep existing token</small>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="repo-schedule">Schedule (optional)</label>
+                <input type="text" id="repo-schedule" name="schedule"
+                       placeholder="0 */6 * * * (cron expression)">
+            </div>
+
+            <div class="form-group">
+                <label for="repo-ignore-paths">Ignore Paths (optional)</label>
+                <input type="text" id="repo-ignore-paths" name="ignore_paths"
+                       placeholder="**/modules/**, envs/dev/*">
+                <small>Comma-separated glob patterns</small>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-scan">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="delete-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeDeleteModal()"></div>
+    <div class="modal-content modal-small">
+        <div class="modal-header">
+            <h3>Delete Repository</h3>
+            <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
+        </div>
+        <p>Are you sure you want to delete <strong id="delete-repo-name"></strong>?</p>
+        <p class="text-muted">This will remove the repository configuration. Scan history will be preserved.</p>
+        <div class="modal-actions">
+            <button type="button" class="btn" onclick="closeDeleteModal()">Cancel</button>
+            <button type="button" class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const csrfToken = "{{.CSRFToken}}";
+const dynamicEnabled = {{.DynamicReposEnabled}};
+let deleteRepoName = "";
+
+async function loadRepos() {
+    try {
+        const resp = await fetch("/api/settings/repos");
+        const repos = await resp.json();
+        renderRepos(repos);
+    } catch (err) {
+        document.getElementById("repos-list").innerHTML =
+            '<p class="error">Failed to load repositories</p>';
+    }
+}
+
+function renderRepos(repos) {
+    const container = document.getElementById("repos-list");
+    if (repos.length === 0) {
+        container.innerHTML = '<p class="empty-state">No repositories configured.</p>';
+        return;
+    }
+
+    let html = '<div class="settings-table">';
+    html += '<div class="settings-table-header">';
+    html += '<div class="col-name">Name</div>';
+    html += '<div class="col-url">URL</div>';
+    html += '<div class="col-auth">Auth</div>';
+    html += '<div class="col-source">Source</div>';
+    html += '<div class="col-actions">Actions</div>';
+    html += '</div>';
+
+    for (const repo of repos) {
+        const isStatic = repo.source === "config";
+        html += '<div class="settings-table-row">';
+        html += `<div class="col-name">${escapeHtml(repo.name)}</div>`;
+        html += `<div class="col-url"><span class="url-truncate">${escapeHtml(repo.url)}</span></div>`;
+        html += `<div class="col-auth"><span class="badge badge-${repo.auth_type || 'none'}">${repo.auth_type || 'none'}</span></div>`;
+        html += `<div class="col-source"><span class="source-badge source-${repo.source}">${repo.source}</span></div>`;
+        html += '<div class="col-actions">';
+        if (!isStatic && dynamicEnabled) {
+            html += `<button class="btn btn-small" onclick="editRepo('${escapeHtml(repo.name)}')">Edit</button>`;
+            html += `<button class="btn btn-small btn-danger-outline" onclick="deleteRepo('${escapeHtml(repo.name)}')">Delete</button>`;
+        } else {
+            html += '<span class="text-muted">Read-only</span>';
+        }
+        html += '</div>';
+        html += '</div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function showAddRepoModal() {
+    document.getElementById("modal-title").textContent = "Add Repository";
+    document.getElementById("repo-form").reset();
+    document.getElementById("repo-original-name").value = "";
+    document.getElementById("repo-name").disabled = false;
+    hideAllAuthFields();
+    document.getElementById("repo-modal").style.display = "flex";
+}
+
+async function editRepo(name) {
+    try {
+        const resp = await fetch(`/api/settings/repos/${encodeURIComponent(name)}`);
+        const repo = await resp.json();
+
+        document.getElementById("modal-title").textContent = "Edit Repository";
+        document.getElementById("repo-original-name").value = repo.name;
+        document.getElementById("repo-name").value = repo.name;
+        document.getElementById("repo-name").disabled = true;
+        document.getElementById("repo-url").value = repo.url;
+        document.getElementById("repo-branch").value = repo.branch || "";
+        document.getElementById("repo-auth-type").value = repo.auth_type || "";
+        document.getElementById("repo-schedule").value = repo.schedule || "";
+        document.getElementById("repo-ignore-paths").value = (repo.ignore_paths || []).join(", ");
+
+        if (repo.auth_type === "github_app") {
+            document.getElementById("github-app-id").value = repo.github_app_id || "";
+            document.getElementById("github-installation-id").value = repo.github_installation_id || "";
+        }
+
+        toggleAuthFields();
+        document.getElementById("repo-modal").style.display = "flex";
+    } catch (err) {
+        alert("Failed to load repository details");
+    }
+}
+
+function closeModal() {
+    document.getElementById("repo-modal").style.display = "none";
+}
+
+async function saveRepo(e) {
+    e.preventDefault();
+    const form = document.getElementById("repo-form");
+    const originalName = document.getElementById("repo-original-name").value;
+    const isEdit = originalName !== "";
+
+    const ignorePaths = document.getElementById("repo-ignore-paths").value
+        .split(",")
+        .map(p => p.trim())
+        .filter(p => p);
+
+    const data = {
+        name: document.getElementById("repo-name").value,
+        url: document.getElementById("repo-url").value,
+        branch: document.getElementById("repo-branch").value,
+        auth_type: document.getElementById("repo-auth-type").value,
+        schedule: document.getElementById("repo-schedule").value,
+        ignore_paths: ignorePaths,
+    };
+
+    const authType = data.auth_type;
+    if (authType === "github_app") {
+        data.github_app_id = parseInt(document.getElementById("github-app-id").value) || 0;
+        data.github_installation_id = parseInt(document.getElementById("github-installation-id").value) || 0;
+        const pk = document.getElementById("github-private-key").value;
+        if (pk) data.github_private_key = pk;
+    } else if (authType === "ssh") {
+        const pk = document.getElementById("ssh-private-key").value;
+        if (pk) data.ssh_private_key = pk;
+        data.ssh_known_hosts = document.getElementById("ssh-known-hosts").value;
+    } else if (authType === "https") {
+        data.https_username = document.getElementById("https-username").value;
+        const token = document.getElementById("https-token").value;
+        if (token) data.https_token = token;
+    }
+
+    try {
+        const url = isEdit
+            ? `/api/settings/repos/${encodeURIComponent(originalName)}`
+            : "/api/settings/repos";
+        const method = isEdit ? "PUT" : "POST";
+
+        const resp = await fetch(url, {
+            method: method,
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(data),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json();
+            alert(err.error || "Failed to save repository");
+            return;
+        }
+
+        closeModal();
+        loadRepos();
+    } catch (err) {
+        alert("Failed to save repository");
+    }
+}
+
+function deleteRepo(name) {
+    deleteRepoName = name;
+    document.getElementById("delete-repo-name").textContent = name;
+    document.getElementById("delete-modal").style.display = "flex";
+}
+
+function closeDeleteModal() {
+    document.getElementById("delete-modal").style.display = "none";
+    deleteRepoName = "";
+}
+
+async function confirmDelete() {
+    if (!deleteRepoName) return;
+
+    try {
+        const resp = await fetch(`/api/settings/repos/${encodeURIComponent(deleteRepoName)}`, {
+            method: "DELETE",
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json();
+            alert(err.error || "Failed to delete repository");
+            return;
+        }
+
+        closeDeleteModal();
+        loadRepos();
+    } catch (err) {
+        alert("Failed to delete repository");
+    }
+}
+
+function toggleAuthFields() {
+    hideAllAuthFields();
+    const authType = document.getElementById("repo-auth-type").value;
+    if (authType === "github_app") {
+        document.getElementById("github-app-fields").style.display = "block";
+    } else if (authType === "ssh") {
+        document.getElementById("ssh-fields").style.display = "block";
+    } else if (authType === "https") {
+        document.getElementById("https-fields").style.display = "block";
+    }
+}
+
+function hideAllAuthFields() {
+    document.getElementById("github-app-fields").style.display = "none";
+    document.getElementById("ssh-fields").style.display = "none";
+    document.getElementById("https-fields").style.display = "none";
+}
+
+function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Load repos on page load
+loadRepos();
+</script>
+{{end}}
