@@ -22,6 +22,7 @@ type Server struct {
 	storage      *storage.Storage
 	queue        *queue.Queue
 	repoStore    *secrets.RepoStore
+	intStore     *secrets.IntegrationStore
 	repoProvider repos.Provider
 	tmplIndex    *template.Template
 	tmplRepo     *template.Template
@@ -50,6 +51,13 @@ type ServerOption func(*Server)
 func WithRepoStore(rs *secrets.RepoStore) ServerOption {
 	return func(s *Server) {
 		s.repoStore = rs
+	}
+}
+
+// WithIntegrationStore sets the integration store.
+func WithIntegrationStore(is *secrets.IntegrationStore) ServerOption {
+	return func(s *Server) {
+		s.intStore = is
 	}
 }
 
@@ -169,6 +177,11 @@ func (s *Server) Handler() http.Handler {
 		// Settings API routes
 		r.Route("/settings", func(r chi.Router) {
 			r.Use(s.settingsAuthMiddleware)
+			r.Get("/integrations", s.handleListSettingsIntegrations)
+			r.Post("/integrations", s.handleCreateSettingsIntegration)
+			r.Get("/integrations/{integration}", s.handleGetSettingsIntegration)
+			r.Put("/integrations/{integration}", s.handleUpdateSettingsIntegration)
+			r.Delete("/integrations/{integration}", s.handleDeleteSettingsIntegration)
 			r.Get("/repos", s.handleListSettingsRepos)
 			r.Post("/repos", s.handleCreateSettingsRepo)
 			r.Get("/repos/{repo}", s.handleGetSettingsRepo)

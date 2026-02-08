@@ -53,6 +53,7 @@ type RepoEntry struct {
 	URL                        string        `json:"url"`
 	Branch                     string        `json:"branch,omitempty"`
 	IgnorePaths                []string      `json:"ignore_paths,omitempty"`
+	IntegrationID              string        `json:"integration_id,omitempty"`
 	Git                        RepoGitConfig `json:"git"`
 	Schedule                   string        `json:"schedule,omitempty"`
 	CancelInflightOnNewTrigger bool          `json:"cancel_inflight_on_new_trigger,omitempty"`

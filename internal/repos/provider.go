@@ -18,13 +18,15 @@ type Provider interface {
 type CombinedProvider struct {
 	cfg     *config.Config
 	store   *secrets.RepoStore
+	ints    *secrets.IntegrationStore
 	dataDir string
 }
 
-func NewCombinedProvider(cfg *config.Config, store *secrets.RepoStore, dataDir string) *CombinedProvider {
+func NewCombinedProvider(cfg *config.Config, store *secrets.RepoStore, ints *secrets.IntegrationStore, dataDir string) *CombinedProvider {
 	return &CombinedProvider{
 		cfg:     cfg,
 		store:   store,
+		ints:    ints,
 		dataDir: dataDir,
 	}
 }
@@ -50,7 +52,11 @@ func (p *CombinedProvider) List() ([]config.RepoConfig, error) {
 		if err != nil {
 			return nil, err
 		}
-		repoCfg, err := secrets.RepoConfigFromEntry(entryWithCreds, creds, p.dataDir)
+		integration, err := p.lookupIntegration(entryWithCreds.IntegrationID)
+		if err != nil {
+			return nil, err
+		}
+		repoCfg, err := secrets.RepoConfigFromEntry(entryWithCreds, creds, integration, p.dataDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build repo config for %s: %w", entry.Name, err)
 		}
@@ -71,5 +77,19 @@ func (p *CombinedProvider) Get(name string) (*config.RepoConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return secrets.RepoConfigFromEntry(entry, creds, p.dataDir)
+	integration, err := p.lookupIntegration(entry.IntegrationID)
+	if err != nil {
+		return nil, err
+	}
+	return secrets.RepoConfigFromEntry(entry, creds, integration, p.dataDir)
+}
+
+func (p *CombinedProvider) lookupIntegration(id string) (*secrets.IntegrationEntry, error) {
+	if id == "" {
+		return nil, nil
+	}
+	if p.ints == nil {
+		return nil, fmt.Errorf("integration store not configured")
+	}
+	return p.ints.Get(id)
 }

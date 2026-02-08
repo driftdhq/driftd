@@ -104,8 +104,12 @@ func runServe(args []string) {
 	if err := repoStore.Load(); err != nil {
 		log.Fatalf("failed to load repo store: %v", err)
 	}
+	intStore := secrets.NewIntegrationStore(cfg.DataDir)
+	if err := intStore.Load(); err != nil {
+		log.Fatalf("failed to load integration store: %v", err)
+	}
 
-	repoProvider := repos.NewCombinedProvider(cfg, repoStore, cfg.DataDir)
+	repoProvider := repos.NewCombinedProvider(cfg, repoStore, intStore, cfg.DataDir)
 
 	if err := runner.EnsureDefaultBinaries(context.Background()); err != nil {
 		log.Fatalf("failed to install default terraform/terragrunt: %v", err)
@@ -125,6 +129,7 @@ func runServe(args []string) {
 		templatesFS,
 		staticFS,
 		api.WithRepoStore(repoStore),
+		api.WithIntegrationStore(intStore),
 		api.WithRepoProvider(repoProvider),
 		api.WithSchedulerCallbacks(sched.OnRepoAdded, sched.OnRepoUpdated, sched.OnRepoDeleted),
 	)
@@ -197,7 +202,11 @@ func runWorker(args []string) {
 	if err := repoStore.Load(); err != nil {
 		log.Fatalf("failed to load repo store: %v", err)
 	}
-	repoProvider := repos.NewCombinedProvider(cfg, repoStore, cfg.DataDir)
+	intStore := secrets.NewIntegrationStore(cfg.DataDir)
+	if err := intStore.Load(); err != nil {
+		log.Fatalf("failed to load integration store: %v", err)
+	}
+	repoProvider := repos.NewCombinedProvider(cfg, repoStore, intStore, cfg.DataDir)
 
 	if err := runner.EnsureDefaultBinaries(context.Background()); err != nil {
 		log.Fatalf("failed to install default terraform/terragrunt: %v", err)

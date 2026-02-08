@@ -309,14 +309,16 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 }
 
 type settingsData struct {
-	CSRFToken           string
-	DynamicReposEnabled bool
+	CSRFToken                  string
+	DynamicReposEnabled        bool
+	DynamicIntegrationsEnabled bool
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	data := settingsData{
-		CSRFToken:           csrfTokenFromContext(r.Context()),
-		DynamicReposEnabled: s.repoStore != nil,
+		CSRFToken:                  csrfTokenFromContext(r.Context()),
+		DynamicReposEnabled:        s.repoStore != nil,
+		DynamicIntegrationsEnabled: s.intStore != nil,
 	}
 
 	if err := s.tmplSettings.ExecuteTemplate(w, "layout", data); err != nil {

@@ -10,10 +10,24 @@
 </div>
 
 <div class="settings-tabs">
-    <button class="tab active" data-tab="repos">Repositories</button>
+    <button class="tab active" data-tab="integrations">Integrations</button>
+    <button class="tab" data-tab="repos">Repositories</button>
 </div>
 
-<section id="repos-tab" class="settings-section">
+<section id="integrations-tab" class="settings-section">
+    <div class="section-header">
+        <h2>Integrations</h2>
+        {{if .DynamicIntegrationsEnabled}}
+        <button class="btn btn-scan" onclick="showAddIntegrationModal()">Add Integration</button>
+        {{end}}
+    </div>
+
+    <div id="integrations-list" class="repos-settings-list">
+        <p class="loading">Loading integrations...</p>
+    </div>
+</section>
+
+<section id="repos-tab" class="settings-section" style="display: none;">
     <div class="section-header">
         <h2>Repositories</h2>
         {{if .DynamicReposEnabled}}
@@ -25,6 +39,111 @@
         <p class="loading">Loading repositories...</p>
     </div>
 </section>
+
+<!-- Add/Edit Integration Modal -->
+<div id="integration-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeIntegrationModal()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="integration-modal-title">Add Integration</h3>
+            <button class="modal-close" onclick="closeIntegrationModal()">&times;</button>
+        </div>
+        <form id="integration-form" onsubmit="saveIntegration(event)">
+            <input type="hidden" id="integration-id" value="">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+            <div class="form-group">
+                <label for="integration-name">Name</label>
+                <input type="text" id="integration-name" name="name" required
+                       placeholder="production-github">
+            </div>
+
+            <div class="form-group">
+                <label for="integration-type">Type</label>
+                <select id="integration-type" name="type" onchange="toggleIntegrationFields()" required>
+                    <option value="">Select integration type</option>
+                    <option value="github_app">GitHub App</option>
+                    <option value="ssh">SSH Key</option>
+                    <option value="https">HTTPS Token</option>
+                </select>
+            </div>
+
+            <div id="integration-github-app-fields" class="auth-fields" style="display: none;">
+                <div class="form-group">
+                    <label for="integration-github-app-id">App ID</label>
+                    <input type="number" id="integration-github-app-id" name="github_app_id">
+                </div>
+                <div class="form-group">
+                    <label for="integration-github-installation-id">Installation ID</label>
+                    <input type="number" id="integration-github-installation-id" name="github_installation_id">
+                </div>
+                <div class="form-group">
+                    <label for="integration-github-private-key-path">Private Key Path</label>
+                    <input type="text" id="integration-github-private-key-path" name="github_private_key_path"
+                           placeholder="/etc/driftd/github-app.pem">
+                    <small>Path must be mounted into the container</small>
+                </div>
+                <div class="form-group">
+                    <label for="integration-github-private-key-env">Private Key Env (optional)</label>
+                    <input type="text" id="integration-github-private-key-env" name="github_private_key_env"
+                           placeholder="DRIFTD_GITHUB_APP_PRIVATE_KEY">
+                </div>
+                <div class="form-group">
+                    <label for="integration-github-api-base-url">API Base URL (optional)</label>
+                    <input type="text" id="integration-github-api-base-url" name="github_api_base_url"
+                           placeholder="https://api.github.com">
+                </div>
+            </div>
+
+            <div id="integration-ssh-fields" class="auth-fields" style="display: none;">
+                <div class="form-group">
+                    <label for="integration-ssh-key-path">SSH Key Path</label>
+                    <input type="text" id="integration-ssh-key-path" name="ssh_key_path"
+                           placeholder="/etc/driftd/id_rsa">
+                </div>
+                <div class="form-group">
+                    <label for="integration-ssh-key-env">SSH Key Env (optional)</label>
+                    <input type="text" id="integration-ssh-key-env" name="ssh_key_env"
+                           placeholder="DRIFTD_SSH_KEY_PATH">
+                </div>
+                <div class="form-group">
+                    <label for="integration-ssh-key-passphrase-env">Key Passphrase Env (optional)</label>
+                    <input type="text" id="integration-ssh-key-passphrase-env" name="ssh_key_passphrase_env"
+                           placeholder="DRIFTD_SSH_KEY_PASSPHRASE">
+                </div>
+                <div class="form-group">
+                    <label for="integration-ssh-known-hosts-path">Known Hosts Path</label>
+                    <input type="text" id="integration-ssh-known-hosts-path" name="ssh_known_hosts_path"
+                           placeholder="/etc/driftd/known_hosts">
+                </div>
+                <div class="form-group">
+                    <label class="checkbox">
+                        <input type="checkbox" id="integration-ssh-insecure" name="ssh_insecure_ignore_host_key">
+                        Disable host key verification (insecure)
+                    </label>
+                </div>
+            </div>
+
+            <div id="integration-https-fields" class="auth-fields" style="display: none;">
+                <div class="form-group">
+                    <label for="integration-https-token-env">Token Env</label>
+                    <input type="text" id="integration-https-token-env" name="https_token_env"
+                           placeholder="DRIFTD_GIT_TOKEN">
+                </div>
+                <div class="form-group">
+                    <label for="integration-https-username">Username (optional)</label>
+                    <input type="text" id="integration-https-username" name="https_username"
+                           placeholder="x-access-token">
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeIntegrationModal()">Cancel</button>
+                <button type="submit" class="btn btn-scan">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <!-- Add/Edit Repository Modal -->
 <div id="repo-modal" class="modal" style="display: none;">
@@ -58,61 +177,8 @@
             </div>
 
             <div class="form-group">
-                <label for="repo-auth-type">Authentication</label>
-                <select id="repo-auth-type" name="auth_type" onchange="toggleAuthFields()" required>
-                    <option value="">Select auth method</option>
-                    <option value="github_app">GitHub App</option>
-                    <option value="ssh">SSH Key</option>
-                    <option value="https">HTTPS Token</option>
-                </select>
-            </div>
-
-            <!-- GitHub App Fields -->
-            <div id="github-app-fields" class="auth-fields" style="display: none;">
-                <div class="form-group">
-                    <label for="github-app-id">App ID</label>
-                    <input type="number" id="github-app-id" name="github_app_id">
-                </div>
-                <div class="form-group">
-                    <label for="github-installation-id">Installation ID</label>
-                    <input type="number" id="github-installation-id" name="github_installation_id">
-                </div>
-                <div class="form-group">
-                    <label for="github-private-key">Private Key (PEM)</label>
-                    <textarea id="github-private-key" name="github_private_key" rows="6"
-                              placeholder="-----BEGIN RSA PRIVATE KEY-----"></textarea>
-                    <small>Leave blank when editing to keep existing key</small>
-                </div>
-            </div>
-
-            <!-- SSH Fields -->
-            <div id="ssh-fields" class="auth-fields" style="display: none;">
-                <div class="form-group">
-                    <label for="ssh-private-key">Private Key</label>
-                    <textarea id="ssh-private-key" name="ssh_private_key" rows="6"
-                              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
-                    <small>Leave blank when editing to keep existing key</small>
-                </div>
-                <div class="form-group">
-                    <label for="ssh-known-hosts">Known Hosts (optional)</label>
-                    <textarea id="ssh-known-hosts" name="ssh_known_hosts" rows="3"
-                              placeholder="github.com ssh-rsa AAAA..."></textarea>
-                </div>
-            </div>
-
-            <!-- HTTPS Fields -->
-            <div id="https-fields" class="auth-fields" style="display: none;">
-                <div class="form-group">
-                    <label for="https-username">Username (optional)</label>
-                    <input type="text" id="https-username" name="https_username"
-                           placeholder="x-access-token">
-                </div>
-                <div class="form-group">
-                    <label for="https-token">Token</label>
-                    <input type="password" id="https-token" name="https_token"
-                           placeholder="ghp_xxxx">
-                    <small>Leave blank when editing to keep existing token</small>
-                </div>
+                <label for="repo-integration">Integration</label>
+                <select id="repo-integration" name="integration_id" required></select>
             </div>
 
             <div class="form-group">
@@ -156,7 +222,23 @@
 <script>
 const csrfToken = "{{.CSRFToken}}";
 const dynamicEnabled = {{.DynamicReposEnabled}};
+const dynamicIntegrationsEnabled = {{.DynamicIntegrationsEnabled}};
+let integrationsCache = [];
 let deleteRepoName = "";
+let deleteIntegrationID = "";
+
+function setActiveTab(tabName) {
+    document.querySelectorAll(".tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.tab === tabName);
+    });
+    document.querySelectorAll(".settings-section").forEach((section) => {
+        section.style.display = section.id === `${tabName}-tab` ? "block" : "none";
+    });
+}
+
+document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => setActiveTab(tab.dataset.tab));
+});
 
 async function loadRepos() {
     try {
@@ -166,6 +248,24 @@ async function loadRepos() {
     } catch (err) {
         document.getElementById("repos-list").innerHTML =
             '<p class="error">Failed to load repositories</p>';
+    }
+}
+
+async function loadIntegrations() {
+    if (!dynamicIntegrationsEnabled) {
+        document.getElementById("integrations-list").innerHTML =
+            '<p class="text-muted">Integration management is disabled.</p>';
+        return;
+    }
+    try {
+        const resp = await fetch("/api/settings/integrations", {credentials: "same-origin"});
+        const integrations = await resp.json();
+        integrationsCache = integrations || [];
+        renderIntegrations(integrationsCache);
+        populateIntegrationSelect();
+    } catch (err) {
+        document.getElementById("integrations-list").innerHTML =
+            '<p class="error">Failed to load integrations</p>';
     }
 }
 
@@ -180,18 +280,21 @@ function renderRepos(repos) {
     html += '<div class="settings-table-header">';
     html += '<div class="col-name">Name</div>';
     html += '<div class="col-url">URL</div>';
-    html += '<div class="col-auth">Auth</div>';
+    html += '<div class="col-auth">Integration</div>';
     html += '<div class="col-source">Source</div>';
-    html += '<div class="col-actions">Actions</div>';
+    html += '<div class="col-actions"></div>';
     html += '</div>';
 
     for (const repo of repos) {
         const isStatic = repo.source === "config";
+        const integrationLabel = repo.integration_name || formatTypeLabel(repo.integration_type || repo.auth_type) || "none";
+        const integrationType = repo.integration_type || repo.auth_type || "none";
+        const sourceLabel = formatSourceLabel(repo.source);
         html += '<div class="settings-table-row">';
         html += `<div class="col-name">${escapeHtml(repo.name)}</div>`;
         html += `<div class="col-url"><span class="url-truncate">${escapeHtml(repo.url)}</span></div>`;
-        html += `<div class="col-auth"><span class="badge badge-${repo.auth_type || 'none'}">${repo.auth_type || 'none'}</span></div>`;
-        html += `<div class="col-source"><span class="source-badge source-${repo.source}">${repo.source}</span></div>`;
+        html += `<div class="col-auth"><span class="badge badge-${integrationType}">${escapeHtml(integrationLabel)}</span></div>`;
+        html += `<div class="col-source"><span class="source-badge source-${repo.source}">${escapeHtml(sourceLabel)}</span></div>`;
         html += '<div class="col-actions">';
         if (!isStatic && dynamicEnabled) {
             html += `<button class="btn btn-small" onclick="editRepo('${escapeHtml(repo.name)}')">Edit</button>`;
@@ -206,13 +309,105 @@ function renderRepos(repos) {
     container.innerHTML = html;
 }
 
+function renderIntegrations(integrations) {
+    const container = document.getElementById("integrations-list");
+    if (!integrations || integrations.length === 0) {
+        container.innerHTML = '<p class="empty-state">No integrations configured.</p>';
+        return;
+    }
+
+    let html = '<div class="settings-table integrations-table">';
+    html += '<div class="settings-table-header">';
+    html += '<div class="col-name">Name</div>';
+    html += '<div class="col-type">Type</div>';
+    html += '<div class="col-details">Details</div>';
+    html += '<div class="col-source">Source</div>';
+    html += '<div class="col-actions"></div>';
+    html += '</div>';
+
+    for (const integration of integrations) {
+        const details = integrationDetails(integration);
+        const sourceLabel = formatSourceLabel(integration.source);
+        html += '<div class="settings-table-row">';
+        html += `<div class="col-name">${escapeHtml(integration.name)}</div>`;
+        html += `<div class="col-type"><span class="badge badge-${integration.type || 'none'}">${escapeHtml(formatTypeLabel(integration.type) || "none")}</span></div>`;
+        html += `<div class="col-details"><div class="integration-details">${details}</div></div>`;
+        html += `<div class="col-source"><span class="source-badge source-${integration.source}">${escapeHtml(sourceLabel)}</span></div>`;
+        html += '<div class="col-actions">';
+        if (dynamicIntegrationsEnabled) {
+            html += `<button class="btn btn-small" onclick="editIntegration('${escapeHtml(integration.id)}')">Edit</button>`;
+            html += `<button class="btn btn-small btn-danger-outline" onclick="deleteIntegration('${escapeHtml(integration.id)}', '${escapeHtml(integration.name)}')">Delete</button>`;
+        } else {
+            html += '<span class="text-muted">Read-only</span>';
+        }
+        html += '</div>';
+        html += '</div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function integrationDetails(integration) {
+    if (integration.type === "github_app") {
+        const app = integration.github_app_id ? `App ${integration.github_app_id}` : "App -";
+        const install = integration.github_installation_id ? `Install ${integration.github_installation_id}` : "Install -";
+        return `<span>${escapeHtml(app)}</span><span>${escapeHtml(install)}</span>`;
+    }
+    if (integration.type === "ssh") {
+        const value = integration.ssh_key_path || integration.ssh_key_env || "SSH";
+        return `<span>${escapeHtml(value)}</span>`;
+    }
+    if (integration.type === "https") {
+        const value = integration.https_token_env || "HTTPS";
+        return `<span>${escapeHtml(value)}</span>`;
+    }
+    return "";
+}
+
+function populateIntegrationSelect(selectedId) {
+    const select = document.getElementById("repo-integration");
+    if (!select) return;
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = integrationsCache.length ? "Select integration" : "No integrations available";
+    select.appendChild(placeholder);
+
+    if (!integrationsCache.length) {
+        select.disabled = true;
+        return;
+    }
+
+    select.disabled = false;
+    integrationsCache.forEach((integration) => {
+        const option = document.createElement("option");
+        option.value = integration.id;
+        option.textContent = `${integration.name} (${integration.type})`;
+        select.appendChild(option);
+    });
+
+    if (selectedId) {
+        select.value = selectedId;
+    } else if (integrationsCache.length === 1) {
+        select.value = integrationsCache[0].id;
+    }
+}
+
 function showAddRepoModal() {
     document.getElementById("modal-title").textContent = "Add Repository";
     document.getElementById("repo-form").reset();
     document.getElementById("repo-original-name").value = "";
     document.getElementById("repo-name").disabled = false;
-    hideAllAuthFields();
+    populateIntegrationSelect();
     document.getElementById("repo-modal").style.display = "flex";
+}
+
+function showAddIntegrationModal() {
+    document.getElementById("integration-modal-title").textContent = "Add Integration";
+    document.getElementById("integration-form").reset();
+    document.getElementById("integration-id").value = "";
+    hideAllIntegrationFields();
+    document.getElementById("integration-modal").style.display = "flex";
 }
 
 async function editRepo(name) {
@@ -226,19 +421,48 @@ async function editRepo(name) {
         document.getElementById("repo-name").disabled = true;
         document.getElementById("repo-url").value = repo.url;
         document.getElementById("repo-branch").value = repo.branch || "";
-        document.getElementById("repo-auth-type").value = repo.auth_type || "";
         document.getElementById("repo-schedule").value = repo.schedule || "";
         document.getElementById("repo-ignore-paths").value = (repo.ignore_paths || []).join(", ");
 
-        if (repo.auth_type === "github_app") {
-            document.getElementById("github-app-id").value = repo.github_app_id || "";
-            document.getElementById("github-installation-id").value = repo.github_installation_id || "";
-        }
+        populateIntegrationSelect(repo.integration_id || "");
 
-        toggleAuthFields();
         document.getElementById("repo-modal").style.display = "flex";
     } catch (err) {
         alert("Failed to load repository details");
+    }
+}
+
+async function editIntegration(id) {
+    try {
+        const resp = await fetch(`/api/settings/integrations/${encodeURIComponent(id)}`, {credentials: "same-origin"});
+        const integration = await resp.json();
+
+        document.getElementById("integration-modal-title").textContent = "Edit Integration";
+        document.getElementById("integration-id").value = integration.id;
+        document.getElementById("integration-name").value = integration.name || "";
+        document.getElementById("integration-type").value = integration.type || "";
+
+        if (integration.type === "github_app") {
+            document.getElementById("integration-github-app-id").value = integration.github_app_id || "";
+            document.getElementById("integration-github-installation-id").value = integration.github_installation_id || "";
+            document.getElementById("integration-github-private-key-path").value = integration.github_private_key_path || "";
+            document.getElementById("integration-github-private-key-env").value = integration.github_private_key_env || "";
+            document.getElementById("integration-github-api-base-url").value = integration.github_api_base_url || "";
+        } else if (integration.type === "ssh") {
+            document.getElementById("integration-ssh-key-path").value = integration.ssh_key_path || "";
+            document.getElementById("integration-ssh-key-env").value = integration.ssh_key_env || "";
+            document.getElementById("integration-ssh-key-passphrase-env").value = integration.ssh_key_passphrase_env || "";
+            document.getElementById("integration-ssh-known-hosts-path").value = integration.ssh_known_hosts_path || "";
+            document.getElementById("integration-ssh-insecure").checked = !!integration.ssh_insecure_ignore_host_key;
+        } else if (integration.type === "https") {
+            document.getElementById("integration-https-token-env").value = integration.https_token_env || "";
+            document.getElementById("integration-https-username").value = integration.https_username || "";
+        }
+
+        toggleIntegrationFields();
+        document.getElementById("integration-modal").style.display = "flex";
+    } catch (err) {
+        alert("Failed to load integration details");
     }
 }
 
@@ -246,9 +470,12 @@ function closeModal() {
     document.getElementById("repo-modal").style.display = "none";
 }
 
+function closeIntegrationModal() {
+    document.getElementById("integration-modal").style.display = "none";
+}
+
 async function saveRepo(e) {
     e.preventDefault();
-    const form = document.getElementById("repo-form");
     const originalName = document.getElementById("repo-original-name").value;
     const isEdit = originalName !== "";
 
@@ -261,26 +488,10 @@ async function saveRepo(e) {
         name: document.getElementById("repo-name").value,
         url: document.getElementById("repo-url").value,
         branch: document.getElementById("repo-branch").value,
-        auth_type: document.getElementById("repo-auth-type").value,
+        integration_id: document.getElementById("repo-integration").value,
         schedule: document.getElementById("repo-schedule").value,
         ignore_paths: ignorePaths,
     };
-
-    const authType = data.auth_type;
-    if (authType === "github_app") {
-        data.github_app_id = parseInt(document.getElementById("github-app-id").value) || 0;
-        data.github_installation_id = parseInt(document.getElementById("github-installation-id").value) || 0;
-        const pk = document.getElementById("github-private-key").value;
-        if (pk) data.github_private_key = pk;
-    } else if (authType === "ssh") {
-        const pk = document.getElementById("ssh-private-key").value;
-        if (pk) data.ssh_private_key = pk;
-        data.ssh_known_hosts = document.getElementById("ssh-known-hosts").value;
-    } else if (authType === "https") {
-        data.https_username = document.getElementById("https-username").value;
-        const token = document.getElementById("https-token").value;
-        if (token) data.https_token = token;
-    }
 
     try {
         const url = isEdit
@@ -308,55 +519,119 @@ async function saveRepo(e) {
     }
 }
 
+async function saveIntegration(e) {
+    e.preventDefault();
+    const integrationID = document.getElementById("integration-id").value;
+    const isEdit = integrationID !== "";
+
+    const data = {
+        name: document.getElementById("integration-name").value,
+        type: document.getElementById("integration-type").value,
+        github_app_id: parseInt(document.getElementById("integration-github-app-id").value) || 0,
+        github_installation_id: parseInt(document.getElementById("integration-github-installation-id").value) || 0,
+        github_private_key_path: document.getElementById("integration-github-private-key-path").value,
+        github_private_key_env: document.getElementById("integration-github-private-key-env").value,
+        github_api_base_url: document.getElementById("integration-github-api-base-url").value,
+        ssh_key_path: document.getElementById("integration-ssh-key-path").value,
+        ssh_key_env: document.getElementById("integration-ssh-key-env").value,
+        ssh_key_passphrase_env: document.getElementById("integration-ssh-key-passphrase-env").value,
+        ssh_known_hosts_path: document.getElementById("integration-ssh-known-hosts-path").value,
+        ssh_insecure_ignore_host_key: document.getElementById("integration-ssh-insecure").checked,
+        https_token_env: document.getElementById("integration-https-token-env").value,
+        https_username: document.getElementById("integration-https-username").value,
+    };
+
+    try {
+        const url = isEdit
+            ? `/api/settings/integrations/${encodeURIComponent(integrationID)}`
+            : "/api/settings/integrations";
+        const method = isEdit ? "PUT" : "POST";
+        const resp = await fetch(url, {
+            method: method,
+            headers: {"Content-Type": "application/json"},
+            credentials: "same-origin",
+            body: JSON.stringify(data),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json();
+            alert(err.error || "Failed to save integration");
+            return;
+        }
+
+        closeIntegrationModal();
+        loadIntegrations();
+    } catch (err) {
+        alert("Failed to save integration");
+    }
+}
+
 function deleteRepo(name) {
     deleteRepoName = name;
     document.getElementById("delete-repo-name").textContent = name;
     document.getElementById("delete-modal").style.display = "flex";
 }
 
+function deleteIntegration(id, name) {
+    deleteIntegrationID = id;
+    document.getElementById("delete-repo-name").textContent = name;
+    document.querySelector("#delete-modal h3").textContent = "Delete Integration";
+    document.querySelector("#delete-modal .text-muted").textContent =
+        "This will remove the integration configuration.";
+    document.getElementById("delete-modal").style.display = "flex";
+}
+
 function closeDeleteModal() {
     document.getElementById("delete-modal").style.display = "none";
     deleteRepoName = "";
+    deleteIntegrationID = "";
+    document.querySelector("#delete-modal h3").textContent = "Delete Repository";
+    document.querySelector("#delete-modal .text-muted").textContent =
+        "This will remove the repository configuration. Scan history will be preserved.";
 }
 
 async function confirmDelete() {
-    if (!deleteRepoName) return;
+    if (!deleteRepoName && !deleteIntegrationID) return;
 
     try {
-        const resp = await fetch(`/api/settings/repos/${encodeURIComponent(deleteRepoName)}`, {
+        const target = deleteIntegrationID
+            ? `/api/settings/integrations/${encodeURIComponent(deleteIntegrationID)}`
+            : `/api/settings/repos/${encodeURIComponent(deleteRepoName)}`;
+        const resp = await fetch(target, {
             method: "DELETE",
             credentials: "same-origin",
         });
 
         if (!resp.ok) {
             const err = await resp.json();
-            alert(err.error || "Failed to delete repository");
+            alert(err.error || "Failed to delete");
             return;
         }
 
         closeDeleteModal();
+        loadIntegrations();
         loadRepos();
     } catch (err) {
-        alert("Failed to delete repository");
+        alert("Failed to delete");
     }
 }
 
-function toggleAuthFields() {
-    hideAllAuthFields();
-    const authType = document.getElementById("repo-auth-type").value;
-    if (authType === "github_app") {
-        document.getElementById("github-app-fields").style.display = "block";
-    } else if (authType === "ssh") {
-        document.getElementById("ssh-fields").style.display = "block";
-    } else if (authType === "https") {
-        document.getElementById("https-fields").style.display = "block";
+function toggleIntegrationFields() {
+    hideAllIntegrationFields();
+    const type = document.getElementById("integration-type").value;
+    if (type === "github_app") {
+        document.getElementById("integration-github-app-fields").style.display = "block";
+    } else if (type === "ssh") {
+        document.getElementById("integration-ssh-fields").style.display = "block";
+    } else if (type === "https") {
+        document.getElementById("integration-https-fields").style.display = "block";
     }
 }
 
-function hideAllAuthFields() {
-    document.getElementById("github-app-fields").style.display = "none";
-    document.getElementById("ssh-fields").style.display = "none";
-    document.getElementById("https-fields").style.display = "none";
+function hideAllIntegrationFields() {
+    document.getElementById("integration-github-app-fields").style.display = "none";
+    document.getElementById("integration-ssh-fields").style.display = "none";
+    document.getElementById("integration-https-fields").style.display = "none";
 }
 
 function escapeHtml(text) {
@@ -365,7 +640,22 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Load repos on page load
+function formatTypeLabel(type) {
+    if (!type) return "";
+    if (type === "github_app") return "GitHub App";
+    if (type === "ssh") return "SSH";
+    if (type === "https") return "HTTPS";
+    return type;
+}
+
+function formatSourceLabel(source) {
+    if (source === "config") return "config file";
+    if (source === "dynamic") return "manual config";
+    return source || "";
+}
+
+// Load data on page load
+loadIntegrations();
 loadRepos();
 </script>
 {{end}}

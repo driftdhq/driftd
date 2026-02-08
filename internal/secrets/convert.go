@@ -9,7 +9,7 @@ import (
 )
 
 // RepoConfigFromEntry converts a dynamic RepoEntry and credentials into a RepoConfig.
-func RepoConfigFromEntry(entry *RepoEntry, creds *RepoCredentials, dataDir string) (*config.RepoConfig, error) {
+func RepoConfigFromEntry(entry *RepoEntry, creds *RepoCredentials, integration *IntegrationEntry, dataDir string) (*config.RepoConfig, error) {
 	if entry == nil {
 		return nil, fmt.Errorf("repo entry required")
 	}
@@ -23,6 +23,15 @@ func RepoConfigFromEntry(entry *RepoEntry, creds *RepoCredentials, dataDir strin
 	}
 	cancel := entry.CancelInflightOnNewTrigger
 	cfg.CancelInflightOnNewTrigger = &cancel
+
+	if integration != nil {
+		gitCfg, err := gitConfigFromIntegration(entry, integration, dataDir)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Git = gitCfg
+		return cfg, nil
+	}
 
 	if entry.Git.Type == "" {
 		return cfg, nil
@@ -88,4 +97,45 @@ func writeSSHCredentials(repoName, dataDir string, creds *RepoCredentials) (stri
 	}
 
 	return keyPath, knownHostsPath, nil
+}
+
+func gitConfigFromIntegration(entry *RepoEntry, integration *IntegrationEntry, dataDir string) (*config.GitAuthConfig, error) {
+	if integration == nil {
+		return nil, fmt.Errorf("integration required")
+	}
+
+	gitCfg := &config.GitAuthConfig{Type: integration.Type}
+
+	switch integration.Type {
+	case "github_app":
+		if integration.GitHubApp == nil {
+			return nil, fmt.Errorf("github_app integration config required")
+		}
+		gitCfg.GitHubApp = &config.GitHubAppConfig{
+			AppID:          integration.GitHubApp.AppID,
+			InstallationID: integration.GitHubApp.InstallationID,
+			PrivateKeyPath: integration.GitHubApp.PrivateKeyPath,
+			PrivateKeyEnv:  integration.GitHubApp.PrivateKeyEnv,
+			APIBaseURL:     integration.GitHubApp.APIBaseURL,
+		}
+	case "ssh":
+		if integration.SSH == nil {
+			return nil, fmt.Errorf("ssh integration config required")
+		}
+		gitCfg.SSHKeyPath = integration.SSH.KeyPath
+		gitCfg.SSHKeyEnv = integration.SSH.KeyEnv
+		gitCfg.SSHKeyPassphraseEnv = integration.SSH.KeyPassphraseEnv
+		gitCfg.SSHKnownHostsPath = integration.SSH.KnownHostsPath
+		gitCfg.SSHInsecureIgnoreHostKey = integration.SSH.InsecureIgnoreHostKey
+	case "https":
+		if integration.HTTPS == nil {
+			return nil, fmt.Errorf("https integration config required")
+		}
+		gitCfg.HTTPSUsername = integration.HTTPS.Username
+		gitCfg.HTTPSTokenEnv = integration.HTTPS.TokenEnv
+	default:
+		return nil, fmt.Errorf("unsupported integration type: %s", integration.Type)
+	}
+
+	return gitCfg, nil
 }

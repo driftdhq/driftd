@@ -635,7 +635,7 @@ func TestScanDynamicRepoViaAPI(t *testing.T) {
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	_, ts, q, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, repoDir string) {
+	_, ts, q, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string) {
 		entry := &secrets.RepoEntry{
 			Name:                       "dyn-repo",
 			URL:                        repoDir,
@@ -722,7 +722,18 @@ func TestSettingsUpdatePreservesFields(t *testing.T) {
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	srv, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, repoDir string) {
+	srv, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string) {
+		intEntry := &secrets.IntegrationEntry{
+			ID:   "int-1",
+			Name: "main",
+			Type: "https",
+			HTTPS: &secrets.IntegrationHTTPS{
+				TokenEnv: "GIT_TOKEN",
+			},
+		}
+		if err := intStore.Add(intEntry); err != nil {
+			t.Fatalf("add integration: %v", err)
+		}
 		entry := &secrets.RepoEntry{
 			Name:                       "dyn-repo",
 			URL:                        repoDir,
@@ -730,15 +741,10 @@ func TestSettingsUpdatePreservesFields(t *testing.T) {
 			IgnorePaths:                []string{"modules/"},
 			Schedule:                   "0 * * * *",
 			CancelInflightOnNewTrigger: true,
-			Git: secrets.RepoGitConfig{
-				Type: "https",
-			},
+			IntegrationID:              "int-1",
+			Git:                        secrets.RepoGitConfig{},
 		}
-		creds := &secrets.RepoCredentials{
-			HTTPSUsername: "x-access-token",
-			HTTPSToken:    "token",
-		}
-		if err := store.Add(entry, creds); err != nil {
+		if err := store.Add(entry, nil); err != nil {
 			t.Fatalf("add repo: %v", err)
 		}
 	}, func(cfg *config.Config) {
@@ -795,7 +801,7 @@ func TestSettingsAuthTypeChangeRequiresCredentials(t *testing.T) {
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	_, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, repoDir string) {
+	_, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string) {
 		entry := &secrets.RepoEntry{
 			Name:                       "dyn-repo",
 			URL:                        repoDir,
@@ -918,7 +924,7 @@ func newTestServerWithConfig(t *testing.T, r worker.Runner, stacks []string, sta
 	return srv, server, q, cleanup
 }
 
-func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, startWorker bool, setup func(store *secrets.RepoStore, repoDir string), mutate func(*config.Config)) (*Server, *httptest.Server, *queue.Queue, func()) {
+func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, startWorker bool, setup func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string), mutate func(*config.Config)) (*Server, *httptest.Server, *queue.Queue, func()) {
 	t.Helper()
 
 	mr, err := miniredis.Run()
@@ -965,10 +971,11 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 		t.Fatalf("encryptor: %v", err)
 	}
 	repoStore := secrets.NewRepoStore(cfg.DataDir, encryptor)
+	intStore := secrets.NewIntegrationStore(cfg.DataDir)
 	if setup != nil {
-		setup(repoStore, repoDir)
+		setup(repoStore, intStore, repoDir)
 	}
-	repoProvider := repos.NewCombinedProvider(cfg, repoStore, cfg.DataDir)
+	repoProvider := repos.NewCombinedProvider(cfg, repoStore, intStore, cfg.DataDir)
 
 	srv, err := New(
 		cfg,
@@ -977,6 +984,7 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 		templatesFS,
 		staticFS,
 		WithRepoStore(repoStore),
+		WithIntegrationStore(intStore),
 		WithRepoProvider(repoProvider),
 	)
 	if err != nil {

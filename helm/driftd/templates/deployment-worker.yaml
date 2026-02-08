@@ -32,6 +32,9 @@ spec:
               mountPath: /data
             - name: cache
               mountPath: /cache
+          {{- with .Values.worker.extraVolumeMounts }}
+{{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.worker.envFrom }}
           envFrom:
 {{- toYaml . | nindent 12 }}
@@ -52,6 +55,9 @@ spec:
         - name: cache
           persistentVolumeClaim:
             claimName: {{ if .Values.storage.cache.existingClaim }}{{ .Values.storage.cache.existingClaim }}{{ else }}{{ include "driftd.fullname" . }}-cache{{ end }}
+      {{- with .Values.worker.extraVolumes }}
+{{- toYaml . | nindent 8 }}
+      {{- end }}
       nodeSelector:
 {{- toYaml .Values.worker.nodeSelector | nindent 8 }}
       tolerations:
