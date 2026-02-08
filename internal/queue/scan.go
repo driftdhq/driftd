@@ -224,18 +224,29 @@ func (q *Queue) SetScanWorkspace(ctx context.Context, scanID, workspacePath, com
 
 func (q *Queue) FailScan(ctx context.Context, scanID, repoName, errMsg string) error {
 	scanKey := keyScanPrefix + scanID
+	endedAt := time.Now()
 
 	pipe := q.client.Pipeline()
 	pipe.HSet(ctx, scanKey, map[string]any{
 		"status":   ScanStatusFailed,
-		"ended_at": time.Now().Unix(),
+		"ended_at": endedAt.Unix(),
 		"error":    errMsg,
 	})
 	pipe.Del(ctx, keyScanRepo+repoName)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return err
 	}
-	return q.releaseOwnedLock(ctx, repoName, scanID)
+	if err := q.releaseOwnedLock(ctx, repoName, scanID); err != nil {
+		return err
+	}
+	_ = q.PublishEvent(ctx, repoName, RepoEvent{
+		Type:     "scan_update",
+		RepoName: repoName,
+		ScanID:   scanID,
+		Status:   ScanStatusFailed,
+		EndedAt:  &endedAt,
+	})
+	return nil
 }
 
 func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string) error {
@@ -243,11 +254,12 @@ func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string)
 		reason = "canceled"
 	}
 	scanKey := keyScanPrefix + scanID
+	endedAt := time.Now()
 
 	pipe := q.client.Pipeline()
 	pipe.HSet(ctx, scanKey, map[string]any{
 		"status":   ScanStatusCanceled,
-		"ended_at": time.Now().Unix(),
+		"ended_at": endedAt.Unix(),
 		"error":    reason,
 	})
 	pipe.Del(ctx, keyScanRepo+repoName)
@@ -255,7 +267,17 @@ func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return err
 	}
-	return q.releaseOwnedLock(ctx, repoName, scanID)
+	if err := q.releaseOwnedLock(ctx, repoName, scanID); err != nil {
+		return err
+	}
+	_ = q.PublishEvent(ctx, repoName, RepoEvent{
+		Type:     "scan_update",
+		RepoName: repoName,
+		ScanID:   scanID,
+		Status:   ScanStatusCanceled,
+		EndedAt:  &endedAt,
+	})
+	return nil
 }
 
 func (q *Queue) GetActiveScan(ctx context.Context, repoName string) (*Scan, error) {
