@@ -36,6 +36,19 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 				_ = w.queue.CancelStackScan(w.ctx, job, "scan canceled")
 				return
 			}
+			_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
+				Type:       "scan_update",
+				RepoName:   job.RepoName,
+				ScanID:     scan.ID,
+				Status:     scan.Status,
+				CommitSHA:  scan.CommitSHA,
+				StartedAt:  &scan.StartedAt,
+				EndedAt:    scanEndedAt(scan),
+				Completed:  scan.Completed,
+				Failed:     scan.Failed,
+				Total:      scan.Total,
+				DriftedCnt: scan.Drifted,
+			})
 			if v, ok := scan.StackTFVersions[job.StackPath]; ok {
 				tfVersion = v
 			} else {
@@ -156,12 +169,25 @@ func (w *Worker) publishScanUpdate(job *queue.StackScan) {
 		Type:       "scan_update",
 		RepoName:   job.RepoName,
 		ScanID:     scan.ID,
+		CommitSHA:  scan.CommitSHA,
+		StartedAt:  &scan.StartedAt,
+		EndedAt:    scanEndedAt(scan),
 		Status:     scan.Status,
 		Completed:  scan.Completed,
 		Failed:     scan.Failed,
 		Total:      scan.Total,
 		DriftedCnt: scan.Drifted,
 	})
+}
+
+func scanEndedAt(scan *queue.Scan) *time.Time {
+	if scan == nil {
+		return nil
+	}
+	if scan.EndedAt.IsZero() {
+		return nil
+	}
+	return &scan.EndedAt
 }
 
 func (w *Worker) watchScanCancel(ctx context.Context, cancel context.CancelFunc, scanID string) {

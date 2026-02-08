@@ -369,3 +369,32 @@ func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	sub := s.queue.Client().PSubscribe(r.Context(), "driftd:events:*")
+	defer sub.Close()
+
+	ch := sub.Channel()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: update\ndata: %s\n\n", msg.Payload)
+			flusher.Flush()
+		}
+	}
+}

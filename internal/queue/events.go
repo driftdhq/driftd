@@ -13,11 +13,14 @@ type RepoEvent struct {
 	Type       string     `json:"type"`
 	RepoName   string     `json:"repo"`
 	ScanID     string     `json:"scan_id,omitempty"`
+	CommitSHA  string     `json:"commit_sha,omitempty"`
 	StackPath  string     `json:"stack_path,omitempty"`
 	Status     string     `json:"status,omitempty"`
 	Drifted    *bool      `json:"drifted,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	RunAt      *time.Time `json:"run_at,omitempty"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	EndedAt    *time.Time `json:"ended_at,omitempty"`
 	Completed  int        `json:"completed,omitempty"`
 	Failed     int        `json:"failed,omitempty"`
 	Total      int        `json:"total,omitempty"`

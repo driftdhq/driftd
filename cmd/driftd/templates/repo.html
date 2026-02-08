@@ -68,7 +68,7 @@
                 <div class="stack-cell status">
                     {{if .Error}}<span class="badge badge-error">error</span>
                     {{else if .Drifted}}<span class="badge badge-drift">drifted</span>
-                    {{else}}<span class="badge badge-ok">ok</span>{{end}}
+                    {{else}}<span class="badge badge-ok">healthy</span>{{end}}
                 </div>
                 <div class="stack-cell run">{{timeAgo .RunAt}}</div>
                 <div class="stack-cell actions">
@@ -122,6 +122,14 @@
         const updateScanProgress = (scan) => {
             if (!scan) return;
             const summary = document.querySelector(".scan-summary.active");
+            if (!summary && scan.status === "running") {
+                window.location.reload();
+                return;
+            }
+            if (scan.status && scan.status !== "running") {
+                window.location.reload();
+                return;
+            }
             if (!summary) return;
             const progressFill = summary.querySelector(".progress-fill");
             const progressMeta = summary.querySelector(".progress .meta");
@@ -165,7 +173,14 @@
                     completed: data.completed,
                     failed: data.failed,
                     total: data.total,
+                    status: data.status,
                 });
+            }
+        });
+
+        window.addEventListener("pageshow", (event) => {
+            if (event.persisted) {
+                window.location.reload();
             }
         });
     })();

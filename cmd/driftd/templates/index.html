@@ -31,14 +31,14 @@
 <section class="repos">
     {{range .ConfigRepos}}
     {{$repo := index $.RepoByName .Name}}
-    <div class="repo-card">
+    <div class="repo-card" data-repo-name="{{.Name}}">
         <a class="repo-card-link" href="/repos/{{.Name}}" aria-label="View {{.Name}}"></a>
         <div class="repo-header">
             <span class="status-indicator {{if $repo.Drifted}}drifted{{else}}ok{{end}}"></span>
             <span class="repo-name">{{.Name}}</span>
         </div>
         <div class="repo-meta">
-            <span>{{$repo.Stacks}} stacks discovered</span>
+            {{if $repo.HealthyStacks}}<span class="healthy-count">{{$repo.HealthyStacks}} healthy stacks</span>{{end}}
             {{if $repo.DriftedStacks}}<span class="drifted-count">{{$repo.DriftedStacks}} drifted stacks</span>{{end}}
             {{if $repo.Active}}
                 <span class="meta-pill">Scanning {{$repo.Progress}}</span>
@@ -61,4 +61,55 @@
 {{else}}
 <p class="empty-state">No repositories configured. Add repos to your config file.</p>
 {{end}}
+
+<script>
+    (function () {
+        if (!window.EventSource) return;
+        const source = new EventSource("/api/events");
+
+        const getRepoCard = (repoName) =>
+            document.querySelector(`.repo-card[data-repo-name="${CSS.escape(repoName)}"]`);
+
+        const ensureScanMeta = (card) => {
+            const meta = card.querySelector(".repo-meta");
+            if (!meta) return null;
+            let pill = meta.querySelector(".meta-pill.scan-pill");
+            if (!pill) {
+                pill = document.createElement("span");
+                pill.className = "meta-pill scan-pill";
+                meta.appendChild(pill);
+            }
+            return pill;
+        };
+
+        const removeScanMeta = (card) => {
+            const pill = card.querySelector(".meta-pill.scan-pill");
+            if (pill) {
+                pill.remove();
+            }
+        };
+
+        source.addEventListener("update", (e) => {
+            const data = JSON.parse(e.data || "{}");
+            if (!data || !data.repo) return;
+            const card = getRepoCard(data.repo);
+            if (!card) {
+                window.location.reload();
+                return;
+            }
+            if (data.type === "scan_update") {
+                if (data.status === "running") {
+                    const pill = ensureScanMeta(card);
+                    if (pill) {
+                        const done = (data.completed || 0) + (data.failed || 0);
+                        const total = data.total || 0;
+                        pill.textContent = `Scanning ${done} / ${total}`;
+                    }
+                } else if (data.status) {
+                    removeScanMeta(card);
+                }
+            }
+        });
+    })();
+</script>
 {{end}}

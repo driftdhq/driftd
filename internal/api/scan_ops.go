@@ -34,11 +34,12 @@ func (s *Server) startScanWithCancel(ctx context.Context, repoCfg *config.RepoCo
 		}
 	}
 	_ = s.queue.PublishEvent(ctx, repoCfg.Name, queue.RepoEvent{
-		Type:     "scan_update",
-		RepoName: repoCfg.Name,
-		ScanID:   scan.ID,
-		Status:   scan.Status,
-		Total:    scan.Total,
+		Type:      "scan_update",
+		RepoName:  repoCfg.Name,
+		ScanID:    scan.ID,
+		Status:    scan.Status,
+		StartedAt: &scan.StartedAt,
+		Total:     scan.Total,
 	})
 
 	// Use Background context because renewal must continue independent of the HTTP request.

@@ -34,6 +34,7 @@ type repoStatusData struct {
 	Stacks        int
 	DriftedStacks int
 	ErrorStacks   int
+	HealthyStacks int
 	Locked        bool
 	LastRun       time.Time
 	CommitSHA     string
@@ -96,12 +97,17 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 				lastRun = lastScan.EndedAt
 			}
 		}
+		healthyStacks := repo.Stacks - repo.DriftedStacks - errorStacks
+		if healthyStacks < 0 {
+			healthyStacks = 0
+		}
 		repoData = append(repoData, repoStatusData{
 			Name:          repo.Name,
 			Drifted:       repo.Drifted,
 			Stacks:        repo.Stacks,
 			DriftedStacks: repo.DriftedStacks,
 			ErrorStacks:   errorStacks,
+			HealthyStacks: healthyStacks,
 			Locked:        locked,
 			LastRun:       lastRun,
 			CommitSHA:     commit,
