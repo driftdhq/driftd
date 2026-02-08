@@ -31,21 +31,9 @@ type RunResult struct {
 	RunAt      time.Time
 }
 
-func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod, workspacePath string) (*RunResult, error) {
+func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*RunResult, error) {
 	result := &RunResult{
 		RunAt: time.Now(),
-	}
-
-	tmpDir, err := os.MkdirTemp("", "driftd-*")
-	if err != nil {
-		result.Error = fmt.Sprintf("failed to create temp dir: %v", err)
-		return result, nil
-	}
-	defer os.RemoveAll(tmpDir)
-
-	if err := prepareWorkspace(ctx, tmpDir, repoURL, workspacePath, auth); err != nil {
-		result.Error = err.Error()
-		return result, nil
 	}
 
 	if !pathutil.IsSafeStackPath(stackPath) {
@@ -53,13 +41,22 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 		return result, nil
 	}
 
-	workDir := filepath.Join(tmpDir, stackPath)
+	repoRoot, cleanup, err := r.prepareRepoRoot(ctx, repoURL, workspacePath, auth)
+	if err != nil {
+		result.Error = err.Error()
+		return result, nil
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	workDir := filepath.Join(repoRoot, stackPath)
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
 		result.Error = fmt.Sprintf("stack path not found: %s", stackPath)
 		return result, nil
 	}
 
-	output, err := planStack(ctx, workDir, tmpDir, stackPath, tfVersion, tgVersion)
+	output, err := planStack(ctx, workDir, repoRoot, stackPath, tfVersion, tgVersion, runID)
 	result.PlanOutput = RedactPlanOutput(output)
 
 	if err != nil {

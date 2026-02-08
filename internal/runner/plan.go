@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-func planStack(ctx context.Context, workDir, repoRoot, stackPath, tfVersion, tgVersion string) (string, error) {
+func planStack(ctx context.Context, workDir, repoRoot, stackPath, tfVersion, tgVersion, runID string) (string, error) {
 	tool := detectTool(workDir)
 
 	tfBin, err := ensureTerraformBinary(ctx, workDir, tfVersion)
@@ -32,7 +32,7 @@ func planStack(ctx context.Context, workDir, repoRoot, stackPath, tfVersion, tgV
 		}
 	}
 
-	return runPlan(ctx, workDir, tool, tfBin, tgBin, repoRoot, stackPath)
+	return runPlan(ctx, workDir, tool, tfBin, tgBin, repoRoot, stackPath, runID)
 }
 
 func detectTool(stackPath string) string {
@@ -43,9 +43,13 @@ func detectTool(stackPath string) string {
 	return "terraform"
 }
 
-func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPath string) (string, error) {
+func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPath, runID string) (string, error) {
 	var output bytes.Buffer
-	dataDir := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath), filepath.Base(repoRoot))
+	dataKey := runID
+	if dataKey == "" {
+		dataKey = filepath.Base(repoRoot)
+	}
+	dataDir := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath), safePath(dataKey))
 	if err := os.MkdirAll(dataDir, 0755); err == nil {
 		defer os.RemoveAll(dataDir)
 	}

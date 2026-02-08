@@ -35,7 +35,7 @@ type fakeRunner struct {
 	failures map[string]error
 }
 
-func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error) {
+func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

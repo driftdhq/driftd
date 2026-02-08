@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -259,81 +258,6 @@ func ensureVersionFile(workDir, fileName, version string) (func(), error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Chmod(0755)
-}
-
-func copyRepo(src, dst string) error {
-	return copyDir(src, dst, map[string]struct{}{".git": {}})
-}
-
-func copyDir(src, dst string, skip map[string]struct{}) error {
-	info, err := os.Lstat(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, info.Mode()); err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if _, ok := skip[name]; ok {
-			continue
-		}
-		srcPath := filepath.Join(src, name)
-		dstPath := filepath.Join(dst, name)
-		if entry.Type()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(srcPath)
-			if err != nil {
-				return err
-			}
-			target := link
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(filepath.Dir(srcPath), target)
-			}
-			target = filepath.Clean(target)
-			rel, err := filepath.Rel(src, target)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-				continue
-			}
-			if err := os.Symlink(link, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath, skip); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := copyFile(srcPath, dstPath); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func getenv(key, fallback string) string {

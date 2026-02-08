@@ -28,7 +28,7 @@ type Worker struct {
 }
 
 type Runner interface {
-	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error)
+	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error)
 }
 
 func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config, provider repos.Provider) *Worker {

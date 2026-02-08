@@ -2,6 +2,7 @@ package worker
 
 import (
 	"log"
+	"path/filepath"
 	"time"
 
 	"github.com/driftdhq/driftd/internal/queue"
@@ -9,10 +10,13 @@ import (
 )
 
 func (w *Worker) reportResult(job *queue.StackScan, sc *ScanContext, result *runner.RunResult, err error) {
-	if sc.WorkspacePath != "" && w.cfg != nil && w.cfg.Workspace.CleanupAfterPlanEnabled() {
-		if err := runner.CleanupWorkspaceArtifacts(sc.WorkspacePath); err != nil {
-			log.Printf("Failed to cleanup workspace artifacts for %s: %v", sc.WorkspacePath, err)
-		}
+	if sc != nil && sc.WorkspacePath != "" && w.cfg != nil && w.cfg.Workspace.CleanupAfterPlanEnabled() {
+		stackDir := filepath.Join(sc.WorkspacePath, job.StackPath)
+		defer func() {
+			if err := runner.CleanupWorkspaceArtifacts(stackDir); err != nil {
+				log.Printf("Failed to cleanup workspace artifacts for %s: %v", stackDir, err)
+			}
+		}()
 	}
 
 	if err != nil {

@@ -35,7 +35,7 @@ func newMockRunner() *mockRunner {
 	}
 }
 
-func (m *mockRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error) {
+func (m *mockRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error) {
 	m.mu.Lock()
 	m.calls = append(m.calls, runCall{
 		repoName:      repoName,

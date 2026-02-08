@@ -103,6 +103,11 @@ func TestDetectToolTerragrunt(t *testing.T) {
 }
 
 func TestFilteredEnv(t *testing.T) {
+	// Save and restore environment variables modified by this test.
+	origHome := os.Getenv("HOME")
+	origPath := os.Getenv("PATH")
+	origTmpdir := os.Getenv("TMPDIR")
+
 	if err := os.Setenv("TF_TEST_VAR", "1"); err != nil {
 		t.Fatalf("set env: %v", err)
 	}
@@ -125,6 +130,9 @@ func TestFilteredEnv(t *testing.T) {
 		_ = os.Unsetenv("TF_TEST_VAR")
 		_ = os.Unsetenv("TERRAGRUNT_TEST_VAR")
 		_ = os.Unsetenv("SHOULD_NOT_LEAK")
+		_ = os.Setenv("HOME", origHome)
+		_ = os.Setenv("PATH", origPath)
+		_ = os.Setenv("TMPDIR", origTmpdir)
 	}()
 
 	env := filteredEnv()
