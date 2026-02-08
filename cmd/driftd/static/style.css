@@ -483,6 +483,11 @@ a:hover {
     border-bottom: 1px solid var(--border);
 }
 
+:root[data-theme="light"] .stack-tree-header {
+    background: rgba(226, 232, 240, 0.8);
+    color: var(--text);
+}
+
 .stack-row {
     border-bottom: 1px solid var(--border);
 }

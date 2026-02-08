@@ -9,27 +9,27 @@ import (
 )
 
 type ssePayload struct {
-	Kind        string                 `json:"kind"`
-	Type        string                 `json:"type,omitempty"`
-	Repo        string                 `json:"repo"`
-	ScanID      string                 `json:"scan_id,omitempty"`
-	CommitSHA   string                 `json:"commit_sha,omitempty"`
-	StackPath   string                 `json:"stack_path,omitempty"`
-	Status      string                 `json:"status,omitempty"`
-	StatusLabel string                 `json:"status_label,omitempty"`
-	IsTerminal  bool                   `json:"is_terminal,omitempty"`
-	ProgressPct int                    `json:"progress_pct"`
-	Completed   int                    `json:"completed,omitempty"`
-	Failed      int                    `json:"failed,omitempty"`
-	Total       int                    `json:"total,omitempty"`
-	Drifted     *bool                  `json:"drifted,omitempty"`
-	Error       string                 `json:"error,omitempty"`
-	RunAt       *time.Time             `json:"run_at,omitempty"`
-	StartedAt   *time.Time             `json:"started_at,omitempty"`
-	EndedAt     *time.Time             `json:"ended_at,omitempty"`
-	ActiveScan  *scanSummary           `json:"active_scan,omitempty"`
-	LastScan    *scanSummary           `json:"last_scan,omitempty"`
-	Stacks      []storage.StackStatus  `json:"stacks,omitempty"`
+	Kind        string                `json:"kind"`
+	Type        string                `json:"type,omitempty"`
+	Repo        string                `json:"repo"`
+	ScanID      string                `json:"scan_id,omitempty"`
+	CommitSHA   string                `json:"commit_sha,omitempty"`
+	StackPath   string                `json:"stack_path,omitempty"`
+	Status      string                `json:"status,omitempty"`
+	StatusLabel string                `json:"status_label,omitempty"`
+	IsTerminal  bool                  `json:"is_terminal,omitempty"`
+	ProgressPct int                   `json:"progress_pct"`
+	Completed   int                   `json:"completed,omitempty"`
+	Failed      int                   `json:"failed,omitempty"`
+	Total       int                   `json:"total,omitempty"`
+	Drifted     *bool                 `json:"drifted,omitempty"`
+	Error       string                `json:"error,omitempty"`
+	RunAt       *time.Time            `json:"run_at,omitempty"`
+	StartedAt   *time.Time            `json:"started_at,omitempty"`
+	EndedAt     *time.Time            `json:"ended_at,omitempty"`
+	ActiveScan  *scanSummary          `json:"active_scan,omitempty"`
+	LastScan    *scanSummary          `json:"last_scan,omitempty"`
+	Stacks      []storage.StackStatus `json:"stacks,omitempty"`
 }
 
 type scanSummary struct {

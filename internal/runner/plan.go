@@ -173,4 +173,3 @@ func filteredEnv() []string {
 func safePath(path string) string {
 	return strings.ReplaceAll(path, string(os.PathSeparator), "__")
 }
-
