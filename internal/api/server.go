@@ -9,6 +9,7 @@ import (
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/metrics"
+	"github.com/driftdhq/driftd/internal/orchestrate"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/secrets"
@@ -26,7 +27,7 @@ type Server struct {
 	repoStore    *secrets.RepoStore
 	intStore     *secrets.IntegrationStore
 	repoProvider repos.Provider
-	scanService  *scanService
+	orchestrator *orchestrate.ScanOrchestrator
 	tmplIndex    *template.Template
 	tmplRepo     *template.Template
 	tmplDrift    *template.Template
@@ -76,6 +77,13 @@ func WithSchedulerCallbacks(onAdded, onUpdated func(name, schedule string), onDe
 		s.onRepoAdded = onAdded
 		s.onRepoUpdated = onUpdated
 		s.onRepoDeleted = onDeleted
+	}
+}
+
+// WithOrchestrator sets a shared scan orchestrator.
+func WithOrchestrator(orch *orchestrate.ScanOrchestrator) ServerOption {
+	return func(s *Server) {
+		s.orchestrator = orch
 	}
 }
 
@@ -136,10 +144,17 @@ func New(cfg *config.Config, s storage.Store, q *queue.Queue, templatesFS, stati
 		opt(srv)
 	}
 
-	srv.scanService = newScanService(cfg, q)
+	if srv.orchestrator == nil {
+		srv.orchestrator = orchestrate.New(cfg, q)
+	}
 	metrics.Register(q)
 
 	return srv, nil
+}
+
+// Stop gracefully shuts down background goroutines (e.g. lock renewals).
+func (s *Server) Stop() {
+	s.orchestrator.Stop()
 }
 
 func (s *Server) Handler() http.Handler {

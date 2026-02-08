@@ -11,6 +11,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const keyClaimPrefix = "driftd:claim:"
+
 type StackScan struct {
 	ID          string    `json:"id"`
 	ScanID      string    `json:"scan_id"`
@@ -30,6 +32,9 @@ type StackScan struct {
 	Commit  string `json:"commit,omitempty"`
 	Actor   string `json:"actor,omitempty"`
 }
+
+// ErrAlreadyClaimed is returned when another worker has already claimed the stack scan.
+var ErrAlreadyClaimed = errors.New("stack scan already claimed")
 
 func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reason string) error {
 	stackScan.Status = StatusCanceled
@@ -78,23 +83,13 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 }
 
 // Dequeue blocks until a stack scan is available, then returns it.
-// The stack scan status is updated to "running" and the repo lock is acquired.
+// The stack scan status is atomically claimed and updated to "running".
 func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error) {
 	for {
 		result, err := q.client.BRPop(ctx, time.Second, keyQueue).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
-				stackScan, findErr := q.findPendingStackScan(ctx)
-				if findErr != nil {
-					return nil, findErr
-				}
-				if stackScan == nil {
-					continue
-				}
-				if err := q.markStackScanRunning(ctx, stackScan, workerID); err != nil {
-					return nil, err
-				}
-				return stackScan, nil
+				continue
 			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -108,7 +103,10 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error
 			continue
 		}
 
-		if err := q.markStackScanRunning(ctx, stackScan, workerID); err != nil {
+		if err := q.claimAndMarkRunning(ctx, stackScan, workerID); err != nil {
+			if errors.Is(err, ErrAlreadyClaimed) {
+				continue
+			}
 			return nil, err
 		}
 
@@ -116,7 +114,22 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error
 	}
 }
 
-func (q *Queue) markStackScanRunning(ctx context.Context, stackScan *StackScan, workerID string) error {
+// claimAndMarkRunning atomically claims a stack scan via SetNX, then marks it running.
+// Returns ErrAlreadyClaimed if another worker already claimed it.
+func (q *Queue) claimAndMarkRunning(ctx context.Context, stackScan *StackScan, workerID string) error {
+	if stackScan.Status != StatusPending {
+		return ErrAlreadyClaimed
+	}
+
+	claimKey := keyClaimPrefix + stackScan.ID
+	claimed, err := q.client.SetNX(ctx, claimKey, workerID, 30*time.Minute).Result()
+	if err != nil {
+		return fmt.Errorf("failed to claim stack scan: %w", err)
+	}
+	if !claimed {
+		return ErrAlreadyClaimed
+	}
+
 	stackScan.Status = StatusRunning
 	stackScan.StartedAt = time.Now()
 	stackScan.WorkerID = workerID
@@ -137,31 +150,37 @@ func (q *Queue) markStackScanRunning(ctx context.Context, stackScan *StackScan, 
 	return nil
 }
 
-func (q *Queue) findPendingStackScan(ctx context.Context) (*StackScan, error) {
+// RecoverOrphanedStackScans finds stack scans with status "pending" that are
+// no longer in the queue list (e.g. lost during a crash) and re-queues them.
+// This should be called periodically, not on the dequeue hot path.
+func (q *Queue) RecoverOrphanedStackScans(ctx context.Context) (int, error) {
 	var cursor uint64
+	recovered := 0
 	for {
 		keys, next, err := q.client.Scan(ctx, cursor, keyStackScanPrefix+"*", 100).Result()
 		if err != nil {
-			return nil, err
+			return recovered, err
 		}
 		for _, key := range keys {
 			data, err := q.client.Get(ctx, key).Result()
 			if err != nil {
-				if errors.Is(err, redis.Nil) {
-					continue
-				}
-				return nil, err
+				continue
 			}
 			var stackScan StackScan
 			if err := json.Unmarshal([]byte(data), &stackScan); err != nil {
 				continue
 			}
-			if stackScan.Status == StatusPending {
-				return &stackScan, nil
+			if stackScan.Status != StatusPending {
+				continue
 			}
+			// Re-push to queue list so a worker can pick it up
+			if err := q.client.LPush(ctx, keyQueue, stackScan.ID).Err(); err != nil {
+				continue
+			}
+			recovered++
 		}
 		if next == 0 {
-			return nil, nil
+			return recovered, nil
 		}
 		cursor = next
 	}
@@ -174,6 +193,7 @@ func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool
 	if err := q.saveStackScan(ctx, stackScan); err != nil {
 		return err
 	}
+	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
 	if err := q.removeStackScanRefs(ctx, stackScan); err != nil {
 		return err
 	}
@@ -195,6 +215,8 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 		if err := q.saveStackScan(ctx, stackScan); err != nil {
 			return err
 		}
+		// Delete claim key so the retry can be claimed by a worker
+		q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
 		if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 			return err
 		}
@@ -211,6 +233,7 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 	if err := q.saveStackScan(ctx, stackScan); err != nil {
 		return err
 	}
+	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
 	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
 	}

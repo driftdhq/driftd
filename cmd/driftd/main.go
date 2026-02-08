@@ -14,6 +14,7 @@ import (
 
 	"github.com/driftdhq/driftd/internal/api"
 	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/orchestrate"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
@@ -121,8 +122,12 @@ func runServe(args []string) {
 		log.Printf("Rebuilt running scans index: %d scans re-indexed", rebuilt)
 	}
 
+	// Create shared scan orchestrator
+	orch := orchestrate.New(cfg, q)
+	defer orch.Stop()
+
 	// Start scheduler
-	sched := scheduler.New(q, cfg, repoProvider)
+	sched := scheduler.New(q, cfg, repoProvider, orch)
 	if err := sched.Start(); err != nil {
 		log.Fatalf("failed to start scheduler: %v", err)
 	}
@@ -137,11 +142,13 @@ func runServe(args []string) {
 		api.WithRepoStore(repoStore),
 		api.WithIntegrationStore(intStore),
 		api.WithRepoProvider(repoProvider),
+		api.WithOrchestrator(orch),
 		api.WithSchedulerCallbacks(sched.OnRepoAdded, sched.OnRepoUpdated, sched.OnRepoDeleted),
 	)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}
+	defer srv.Stop()
 
 	// Handle shutdown
 	done := make(chan os.Signal, 1)

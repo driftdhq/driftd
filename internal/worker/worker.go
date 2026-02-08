@@ -52,6 +52,10 @@ func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config, provider
 func (w *Worker) Start() {
 	log.Printf("Starting worker %s with concurrency %d", w.id, w.concurrency)
 
+	// Single recovery goroutine instead of per-worker recovery
+	w.wg.Add(1)
+	go w.recoveryLoop()
+
 	for i := 0; i < w.concurrency; i++ {
 		w.wg.Add(1)
 		go w.processLoop(i)
@@ -65,12 +69,42 @@ func (w *Worker) Stop() {
 	log.Printf("Worker %s stopped", w.id)
 }
 
+func (w *Worker) recoveryLoop() {
+	defer w.wg.Done()
+
+	if w.cfg == nil {
+		return
+	}
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		if _, err := w.queue.RecoverStaleStackScans(w.ctx, w.cfg.Worker.ScanMaxAge); err != nil {
+			log.Printf("Recovery: stale stack scans error: %v", err)
+		}
+		if _, err := w.queue.RecoverStaleScans(w.ctx, w.cfg.Worker.ScanMaxAge); err != nil {
+			log.Printf("Recovery: stale scans error: %v", err)
+		}
+		if recovered, err := w.queue.RecoverOrphanedStackScans(w.ctx); err != nil {
+			log.Printf("Recovery: orphaned stack scans error: %v", err)
+		} else if recovered > 0 {
+			log.Printf("Recovery: re-queued %d orphaned stack scans", recovered)
+		}
+	}
+}
+
 func (w *Worker) processLoop(workerNum int) {
 	defer w.wg.Done()
 
 	workerID := fmt.Sprintf("%s-%d", w.id, workerNum)
 	log.Printf("Worker goroutine %s started", workerID)
-	lastRecovery := time.Time{}
 
 	for {
 		select {
@@ -78,12 +112,6 @@ func (w *Worker) processLoop(workerNum int) {
 			log.Printf("Worker goroutine %s shutting down", workerID)
 			return
 		default:
-		}
-
-		if w.cfg != nil && time.Since(lastRecovery) > time.Minute {
-			_, _ = w.queue.RecoverStaleStackScans(w.ctx, w.cfg.Worker.ScanMaxAge)
-			_, _ = w.queue.RecoverStaleScans(w.ctx, w.cfg.Worker.ScanMaxAge)
-			lastRecovery = time.Now()
 		}
 
 		dequeueCtx, cancel := context.WithTimeout(w.ctx, 30*time.Second)
