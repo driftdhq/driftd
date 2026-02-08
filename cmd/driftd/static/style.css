@@ -378,7 +378,7 @@ a:hover {
     background: var(--text-muted);
 }
 
-.status-indicator.ok {
+.status-indicator.healthy {
     background: var(--green);
     box-shadow: 0 0 10px rgba(53, 192, 132, 0.5);
 }

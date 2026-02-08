@@ -161,6 +161,16 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/settings/repos", s.handleSettings)
 	})
 
+	// SSE endpoints use UI auth (cookie/basic-auth) since EventSource
+	// doesn't support custom headers required by API token auth.
+	r.Group(func(r chi.Router) {
+		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
+			r.Use(s.uiAuthMiddleware)
+		}
+		r.Get("/api/repos/{repo}/events", s.handleRepoEvents)
+		r.Get("/api/events", s.handleGlobalEvents)
+	})
+
 	r.Route("/api", func(r chi.Router) {
 		if s.apiAuthEnabled() {
 			r.Use(s.apiAuthMiddleware)
@@ -169,8 +179,6 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/stacks/{stackID}", s.handleGetStackScan)
 		r.Get("/scans/{scanID}", s.handleGetScan)
 		r.Get("/repos/{repo}/stacks", s.handleListRepoStackScans)
-		r.Get("/repos/{repo}/events", s.handleRepoEvents)
-		r.Get("/events", s.handleGlobalEvents)
 		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/scan", s.handleScanRepo)
 		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/stacks/*", s.handleScanStack)
 		if s.cfg.Webhook.Enabled {

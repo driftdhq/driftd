@@ -66,9 +66,9 @@
                     <a href="/repos/{{$.Name}}/stacks/{{.Path}}" class="stack-link">{{.Path}}</a>
                 </div>
                 <div class="stack-cell status">
-                    {{if .Error}}<span class="badge badge-error">error</span>
-                    {{else if .Drifted}}<span class="badge badge-drift">drifted</span>
-                    {{else}}<span class="badge badge-ok">healthy</span>{{end}}
+                    {{if .Error}}<span class="badge badge-error">Error</span>
+                    {{else if .Drifted}}<span class="badge badge-drift">Drifted</span>
+                    {{else}}<span class="badge badge-ok">Healthy</span>{{end}}
                 </div>
                 <div class="stack-cell run">{{timeAgo .RunAt}}</div>
                 <div class="stack-cell actions">
@@ -95,10 +95,10 @@
         const source = new EventSource(`/api/repos/${encodeURIComponent(repoName)}/events`);
 
         const formatStatus = (status, drifted, error) => {
-            if (error) return '<span class="badge badge-error">error</span>';
-            if (status === "running") return '<span class="badge badge-running">running</span>';
-            if (drifted) return '<span class="badge badge-drift">drifted</span>';
-            return '<span class="badge badge-ok">ok</span>';
+            if (error) return '<span class="badge badge-error">Error</span>';
+            if (status === "running") return '<span class="badge badge-running">Running</span>';
+            if (drifted) return '<span class="badge badge-drift">Drifted</span>';
+            return '<span class="badge badge-ok">Healthy</span>';
         };
 
         const updateRow = (stack) => {

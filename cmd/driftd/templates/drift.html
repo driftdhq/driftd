@@ -12,18 +12,14 @@
         <h1>{{.Path}}</h1>
         {{if .Result}}
             {{if .Result.Error}}
-            <span class="badge badge-error">error</span>
+            <span class="badge badge-error">Error</span>
             {{else if .Result.Drifted}}
-            <span class="badge badge-drift">drifted</span>
+            <span class="badge badge-drift">Drifted</span>
             {{else}}
-            <span class="badge badge-ok">healthy</span>
+            <span class="badge badge-ok">Healthy</span>
             {{end}}
         {{end}}
     </div>
-    <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="scan-form" data-scan-form>
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <button type="button" class="btn btn-scan" data-rescan>Rescan</button>
-    </form>
 </div>
 
 {{if .Result}}
@@ -61,8 +57,6 @@
         if (!header) return;
         const repoName = header.dataset.repo;
         const stackPath = header.dataset.stack;
-        const scanForm = document.querySelector("[data-scan-form]");
-        const scanButton = document.querySelector("[data-rescan]");
         const statusBadge = header.querySelector(".badge");
         const planSection = document.getElementById("plan-output-section");
 
@@ -89,30 +83,24 @@
             };
         };
 
-        const setButtonState = (isRunning) => {
-            if (!scanButton) return;
-            scanButton.disabled = isRunning;
-            scanButton.textContent = isRunning ? "Rescanning..." : "Rescan";
-        };
-
         const updateStatusBadge = (status, drifted, error) => {
             if (!statusBadge) return;
             if (error) {
                 statusBadge.className = "badge badge-error";
-                statusBadge.textContent = "error";
+                statusBadge.textContent = "Error";
                 return;
             }
             if (status === "running") {
                 statusBadge.className = "badge badge-running";
-                statusBadge.textContent = "running";
+                statusBadge.textContent = "Running";
                 return;
             }
             if (drifted) {
                 statusBadge.className = "badge badge-drift";
-                statusBadge.textContent = "drifted";
+                statusBadge.textContent = "Drifted";
             } else {
                 statusBadge.className = "badge badge-ok";
-                statusBadge.textContent = "healthy";
+                statusBadge.textContent = "Healthy";
             }
         };
 
@@ -131,32 +119,6 @@
             initCopyButton();
         };
 
-        const sendRescan = async () => {
-            if (!scanForm) return;
-            setButtonState(true);
-            updateStatusBadge("running");
-            const token = scanForm.querySelector('input[name="csrf_token"]')?.value || "";
-            const body = new URLSearchParams();
-            if (token) body.append("csrf_token", token);
-            await fetch(scanForm.action, {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: body.toString(),
-                redirect: "manual",
-            });
-        };
-
-        if (scanForm) {
-            scanForm.addEventListener("submit", (e) => e.preventDefault());
-        }
-        document.addEventListener("click", (e) => {
-            const target = e.target;
-            if (!(target instanceof Element)) return;
-            if (!target.matches("[data-rescan]")) return;
-            e.preventDefault();
-            sendRescan();
-        });
-
         initCopyButton();
 
         if (window.EventSource) {
@@ -165,19 +127,16 @@
                 const data = JSON.parse(e.data || "{}");
                 if (data.type !== "stack_update" || data.stack_path !== stackPath) return;
                 if (data.status === "running") {
-                    setButtonState(true);
                     updateStatusBadge("running");
                     return;
                 }
                 if (data.status === "completed") {
                     updateStatusBadge("completed", data.drifted);
-                    setButtonState(false);
                     refreshPlanOutput();
                     return;
                 }
                 if (data.status === "failed") {
                     updateStatusBadge("failed", false, true);
-                    setButtonState(false);
                     refreshPlanOutput();
                 }
             });

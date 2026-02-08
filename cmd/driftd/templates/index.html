@@ -34,7 +34,7 @@
     <div class="repo-card" data-repo-name="{{.Name}}">
         <a class="repo-card-link" href="/repos/{{.Name}}" aria-label="View {{.Name}}"></a>
         <div class="repo-header">
-            <span class="status-indicator {{if $repo.Drifted}}drifted{{else}}ok{{end}}"></span>
+            <span class="status-indicator {{if $repo.Drifted}}drifted{{else}}healthy{{end}}"></span>
             <span class="repo-name">{{.Name}}</span>
         </div>
         <div class="repo-meta">
