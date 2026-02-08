@@ -51,7 +51,7 @@ that fits alongside tools like Atlantis or CI-based applies.
 ```mermaid
 flowchart TB
     subgraph Control["Control Plane"]
-        Server["<b>driftd serve</b><br/>API &bull; UI &bull; Scheduler"]
+        Server["<b>driftd server</b><br/>API &bull; UI &bull; Scheduler"]
     end
 
     subgraph Data["Data Layer"]
