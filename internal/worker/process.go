@@ -63,7 +63,6 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 		}
 	}
 
-	// Create context with timeout for the plan execution
 	ctx, cancel := context.WithTimeout(w.ctx, 30*time.Minute)
 	defer cancel()
 	if scanID != "" {

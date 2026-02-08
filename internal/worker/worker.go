@@ -79,7 +79,6 @@ func (w *Worker) processLoop(workerNum int) {
 		default:
 		}
 
-		// Create a context with timeout for dequeue
 		dequeueCtx, cancel := context.WithTimeout(w.ctx, 30*time.Second)
 		job, err := w.queue.Dequeue(dequeueCtx, workerID)
 		cancel()

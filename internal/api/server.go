@@ -33,7 +33,6 @@ type Server struct {
 	rateLimitMu  sync.Mutex
 	rateLimiters map[string]*rateLimiterEntry
 
-	// Callbacks for scheduler integration
 	onRepoAdded   func(name, schedule string)
 	onRepoUpdated func(name, schedule string)
 	onRepoDeleted func(name string)
@@ -142,7 +141,6 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// HTML routes
 	r.Group(func(r chi.Router) {
 		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
 			r.Use(s.uiAuthMiddleware)
@@ -157,7 +155,6 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/settings/repos", s.handleSettings)
 	})
 
-	// API routes
 	r.Route("/api", func(r chi.Router) {
 		if s.apiAuthEnabled() {
 			r.Use(s.apiAuthMiddleware)
@@ -174,7 +171,6 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/webhooks/github", s.handleGitHubWebhook)
 		}
 
-		// Settings API routes
 		r.Route("/settings", func(r chi.Router) {
 			r.Use(s.settingsAuthMiddleware)
 			r.Get("/integrations", s.handleListSettingsIntegrations)
@@ -191,7 +187,6 @@ func (s *Server) Handler() http.Handler {
 		})
 	})
 
-	// Static files from embedded FS
 	staticHandler, _ := fs.Sub(s.staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticHandler))))
 

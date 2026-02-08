@@ -21,21 +21,16 @@ type RepoRequest struct {
 	Schedule                   *string  `json:"schedule,omitempty"`
 	CancelInflightOnNewTrigger *bool    `json:"cancel_inflight_on_new_trigger,omitempty"`
 
-	// Auth configuration
 	AuthType string `json:"auth_type"` // "https", "ssh", "github_app"
-	// Integration configuration
 	IntegrationID string `json:"integration_id,omitempty"`
 
-	// GitHub App auth
 	GitHubAppID          int64  `json:"github_app_id,omitempty"`
 	GitHubInstallationID int64  `json:"github_installation_id,omitempty"`
 	GitHubPrivateKey     string `json:"github_private_key,omitempty"`
 
-	// SSH auth
 	SSHPrivateKey string `json:"ssh_private_key,omitempty"`
 	SSHKnownHosts string `json:"ssh_known_hosts,omitempty"`
 
-	// HTTPS auth
 	HTTPSUsername string `json:"https_username,omitempty"`
 	HTTPSToken    string `json:"https_token,omitempty"`
 }
@@ -56,7 +51,6 @@ type RepoResponse struct {
 	IntegrationName      string `json:"integration_name,omitempty"`
 	IntegrationType      string `json:"integration_type,omitempty"`
 
-	// Source indicates where the repo config comes from
 	Source    string `json:"source"` // "config" or "dynamic"
 	CreatedAt string `json:"created_at,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
@@ -67,21 +61,18 @@ type IntegrationRequest struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 
-	// GitHub App
 	GitHubAppID          int64  `json:"github_app_id,omitempty"`
 	GitHubInstallationID int64  `json:"github_installation_id,omitempty"`
 	GitHubPrivateKeyPath string `json:"github_private_key_path,omitempty"`
 	GitHubPrivateKeyEnv  string `json:"github_private_key_env,omitempty"`
 	GitHubAPIBaseURL     string `json:"github_api_base_url,omitempty"`
 
-	// SSH
 	SSHKeyPath               string `json:"ssh_key_path,omitempty"`
 	SSHKeyEnv                string `json:"ssh_key_env,omitempty"`
 	SSHKeyPassphraseEnv      string `json:"ssh_key_passphrase_env,omitempty"`
 	SSHKnownHostsPath        string `json:"ssh_known_hosts_path,omitempty"`
 	SSHInsecureIgnoreHostKey bool   `json:"ssh_insecure_ignore_host_key,omitempty"`
 
-	// HTTPS
 	HTTPSUsername string `json:"https_username,omitempty"`
 	HTTPSTokenEnv string `json:"https_token_env,omitempty"`
 }
@@ -116,7 +107,6 @@ type IntegrationResponse struct {
 func (s *Server) handleListSettingsRepos(w http.ResponseWriter, r *http.Request) {
 	repos := make([]RepoResponse, 0)
 
-	// Add static repos from config
 	for _, repo := range s.cfg.Repos {
 		resp := RepoResponse{
 			Name:                       repo.Name,
@@ -138,11 +128,9 @@ func (s *Server) handleListSettingsRepos(w http.ResponseWriter, r *http.Request)
 		repos = append(repos, resp)
 	}
 
-	// Add dynamic repos from repo store
 	if s.repoStore != nil {
 		dynamicRepos := s.repoStore.List()
 		for _, repo := range dynamicRepos {
-			// Skip if already in static config (static takes precedence for display)
 			if s.cfg.GetRepo(repo.Name) != nil {
 				continue
 			}
@@ -183,7 +171,6 @@ func (s *Server) handleListSettingsRepos(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleGetSettingsRepo(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 
-	// Check static config first
 	if repo := s.cfg.GetRepo(repoName); repo != nil {
 		resp := RepoResponse{
 			Name:                       repo.Name,
@@ -206,7 +193,6 @@ func (s *Server) handleGetSettingsRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check dynamic repos
 	if s.repoStore != nil {
 		repo, err := s.repoStore.Get(repoName)
 		if err == nil {
@@ -258,7 +244,6 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Validate required fields
 	if req.Name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
@@ -272,7 +257,6 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Validate name format (alphanumeric, hyphens, underscores only)
 	if !isValidRepoName(req.Name) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "name must contain only alphanumeric characters, hyphens, and underscores",
@@ -280,7 +264,6 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check for conflicts with static config
 	if s.cfg.GetRepo(req.Name) != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error": "repository name conflicts with static configuration",
@@ -288,7 +271,6 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Build entry and credentials
 	entry := &secrets.RepoEntry{
 		Name:                       req.Name,
 		URL:                        req.URL,
@@ -363,7 +345,6 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Add to store
 	if err := s.repoStore.Add(entry, creds); err != nil {
 		if errors.Is(err, secrets.ErrRepoAlreadyExists) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "repository already exists"})
@@ -373,7 +354,6 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Register with scheduler if schedule is set
 	if entry.Schedule != "" && s.onRepoAdded != nil {
 		s.onRepoAdded(req.Name, entry.Schedule)
 	}
@@ -385,7 +365,6 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 
-	// Check if it's a static repo (can't be modified)
 	if s.cfg.GetRepo(repoName) != nil {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "cannot modify repository defined in static configuration",
@@ -400,7 +379,6 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check if repo exists
 	existing, err := s.repoStore.Get(repoName)
 	if err != nil {
 		if errors.Is(err, secrets.ErrRepoNotFound) {
@@ -431,7 +409,6 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		req.IntegrationID = existing.IntegrationID
 	}
 
-	// Build updated entry
 	entry := &secrets.RepoEntry{
 		Name:                       existing.Name,
 		URL:                        req.URL,
@@ -458,7 +435,6 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 	authChanged := req.AuthType != "" && req.AuthType != existing.Git.Type
 	integrationChanged := req.IntegrationID != "" && req.IntegrationID != existing.IntegrationID
 
-	// Only update credentials if provided
 	var creds *secrets.RepoCredentials
 	if req.IntegrationID != "" {
 		if _, err := s.getIntegration(req.IntegrationID); err != nil {
@@ -499,7 +475,6 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 			creds.HTTPSUsername = req.HTTPSUsername
 		}
 	} else if req.AuthType == "github_app" {
-		// Preserve existing GitHub App IDs if not updating creds
 		entry.Git.GitHubApp = existing.Git.GitHubApp
 		if req.GitHubAppID != 0 {
 			if entry.Git.GitHubApp == nil {
@@ -526,7 +501,6 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Update scheduler if schedule changed
 	if s.onRepoUpdated != nil {
 		s.onRepoUpdated(entry.Name, entry.Schedule)
 	}
@@ -538,7 +512,6 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 func (s *Server) handleDeleteSettingsRepo(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 
-	// Check if it's a static repo (can't be deleted)
 	if s.cfg.GetRepo(repoName) != nil {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "cannot delete repository defined in static configuration",
@@ -562,7 +535,6 @@ func (s *Server) handleDeleteSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Remove from scheduler
 	if s.onRepoDeleted != nil {
 		s.onRepoDeleted(repoName)
 	}
@@ -572,8 +544,6 @@ func (s *Server) handleDeleteSettingsRepo(w http.ResponseWriter, r *http.Request
 
 // handleTestRepoConnection tests the connection to a repository.
 func (s *Server) handleTestRepoConnection(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement connection test
-	// This would attempt to git ls-remote with the provided credentials
 	writeJSON(w, http.StatusNotImplemented, map[string]string{
 		"error": "not implemented yet",
 	})

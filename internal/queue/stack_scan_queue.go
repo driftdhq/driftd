@@ -26,7 +26,6 @@ type StackScan struct {
 	WorkerID    string    `json:"worker_id,omitempty"`
 	Error       string    `json:"error,omitempty"`
 
-	// Optional metadata from trigger
 	Trigger string `json:"trigger,omitempty"` // "scheduled", "manual", "post-apply"
 	Commit  string `json:"commit,omitempty"`
 	Actor   string `json:"actor,omitempty"`
@@ -47,14 +46,12 @@ func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reaso
 
 // Enqueue adds a stack scan to the queue.
 func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
-	// Set stack scan defaults
 	stackScan.Status = StatusPending
 	stackScan.CreatedAt = time.Now()
 	if stackScan.ID == "" {
 		stackScan.ID = fmt.Sprintf("%s:%s:%d:%d", stackScan.RepoName, stackScan.StackPath, stackScan.CreatedAt.UnixNano(), rand.Int31())
 	}
 
-	// Store stack scan
 	stackScanKey := keyStackScanPrefix + stackScan.ID
 	stackScanData, err := json.Marshal(stackScan)
 	if err != nil {
@@ -84,7 +81,6 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 // The stack scan status is updated to "running" and the repo lock is acquired.
 func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error) {
 	for {
-		// Block waiting for stack scan (1 second timeout to allow checking for orphaned stack scans)
 		result, err := q.client.BRPop(ctx, time.Second, keyQueue).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
@@ -109,7 +105,6 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error
 		stackScanID := result[1]
 		stackScan, err := q.GetStackScan(ctx, stackScanID)
 		if err != nil {
-			// StackScan expired or deleted, try next
 			continue
 		}
 
@@ -191,7 +186,6 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 	stackScan.Retries++
 
 	if stackScan.Retries <= stackScan.MaxRetries {
-		// Re-queue for retry
 		stackScan.Status = StatusPending
 		stackScan.StartedAt = time.Time{}
 		stackScan.WorkerID = ""

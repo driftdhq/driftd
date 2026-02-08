@@ -246,7 +246,6 @@ func TestZeroStackScanAutoFinishesAsFailed(t *testing.T) {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	// Trigger a transition to run the script; no stacks exist so enqueue fails.
 	if err := q.MarkScanEnqueueFailed(ctx, scan.ID); err != nil {
 		t.Fatalf("mark enqueue failed: %v", err)
 	}
@@ -268,17 +267,14 @@ func TestFailScanDoesNotDeleteOtherScansLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	// Start scan A and let it acquire the lock.
 	scanA, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan A: %v", err)
 	}
 
-	// Simulate lock expiry: delete it manually, then start scan B which acquires a new lock.
 	if err := q.client.Del(ctx, keyLockPrefix+"repo").Err(); err != nil {
 		t.Fatalf("simulate lock expiry: %v", err)
 	}
-	// Also clean up the active-scan pointer so StartScan can proceed.
 	if err := q.client.Del(ctx, keyScanRepo+"repo").Err(); err != nil {
 		t.Fatalf("cleanup active scan pointer: %v", err)
 	}
@@ -288,12 +284,10 @@ func TestFailScanDoesNotDeleteOtherScansLock(t *testing.T) {
 		t.Fatalf("start scan B: %v", err)
 	}
 
-	// Now fail scan A — it should NOT delete scan B's lock.
 	if err := q.FailScan(ctx, scanA.ID, "repo", "timed out"); err != nil {
 		t.Fatalf("fail scan A: %v", err)
 	}
 
-	// Verify scan B's lock is still held.
 	lockVal, err := q.client.Get(ctx, keyLockPrefix+"repo").Result()
 	if err != nil {
 		t.Fatalf("get lock after fail: %v", err)
@@ -312,7 +306,6 @@ func TestCancelScanDoesNotDeleteOtherScansLock(t *testing.T) {
 		t.Fatalf("start scan A: %v", err)
 	}
 
-	// Simulate lock expiry + re-acquisition by scan B.
 	q.client.Del(ctx, keyLockPrefix+"repo")
 	q.client.Del(ctx, keyScanRepo+"repo")
 
@@ -338,10 +331,8 @@ func TestReleaseOwnedLockOnlyReleasesOwnLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	// Set a lock owned by "scan-1".
 	q.client.Set(ctx, keyLockPrefix+"repo", "scan-1", time.Minute)
 
-	// Attempt to release with wrong owner — should be a no-op.
 	if err := q.releaseOwnedLock(ctx, "repo", "scan-2"); err != nil {
 		t.Fatalf("releaseOwnedLock: %v", err)
 	}
@@ -350,7 +341,6 @@ func TestReleaseOwnedLockOnlyReleasesOwnLock(t *testing.T) {
 		t.Fatal("expected lock to still be held after wrong-owner release")
 	}
 
-	// Release with correct owner.
 	if err := q.releaseOwnedLock(ctx, "repo", "scan-1"); err != nil {
 		t.Fatalf("releaseOwnedLock: %v", err)
 	}
@@ -364,7 +354,6 @@ func TestReleaseOwnedLockNoopWhenNoLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	// No lock exists — should not error.
 	if err := q.releaseOwnedLock(ctx, "repo", "scan-1"); err != nil {
 		t.Fatalf("releaseOwnedLock on missing lock: %v", err)
 	}
@@ -379,7 +368,6 @@ func TestMarkScanEnqueueFailed(t *testing.T) {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	// One enqueue fails immediately.
 	if err := q.MarkScanEnqueueFailed(ctx, scan.ID); err != nil {
 		t.Fatalf("mark enqueue failed: %v", err)
 	}
@@ -391,12 +379,10 @@ func TestMarkScanEnqueueFailed(t *testing.T) {
 	if state.Failed != 1 || state.Errored != 1 {
 		t.Fatalf("expected failed=1 errored=1, got failed=%d errored=%d", state.Failed, state.Errored)
 	}
-	// Scan should still be running — only 1 of 2 resolved.
 	if state.Status != ScanStatusRunning {
 		t.Fatalf("expected running, got %s", state.Status)
 	}
 
-	// Now enqueue the second one and complete it.
 	job := &StackScan{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -406,7 +392,6 @@ func TestMarkScanEnqueueFailed(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
-	// Scan should auto-finish as failed (since there's 1 failure).
 	final := getScan(t, q, scan.ID)
 	if final.Status != ScanStatusFailed {
 		t.Fatalf("expected failed, got %s", final.Status)
@@ -417,7 +402,6 @@ func TestMarkScanEnqueueFailedAutoFinishes(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	// Single-stack scan where the only enqueue fails.
 	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
@@ -435,7 +419,6 @@ func TestMarkScanEnqueueFailedAutoFinishes(t *testing.T) {
 		t.Fatal("expected ended_at to be set")
 	}
 
-	// Lock should be released and last scan set.
 	locked, _ := q.IsRepoLocked(ctx, "repo")
 	if locked {
 		t.Fatal("expected repo unlocked after auto-finish")
@@ -458,8 +441,6 @@ func TestCounterFloorAtZero(t *testing.T) {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	// Directly call markScanStackScanCompleted without a prior running transition.
-	// The running counter starts at 0 and the decrement should floor at 0, not go to -1.
 	if err := q.markScanStackScanCompleted(ctx, scan.ID, false); err != nil {
 		t.Fatalf("mark completed: %v", err)
 	}
@@ -509,7 +490,6 @@ func TestAutoFinishReleasesLockAndSetsLast(t *testing.T) {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	// Verify lock is held.
 	locked, _ := q.IsRepoLocked(ctx, "repo")
 	if !locked {
 		t.Fatal("expected repo locked after start")
@@ -524,18 +504,15 @@ func TestAutoFinishReleasesLockAndSetsLast(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
-	// Lock should be released.
 	locked, _ = q.IsRepoLocked(ctx, "repo")
 	if locked {
 		t.Fatal("expected repo unlocked after auto-finish")
 	}
 
-	// Active scan pointer should be cleared.
 	if _, err := q.GetActiveScan(ctx, "repo"); err != ErrScanNotFound {
 		t.Fatalf("expected no active scan, got %v", err)
 	}
 
-	// Last scan should be set.
 	last, err := q.GetLastScan(ctx, "repo")
 	if err != nil {
 		t.Fatalf("get last: %v", err)
@@ -549,7 +526,6 @@ func TestAutoFinishDoesNotDeleteOtherScansLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	// Start scan A.
 	scanA, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan A: %v", err)
@@ -561,7 +537,6 @@ func TestAutoFinishDoesNotDeleteOtherScansLock(t *testing.T) {
 	}
 	deq := dequeueStackScan(t, q)
 
-	// Simulate: scan A's lock expires and scan B acquires the lock.
 	q.client.Del(ctx, keyLockPrefix+"repo")
 	q.client.Del(ctx, keyScanRepo+"repo")
 	scanB, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
@@ -569,18 +544,15 @@ func TestAutoFinishDoesNotDeleteOtherScansLock(t *testing.T) {
 		t.Fatalf("start scan B: %v", err)
 	}
 
-	// Complete scan A's stack scan — this triggers auto-finish via the Lua script.
 	if err := q.Complete(ctx, deq, false); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
-	// Scan A should be completed.
 	finalA := getScan(t, q, scanA.ID)
 	if finalA.Status != ScanStatusCompleted {
 		t.Fatalf("expected scan A completed, got %s", finalA.Status)
 	}
 
-	// Scan B's lock should still be held (the Lua compare-and-delete should have skipped it).
 	lockVal, err := q.client.Get(ctx, keyLockPrefix+"repo").Result()
 	if err != nil {
 		t.Fatalf("get lock: %v", err)
@@ -610,7 +582,6 @@ func TestDriftedCounterOnCompletion(t *testing.T) {
 		}
 	}
 
-	// Complete first two with drift, third without.
 	for i := 0; i < 3; i++ {
 		deq := dequeueStackScan(t, q)
 		drifted := i < 2
@@ -645,7 +616,6 @@ func TestRetryCounterTransitions(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Dequeue -> fail (triggers retry since MaxRetries=1).
 	deq := dequeueStackScan(t, q)
 	state := getScan(t, q, scan.ID)
 	if state.Running != 1 || state.Queued != 0 {
@@ -656,17 +626,14 @@ func TestRetryCounterTransitions(t *testing.T) {
 		t.Fatalf("fail: %v", err)
 	}
 
-	// After retry: running should go back down, queued back up.
 	state = getScan(t, q, scan.ID)
 	if state.Running != 0 || state.Queued != 1 {
 		t.Fatalf("after retry: running=%d queued=%d", state.Running, state.Queued)
 	}
-	// Scan should still be running (not auto-finished).
 	if state.Status != ScanStatusRunning {
 		t.Fatalf("expected running, got %s", state.Status)
 	}
 
-	// Dequeue the retried job and complete it.
 	retry := dequeueStackScan(t, q)
 	if err := q.Complete(ctx, retry, false); err != nil {
 		t.Fatalf("complete: %v", err)

@@ -87,12 +87,10 @@ func TestWorkerStartStop(t *testing.T) {
 
 	w.Start()
 
-	// Give workers time to start
 	time.Sleep(50 * time.Millisecond)
 
 	w.Stop()
 
-	// Should complete without hanging
 }
 
 func TestWorkerProcessesStackScan(t *testing.T) {
@@ -119,7 +117,6 @@ func TestWorkerProcessesStackScan(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := q.GetStackScan(ctx, job.ID)
@@ -171,7 +168,6 @@ func TestWorkerHandlesRunnerError(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := q.GetStackScan(ctx, job.ID)
@@ -206,7 +202,6 @@ func TestWorkerUsesScanVersions(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a scan with version info
 	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
@@ -225,7 +220,6 @@ func TestWorkerUsesScanVersions(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := q.GetStackScan(ctx, job.ID)
@@ -281,7 +275,6 @@ func TestWorkerUsesStackVersionOverride(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := q.GetStackScan(ctx, job.ID)
@@ -321,7 +314,6 @@ func TestWorkerCancelsStackScanWhenScanCanceled(t *testing.T) {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	// Cancel the scan before the job runs
 	if err := q.CancelScan(ctx, scan.ID, "repo", "test cancel"); err != nil {
 		t.Fatalf("cancel scan: %v", err)
 	}
@@ -336,7 +328,6 @@ func TestWorkerCancelsStackScanWhenScanCanceled(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := q.GetStackScan(ctx, job.ID)
@@ -357,7 +348,6 @@ func TestWorkerCancelsStackScanWhenScanCanceled(t *testing.T) {
 		t.Errorf("job status: got %s, want canceled", got.Status)
 	}
 
-	// Runner should not have been called
 	calls := r.getCalls()
 	if len(calls) != 0 {
 		t.Errorf("expected 0 runner calls, got %d", len(calls))
@@ -392,7 +382,6 @@ func TestWorkerUsesWorkspacePath(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := q.GetStackScan(ctx, job.ID)
@@ -441,7 +430,6 @@ func TestWorkerWithConfig(t *testing.T) {
 		t.Fatalf("enqueue: %v", err)
 	}
 
-	// Wait for job to be processed
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		got, err := q.GetStackScan(ctx, job.ID)
@@ -467,14 +455,12 @@ func TestWorkerConcurrency(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
 
-	// Use 3 concurrent workers
 	w := New(q, r, 3, nil, nil)
 	w.Start()
 	defer w.Stop()
 
 	ctx := context.Background()
 
-	// Enqueue 3 jobs
 	for i := 0; i < 3; i++ {
 		job := &queue.StackScan{
 			RepoName:  "repo",
@@ -486,7 +472,6 @@ func TestWorkerConcurrency(t *testing.T) {
 		}
 	}
 
-	// Wait for all jobs to be processed
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		calls := r.getCalls()

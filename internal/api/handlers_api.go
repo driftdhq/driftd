@@ -11,10 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// API Handlers
-
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	// Check Redis connection
 	if err := s.queue.Client().Ping(r.Context()).Err(); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
