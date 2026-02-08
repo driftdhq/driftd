@@ -12,6 +12,7 @@
 <div class="settings-tabs">
     <button class="tab active" data-tab="integrations">Integrations</button>
     <button class="tab" data-tab="repos">Repositories</button>
+    <button class="tab" data-tab="appearance">Appearance</button>
 </div>
 
 <section id="integrations-tab" class="settings-section">
@@ -24,6 +25,16 @@
 
     <div id="integrations-list" class="repos-settings-list">
         <p class="loading">Loading integrations...</p>
+    </div>
+</section>
+
+<section id="appearance-tab" class="settings-section" style="display: none;">
+    <div class="section-header">
+        <h2>Appearance</h2>
+    </div>
+    <div class="appearance-controls">
+        <button type="button" class="btn btn-small theme-btn" data-theme="dark">Dark</button>
+        <button type="button" class="btn btn-small theme-btn" data-theme="light">Light</button>
     </div>
 </section>
 
@@ -653,6 +664,24 @@ function formatSourceLabel(source) {
     if (source === "dynamic") return "manual config";
     return source || "";
 }
+
+function applyTheme(theme) {
+    const root = document.documentElement;
+    root.setAttribute("data-theme", theme);
+    localStorage.setItem("driftd-theme", theme);
+    document.querySelectorAll(".theme-btn").forEach((btn) => {
+        btn.classList.toggle("btn-active", btn.dataset.theme === theme);
+        btn.setAttribute("aria-pressed", btn.dataset.theme === theme ? "true" : "false");
+    });
+}
+
+document.querySelectorAll(".theme-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        applyTheme(btn.dataset.theme);
+    });
+});
+
+applyTheme(localStorage.getItem("driftd-theme") || "dark");
 
 // Load data on page load
 loadIntegrations();

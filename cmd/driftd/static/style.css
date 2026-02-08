@@ -48,22 +48,25 @@
 
 body {
     font-family: "Space Grotesk", sans-serif;
-    background: radial-gradient(1200px 600px at 20% -10%, rgba(77, 215, 255, 0.25), transparent 60%),
-        radial-gradient(900px 500px at 80% 0%, rgba(106, 140, 255, 0.25), transparent 60%),
-        var(--bg);
+    background: var(--bg);
     color: var(--text);
     line-height: 1.6;
     min-height: 100vh;
 }
 
 header {
-    background: linear-gradient(120deg, rgba(77, 215, 255, 0.12), rgba(106, 140, 255, 0.08));
+    background: rgba(12, 18, 32, 0.85);
     border-bottom: 1px solid var(--border);
     backdrop-filter: blur(10px);
     padding: 1rem 2rem;
     position: sticky;
     top: 0;
     z-index: 10;
+}
+
+:root[data-theme="light"] header {
+    background: rgba(255, 255, 255, 0.9);
+    border-bottom-color: rgba(160, 170, 200, 0.3);
 }
 
 header nav {
@@ -85,7 +88,7 @@ header nav {
     align-items: center;
     gap: 1.5rem;
     margin-left: auto;
-    margin-right: 1.5rem;
+    margin-right: 0;
 }
 
 .nav-link {
@@ -93,6 +96,20 @@ header nav {
     text-decoration: none;
     font-size: 0.9rem;
     transition: color 0.2s;
+}
+
+.nav-link.settings-link {
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 0.35rem 0.8rem;
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+}
+
+.nav-link.settings-link:hover {
+    color: var(--text);
+    border-color: rgba(77, 215, 255, 0.4);
 }
 
 .nav-link:hover {
@@ -104,7 +121,7 @@ header nav {
     background: var(--panel);
     color: var(--text);
     border-radius: 999px;
-    padding: 0.25rem;
+    padding: 0.2rem;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -113,26 +130,42 @@ header nav {
     transition: border-color 0.2s ease, background 0.2s ease;
 }
 
+.appearance-controls {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.theme-btn.btn-active {
+    background: rgba(77, 215, 255, 0.35);
+    border-color: rgba(77, 215, 255, 0.9);
+    color: var(--text);
+    box-shadow: 0 0 0 1px rgba(77, 215, 255, 0.3);
+}
+
+.theme-btn.btn-active:hover {
+    transform: none;
+}
+
 .theme-toggle-track {
     position: relative;
-    width: 64px;
-    height: 30px;
+    width: 54px;
+    height: 24px;
     border-radius: 999px;
     background: linear-gradient(120deg, rgba(52, 143, 255, 0.3), rgba(141, 195, 255, 0.15));
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 8px;
-    gap: 6px;
+    padding: 0 6px;
+    gap: 4px;
     overflow: hidden;
 }
 
 .theme-toggle-thumb {
     position: absolute;
     top: 3px;
-    left: 4px;
-    width: 24px;
-    height: 24px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
     border-radius: 999px;
     background: var(--panel);
     border: 1px solid var(--border);
@@ -152,7 +185,7 @@ header nav {
 }
 
 :root[data-theme="light"] .theme-toggle-thumb {
-    transform: translateX(32px);
+    transform: translateX(28px);
 }
 
 :root[data-theme="light"] .theme-toggle-icon-light,
@@ -207,14 +240,19 @@ a:hover {
 }
 
 .overview-card {
-    background: var(--panel);
+    background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1rem 1.25rem;
-    box-shadow: var(--shadow);
+    box-shadow: 0 12px 30px rgba(8, 12, 24, 0.45);
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+}
+
+:root[data-theme="light"] .overview-card {
+    background: var(--panel);
+    box-shadow: 0 10px 22px rgba(24, 34, 66, 0.12);
 }
 
 .overview-label {
@@ -245,18 +283,23 @@ a:hover {
 }
 
 .repo-card {
-    background: var(--panel);
+    background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1rem 1.5rem;
     display: flex;
     align-items: center;
     gap: 1rem;
-    box-shadow: var(--shadow);
+    box-shadow: 0 12px 30px rgba(8, 12, 24, 0.45);
     transition: transform 0.2s ease, border-color 0.2s ease;
     color: inherit;
     text-decoration: none;
     position: relative;
+}
+
+:root[data-theme="light"] .repo-card {
+    background: var(--panel);
+    box-shadow: 0 10px 22px rgba(24, 34, 66, 0.12);
 }
 
 .repo-card:hover {
@@ -354,6 +397,16 @@ a:hover {
     font-size: 0.75rem;
 }
 
+:root[data-theme="light"] .meta-pill {
+    background: rgba(60, 90, 160, 0.08);
+    border-color: rgba(60, 90, 160, 0.2);
+    color: #475569;
+}
+
+:root[data-theme="light"] .meta-pill a {
+    color: #1d4ed8;
+}
+
 /* Buttons */
 .btn {
     background: rgba(77, 215, 255, 0.1);
@@ -401,11 +454,16 @@ a:hover {
 
 /* Stack Tree */
 .stack-tree {
-    background: var(--panel);
+    background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
     border-radius: 16px;
     overflow: hidden;
-    box-shadow: var(--shadow);
+    box-shadow: 0 12px 30px rgba(8, 12, 24, 0.45);
+}
+
+:root[data-theme="light"] .stack-tree {
+    background: var(--panel);
+    box-shadow: 0 10px 22px rgba(24, 34, 66, 0.12);
 }
 
 .stack-tree-header,
@@ -546,7 +604,7 @@ a:hover {
 }
 
 .scan-summary {
-    background: var(--panel);
+    background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 0.9rem 1.1rem;
@@ -555,7 +613,12 @@ a:hover {
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
-    box-shadow: var(--shadow);
+    box-shadow: 0 12px 30px rgba(8, 12, 24, 0.45);
+}
+
+:root[data-theme="light"] .scan-summary {
+    background: var(--panel);
+    box-shadow: 0 10px 22px rgba(24, 34, 66, 0.12);
 }
 
 .scan-summary.active {
@@ -671,7 +734,7 @@ a:hover {
 }
 
 .plan-output pre {
-    background: var(--panel);
+    background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1rem;
@@ -681,7 +744,12 @@ a:hover {
     line-height: 1.6;
     white-space: pre-wrap;
     word-wrap: break-word;
-    box-shadow: var(--shadow);
+    box-shadow: 0 12px 30px rgba(8, 12, 24, 0.45);
+}
+
+:root[data-theme="light"] .plan-output pre {
+    background: var(--panel);
+    box-shadow: 0 10px 22px rgba(24, 34, 66, 0.12);
 }
 
 .plan-output .plan-line {
@@ -787,11 +855,16 @@ a:hover {
 }
 
 .settings-section {
-    background: var(--panel);
+    background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1.5rem;
-    box-shadow: var(--shadow);
+    box-shadow: 0 12px 30px rgba(8, 12, 24, 0.45);
+}
+
+:root[data-theme="light"] .settings-section {
+    background: var(--panel);
+    box-shadow: 0 10px 22px rgba(24, 34, 66, 0.12);
 }
 
 .section-header {
@@ -940,7 +1013,7 @@ a:hover {
 
 .modal-content {
     position: relative;
-    background: var(--panel);
+    background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 1.5rem;
@@ -949,6 +1022,11 @@ a:hover {
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="light"] .modal-content {
+    background: var(--panel);
+    box-shadow: 0 20px 50px rgba(24, 34, 66, 0.18);
 }
 
 .modal-small {

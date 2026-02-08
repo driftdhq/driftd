@@ -12,15 +12,8 @@
         <nav>
             <a href="/" class="logo">Driftd</a>
             <div class="nav-links">
-                <a href="/settings" class="nav-link">Settings</a>
+                <a href="/settings" class="nav-link settings-link">Settings</a>
             </div>
-            <button class="theme-toggle" type="button" aria-label="Toggle theme" aria-pressed="false">
-                <span class="theme-toggle-track">
-                    <span class="theme-toggle-thumb"></span>
-                    <span class="theme-toggle-icon theme-toggle-icon-light">🌞</span>
-                    <span class="theme-toggle-icon theme-toggle-icon-dark">🌙</span>
-                </span>
-            </button>
         </nav>
     </header>
     <main>
@@ -33,20 +26,9 @@
             const stored = localStorage.getItem(key);
             if (stored) {
                 root.setAttribute("data-theme", stored);
-            } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
-                root.setAttribute("data-theme", "light");
+                return;
             }
-            const btn = document.querySelector(".theme-toggle");
-            if (!btn) return;
-            const currentTheme = root.getAttribute("data-theme") || "dark";
-            btn.setAttribute("aria-pressed", currentTheme === "dark" ? "false" : "true");
-            btn.addEventListener("click", () => {
-                const current = root.getAttribute("data-theme") || "dark";
-                const next = current === "dark" ? "light" : "dark";
-                root.setAttribute("data-theme", next);
-                localStorage.setItem(key, next);
-                btn.setAttribute("aria-pressed", next === "dark" ? "false" : "true");
-            });
+            root.setAttribute("data-theme", "dark");
         })();
     </script>
 </body>
