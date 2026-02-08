@@ -7,7 +7,7 @@
     <span>{{.Path}}</span>
 </nav>
 
-<div class="stack-header">
+<div class="stack-header" data-repo="{{.RepoName}}" data-stack="{{.Path}}">
     <div class="stack-title">
         <h1>{{.Path}}</h1>
         {{if .Result}}
@@ -20,7 +20,7 @@
             {{end}}
         {{end}}
     </div>
-    <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="scan-form">
+    <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="scan-form" data-scan-form>
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <button type="submit" class="btn btn-scan">Rescan</button>
     </form>
@@ -28,7 +28,7 @@
 
 {{if .Result}}
 {{if .Result.PlanOutput}}
-<section class="plan-output">
+<section class="plan-output" id="plan-output-section">
     <div class="plan-output-header">
         <div class="plan-output-title">
             <h2>Plan Output</h2>
@@ -49,31 +49,129 @@
     <textarea id="plan-output-raw" class="sr-only">{{.Result.PlanOutput}}</textarea>
     <pre>{{.PlanHTML}}</pre>
 </section>
-    <script>
-        (function () {
+{{end}}
+{{else}}
+<p class="empty-state">No scan results available. Click "Rescan" to run a drift check.</p>
+{{end}}
+{{end}}
+
+<script>
+    (function () {
+        const header = document.querySelector(".stack-header");
+        if (!header) return;
+        const repoName = header.dataset.repo;
+        const stackPath = header.dataset.stack;
+        const scanForm = document.querySelector("[data-scan-form]");
+        const scanButton = scanForm?.querySelector("button");
+        const statusBadge = header.querySelector(".badge");
+        const planSection = document.getElementById("plan-output-section");
+
+        const stripAnsi = (text) => text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
+
+        const initCopyButton = () => {
             const btn = document.querySelector(".btn-copy");
             const target = document.getElementById(btn?.dataset.copyTarget || "");
             if (!btn || !target) return;
-            const stripAnsi = (text) => text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
-            btn.addEventListener("click", async () => {
+            btn.onclick = async () => {
                 try {
                     const raw = target.value || "";
                     await navigator.clipboard.writeText(stripAnsi(raw));
                     btn.textContent = "Copied";
                     setTimeout(() => {
                         btn.textContent = "Copy";
-                }, 1500);
-            } catch (err) {
-                btn.textContent = "Copy failed";
-                setTimeout(() => {
-                    btn.textContent = "Copy";
-                }, 1500);
+                    }, 1500);
+                } catch (err) {
+                    btn.textContent = "Copy failed";
+                    setTimeout(() => {
+                        btn.textContent = "Copy";
+                    }, 1500);
+                }
+            };
+        };
+
+        const setButtonState = (isRunning) => {
+            if (!scanButton) return;
+            scanButton.disabled = isRunning;
+            scanButton.textContent = isRunning ? "Rescanning..." : "Rescan";
+        };
+
+        const updateStatusBadge = (status, drifted, error) => {
+            if (!statusBadge) return;
+            if (error) {
+                statusBadge.className = "badge badge-error";
+                statusBadge.textContent = "error";
+                return;
             }
-        });
+            if (status === "running") {
+                statusBadge.className = "badge badge-running";
+                statusBadge.textContent = "running";
+                return;
+            }
+            if (drifted) {
+                statusBadge.className = "badge badge-drift";
+                statusBadge.textContent = "drifted";
+            } else {
+                statusBadge.className = "badge badge-ok";
+                statusBadge.textContent = "healthy";
+            }
+        };
+
+        const refreshPlanOutput = async () => {
+            if (!planSection) {
+                window.location.reload();
+                return;
+            }
+            const resp = await fetch(window.location.href, { headers: { "X-Requested-With": "fetch" } });
+            if (!resp.ok) return;
+            const html = await resp.text();
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            const nextPlan = doc.getElementById("plan-output-section");
+            if (!nextPlan) return;
+            planSection.innerHTML = nextPlan.innerHTML;
+            initCopyButton();
+        };
+
+        if (scanForm) {
+            scanForm.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                setButtonState(true);
+                updateStatusBadge("running");
+                const token = scanForm.querySelector('input[name="csrf_token"]')?.value || "";
+                const body = new URLSearchParams();
+                if (token) body.append("csrf_token", token);
+                await fetch(scanForm.action, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: body.toString(),
+                    redirect: "manual",
+                });
+            });
+        }
+
+        initCopyButton();
+
+        if (window.EventSource) {
+            const source = new EventSource(`/api/repos/${encodeURIComponent(repoName)}/events`);
+            source.addEventListener("update", (e) => {
+                const data = JSON.parse(e.data || "{}");
+                if (data.type !== "stack_update" || data.stack_path !== stackPath) return;
+                if (data.status === "running") {
+                    setButtonState(true);
+                    updateStatusBadge("running");
+                    return;
+                }
+                if (data.status === "completed") {
+                    updateStatusBadge("completed", data.drifted);
+                    setButtonState(false);
+                    refreshPlanOutput();
+                    return;
+                }
+                if (data.status === "failed") {
+                    updateStatusBadge("failed", false, true);
+                    setButtonState(false);
+                    refreshPlanOutput();
+                }
+            });
+        }
     })();
 </script>
-{{end}}
-{{else}}
-<p class="empty-state">No scan results available. Click "Rescan" to run a drift check.</p>
-{{end}}
-{{end}}
