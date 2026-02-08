@@ -21,11 +21,12 @@ import (
 
 type Server struct {
 	cfg          *config.Config
-	storage      *storage.Storage
+	storage      storage.Store
 	queue        *queue.Queue
 	repoStore    *secrets.RepoStore
 	intStore     *secrets.IntegrationStore
 	repoProvider repos.Provider
+	scanService  *scanService
 	tmplIndex    *template.Template
 	tmplRepo     *template.Template
 	tmplDrift    *template.Template
@@ -78,7 +79,7 @@ func WithSchedulerCallbacks(onAdded, onUpdated func(name, schedule string), onDe
 	}
 }
 
-func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, staticFS fs.FS, opts ...ServerOption) (*Server, error) {
+func New(cfg *config.Config, s storage.Store, q *queue.Queue, templatesFS, staticFS fs.FS, opts ...ServerOption) (*Server, error) {
 	funcMap := template.FuncMap{
 		"timeAgo": timeAgo,
 		"pluralize": func(singular, plural string, count int) string {
@@ -135,6 +136,7 @@ func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, st
 		opt(srv)
 	}
 
+	srv.scanService = newScanService(cfg, q)
 	metrics.Register(q)
 
 	return srv, nil

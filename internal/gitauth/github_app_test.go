@@ -36,11 +36,11 @@ func TestGitHubAppTokenCaching(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	token1, err := githubAppToken(ctx, cfg)
+	token1, err := GitHubAppToken(ctx, cfg)
 	if err != nil {
 		t.Fatalf("token1: %v", err)
 	}
-	token2, err := githubAppToken(ctx, cfg)
+	token2, err := GitHubAppToken(ctx, cfg)
 	if err != nil {
 		t.Fatalf("token2: %v", err)
 	}

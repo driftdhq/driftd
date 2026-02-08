@@ -76,6 +76,10 @@ func httpsAuth(cfg *config.GitAuthConfig) (transport.AuthMethod, error) {
 		return nil, fmt.Errorf("https_token or https_token_env required")
 	}
 
+	return httpsAuthWithToken(cfg, token), nil
+}
+
+func httpsAuthWithToken(cfg *config.GitAuthConfig, token string) transport.AuthMethod {
 	username := cfg.HTTPSUsername
 	if username == "" {
 		username = "x-access-token"
@@ -84,5 +88,5 @@ func httpsAuth(cfg *config.GitAuthConfig) (transport.AuthMethod, error) {
 	return &githttp.BasicAuth{
 		Username: username,
 		Password: token,
-	}, nil
+	}
 }

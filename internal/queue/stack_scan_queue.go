@@ -35,13 +35,13 @@ func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reaso
 	stackScan.Status = StatusCanceled
 	stackScan.CompletedAt = time.Now()
 	stackScan.Error = reason
-	if err := q.updateStackScan(ctx, stackScan); err != nil {
+	if err := q.saveStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
 	}
-	return q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err()
+	return q.removeStackScanRefs(ctx, stackScan)
 }
 
 // Enqueue adds a stack scan to the queue.
@@ -120,7 +120,13 @@ func (q *Queue) markStackScanRunning(ctx context.Context, stackScan *StackScan, 
 	stackScan.Status = StatusRunning
 	stackScan.StartedAt = time.Now()
 	stackScan.WorkerID = workerID
-	if err := q.updateStackScan(ctx, stackScan); err != nil {
+	if err := q.saveStackScan(ctx, stackScan); err != nil {
+		return err
+	}
+	if err := q.client.ZAdd(ctx, keyRunningStackScans, redis.Z{
+		Score:  float64(stackScan.StartedAt.Unix()),
+		Member: stackScan.ID,
+	}).Err(); err != nil {
 		return err
 	}
 	if stackScan.ScanID != "" {
@@ -165,13 +171,10 @@ func (q *Queue) findPendingStackScan(ctx context.Context) (*StackScan, error) {
 func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool) error {
 	stackScan.Status = StatusCompleted
 	stackScan.CompletedAt = time.Now()
-	if err := q.updateStackScan(ctx, stackScan); err != nil {
+	if err := q.saveStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
-		return err
-	}
-	if err := q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+	if err := q.removeStackScanRefs(ctx, stackScan); err != nil {
 		return err
 	}
 	if stackScan.ScanID != "" {
@@ -189,7 +192,10 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 		stackScan.Status = StatusPending
 		stackScan.StartedAt = time.Time{}
 		stackScan.WorkerID = ""
-		if err := q.updateStackScan(ctx, stackScan); err != nil {
+		if err := q.saveStackScan(ctx, stackScan); err != nil {
+			return err
+		}
+		if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 			return err
 		}
 		if stackScan.ScanID != "" {
@@ -202,87 +208,17 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 
 	stackScan.Status = StatusFailed
 	stackScan.CompletedAt = time.Now()
-	if err := q.updateStackScan(ctx, stackScan); err != nil {
+	if err := q.saveStackScan(ctx, stackScan); err != nil {
 		return err
 	}
-	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
 	}
-	if err := q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+	if err := q.removeStackScanRefs(ctx, stackScan); err != nil {
 		return err
 	}
 	if stackScan.ScanID != "" {
 		return q.markScanStackScanFailed(ctx, stackScan.ScanID)
 	}
 	return nil
-}
-
-// GetStackScan retrieves a stack scan by ID.
-func (q *Queue) GetStackScan(ctx context.Context, stackScanID string) (*StackScan, error) {
-	stackScanKey := keyStackScanPrefix + stackScanID
-	data, err := q.client.Get(ctx, stackScanKey).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, ErrStackScanNotFound
-		}
-		return nil, fmt.Errorf("failed to get stack scan: %w", err)
-	}
-
-	var stackScan StackScan
-	if err := json.Unmarshal([]byte(data), &stackScan); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal stack scan: %w", err)
-	}
-	return &stackScan, nil
-}
-
-// ListRepoStackScans returns recent stack scans for a repo.
-func (q *Queue) ListRepoStackScans(ctx context.Context, repoName string, limit int) ([]*StackScan, error) {
-	stop := int64(-1)
-	if limit > 0 {
-		stop = int64(limit - 1)
-	}
-	stackScanIDs, err := q.client.ZRevRange(ctx, keyRepoStackScansOrdered+repoName, 0, stop).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to list stack scan IDs: %w", err)
-	}
-	if len(stackScanIDs) == 0 {
-		return nil, nil
-	}
-
-	pipe := q.client.Pipeline()
-	cmds := make([]*redis.StringCmd, len(stackScanIDs))
-	for i, id := range stackScanIDs {
-		cmds[i] = pipe.Get(ctx, keyStackScanPrefix+id)
-	}
-	_, err = pipe.Exec(ctx)
-	if err != nil && !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("failed to fetch stack scans: %w", err)
-	}
-
-	var stackScans []*StackScan
-	for _, cmd := range cmds {
-		data, err := cmd.Result()
-		if err != nil {
-			continue // StackScan expired
-		}
-		var stackScan StackScan
-		if err := json.Unmarshal([]byte(data), &stackScan); err != nil {
-			continue
-		}
-		stackScans = append(stackScans, &stackScan)
-	}
-
-	return stackScans, nil
-}
-
-func (q *Queue) updateStackScan(ctx context.Context, stackScan *StackScan) error {
-	stackScanKey := keyStackScanPrefix + stackScan.ID
-	stackScanData, err := json.Marshal(stackScan)
-	if err != nil {
-		return fmt.Errorf("failed to marshal stack scan: %w", err)
-	}
-	return q.client.Set(ctx, stackScanKey, stackScanData, stackScanRetention).Err()
 }

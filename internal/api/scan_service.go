@@ -18,7 +18,19 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
-func (s *Server) startScanWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, []string, error) {
+type scanService struct {
+	cfg   *config.Config
+	queue *queue.Queue
+}
+
+func newScanService(cfg *config.Config, q *queue.Queue) *scanService {
+	return &scanService{
+		cfg:   cfg,
+		queue: q,
+	}
+}
+
+func (s *scanService) startScanWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, []string, error) {
 	scan, err := s.queue.StartScan(ctx, repoCfg.Name, trigger, commit, actor, 0)
 	if err != nil {
 		activeScan, activeErr := s.queue.GetActiveScan(ctx, repoCfg.Name)
@@ -90,7 +102,7 @@ func (s *Server) startScanWithCancel(ctx context.Context, repoCfg *config.RepoCo
 	return scan, stacks, nil
 }
 
-func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (string, string, error) {
+func (s *scanService) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (string, string, error) {
 	base := filepath.Join(s.cfg.DataDir, "workspaces", repoCfg.Name, scanID, "repo")
 	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
 		return base, "", err
@@ -119,7 +131,7 @@ func (s *Server) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig,
 	return base, head.Hash().String(), nil
 }
 
-func (s *Server) cleanupWorkspaces(repoName, keepScanID string) {
+func (s *scanService) cleanupWorkspaces(repoName, keepScanID string) {
 	retention := s.cfg.Workspace.Retention
 	if retention <= 0 {
 		return
@@ -176,4 +188,8 @@ func (s *Server) cleanupWorkspaces(repoName, keepScanID string) {
 		// processing won't affect the running stack scan.
 		_ = os.RemoveAll(it.path)
 	}
+}
+
+func (s *Server) startScanWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, []string, error) {
+	return s.scanService.startScanWithCancel(ctx, repoCfg, trigger, commit, actor)
 }

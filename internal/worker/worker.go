@@ -70,6 +70,7 @@ func (w *Worker) processLoop(workerNum int) {
 
 	workerID := fmt.Sprintf("%s-%d", w.id, workerNum)
 	log.Printf("Worker goroutine %s started", workerID)
+	lastRecovery := time.Time{}
 
 	for {
 		select {
@@ -77,6 +78,11 @@ func (w *Worker) processLoop(workerNum int) {
 			log.Printf("Worker goroutine %s shutting down", workerID)
 			return
 		default:
+		}
+
+		if w.cfg != nil && time.Since(lastRecovery) > time.Minute {
+			_, _ = w.queue.RecoverStaleStackScans(w.ctx, w.cfg.Worker.ScanMaxAge)
+			lastRecovery = time.Now()
 		}
 
 		dequeueCtx, cancel := context.WithTimeout(w.ctx, 30*time.Second)

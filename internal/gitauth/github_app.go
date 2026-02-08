@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -55,25 +55,18 @@ func startTokenCacheCleanup() {
 	})
 }
 
-func githubAppAuth(ctx context.Context, cfg *config.GitAuthConfig) (*githttp.BasicAuth, error) {
+func githubAppAuth(ctx context.Context, cfg *config.GitAuthConfig) (transport.AuthMethod, error) {
 	if cfg.GitHubApp == nil {
 		return nil, fmt.Errorf("github_app config required")
 	}
-	token, err := githubAppToken(ctx, cfg.GitHubApp)
+	token, err := GitHubAppToken(ctx, cfg.GitHubApp)
 	if err != nil {
 		return nil, err
 	}
-	username := cfg.HTTPSUsername
-	if username == "" {
-		username = "x-access-token"
-	}
-	return &githttp.BasicAuth{
-		Username: username,
-		Password: token,
-	}, nil
+	return httpsAuthWithToken(cfg, token), nil
 }
 
-func githubAppToken(ctx context.Context, cfg *config.GitHubAppConfig) (string, error) {
+func GitHubAppToken(ctx context.Context, cfg *config.GitHubAppConfig) (string, error) {
 	if cfg.AppID == 0 || cfg.InstallationID == 0 {
 		return "", fmt.Errorf("github_app app_id and installation_id required")
 	}

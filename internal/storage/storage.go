@@ -13,6 +13,13 @@ type Storage struct {
 	dataDir string
 }
 
+type Store interface {
+	SaveResult(repoName, stackPath string, result *RunResult) error
+	GetResult(repoName, stackPath string) (*RunResult, error)
+	ListRepos() ([]RepoStatus, error)
+	ListStacks(repoName string) ([]StackStatus, error)
+}
+
 type RunResult struct {
 	Drifted    bool      `json:"drifted"`
 	Added      int       `json:"added"`
