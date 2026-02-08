@@ -22,7 +22,7 @@
     </div>
     <form method="POST" action="/repos/{{.RepoName}}/stacks/{{.Path}}" class="scan-form" data-scan-form>
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <button type="submit" class="btn btn-scan">Rescan</button>
+        <button type="button" class="btn btn-scan" data-rescan>Rescan</button>
     </form>
 </div>
 
@@ -131,20 +131,28 @@
             initCopyButton();
         };
 
+        const sendRescan = async () => {
+            if (!scanForm) return;
+            setButtonState(true);
+            updateStatusBadge("running");
+            const token = scanForm.querySelector('input[name="csrf_token"]')?.value || "";
+            const body = new URLSearchParams();
+            if (token) body.append("csrf_token", token);
+            await fetch(scanForm.action, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: body.toString(),
+                redirect: "manual",
+            });
+        };
+
         if (scanForm) {
-            scanForm.addEventListener("submit", async (e) => {
+            scanForm.addEventListener("submit", (e) => e.preventDefault());
+        }
+        if (scanButton) {
+            scanButton.addEventListener("click", (e) => {
                 e.preventDefault();
-                setButtonState(true);
-                updateStatusBadge("running");
-                const token = scanForm.querySelector('input[name="csrf_token"]')?.value || "";
-                const body = new URLSearchParams();
-                if (token) body.append("csrf_token", token);
-                await fetch(scanForm.action, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: body.toString(),
-                    redirect: "manual",
-                });
+                sendRescan();
             });
         }
 
