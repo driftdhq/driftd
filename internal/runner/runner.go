@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/driftdhq/driftd/internal/pathutil"
 	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
@@ -47,7 +48,7 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 		return result, nil
 	}
 
-	if !isSafeStackPath(stackPath) {
+	if !pathutil.IsSafeStackPath(stackPath) {
 		result.Error = "invalid stack path"
 		return result, nil
 	}

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/driftdhq/driftd/internal/pathutil"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -214,7 +214,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	stackPath := chi.URLParam(r, "*")
-	if !isValidRepoName(repoName) || !isSafeStackPath(stackPath) {
+	if !isValidRepoName(repoName) || !pathutil.IsSafeStackPath(stackPath) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -332,20 +332,10 @@ func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type snapshot struct {
-		ActiveScan *queue.Scan           `json:"active_scan,omitempty"`
-		LastScan   *queue.Scan           `json:"last_scan,omitempty"`
-		Stacks     []storage.StackStatus `json:"stacks,omitempty"`
-	}
-
 	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
 	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
 	stacks, _ := s.storage.ListStacks(repoName)
-	payload, _ := json.Marshal(snapshot{
-		ActiveScan: activeScan,
-		LastScan:   lastScan,
-		Stacks:     stacks,
-	})
+	payload, _ := buildSnapshotPayload(repoName, activeScan, lastScan, stacks)
 	fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", payload)
 	flusher.Flush()
 
@@ -361,7 +351,15 @@ func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "event: update\ndata: %s\n\n", msg.Payload)
+			var event queue.RepoEvent
+			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
+				continue
+			}
+			updatePayload, err := buildUpdatePayload(&event)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: update\ndata: %s\n\n", updatePayload)
 			flusher.Flush()
 		}
 	}
@@ -390,7 +388,15 @@ func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "event: update\ndata: %s\n\n", msg.Payload)
+			var event queue.RepoEvent
+			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
+				continue
+			}
+			updatePayload, err := buildUpdatePayload(&event)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: update\ndata: %s\n\n", updatePayload)
 			flusher.Flush()
 		}
 	}

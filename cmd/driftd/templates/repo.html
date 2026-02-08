@@ -136,13 +136,13 @@
             if (!progressFill || !progressMeta) return;
             const done = (scan.completed || 0) + (scan.failed || 0);
             const total = scan.total || 0;
-            const pct = total > 0 ? Math.floor((done * 100) / total) : 0;
-            progressFill.style.width = `${pct}%`;
+            progressFill.style.width = `${scan.progress_pct}%`;
             progressMeta.textContent = `${done} / ${total}`;
         };
 
         source.addEventListener("snapshot", (e) => {
             const data = JSON.parse(e.data || "{}");
+            if (data.kind && data.kind !== "snapshot") return;
             if (Array.isArray(data.stacks)) {
                 data.stacks.forEach((stack) => {
                     updateRow({
@@ -159,7 +159,8 @@
 
         source.addEventListener("update", (e) => {
             const data = JSON.parse(e.data || "{}");
-            if (data.type === "stack_update") {
+            const kind = data.kind || (data.type === "stack_update" ? "stack" : (data.type === "scan_update" ? "scan" : ""));
+            if (kind === "stack") {
                 updateRow({
                     path: data.stack_path,
                     drifted: data.drifted,
@@ -168,12 +169,13 @@
                     run_at: data.run_at,
                 });
             }
-            if (data.type === "scan_update") {
+            if (kind === "scan") {
                 updateScanProgress({
                     completed: data.completed,
                     failed: data.failed,
                     total: data.total,
                     status: data.status,
+                    progress_pct: data.progress_pct,
                 });
             }
         });

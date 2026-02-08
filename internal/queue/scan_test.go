@@ -679,3 +679,104 @@ func TestAllStacksFailAutoFinishesAsFailed(t *testing.T) {
 		t.Fatalf("expected failed=2 errored=2, got failed=%d errored=%d", final.Failed, final.Errored)
 	}
 }
+
+func TestSetScanTotal(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 10)
+	if err != nil {
+		t.Fatalf("start scan: %v", err)
+	}
+
+	state := getScan(t, q, scan.ID)
+	if state.Total != 10 || state.Queued != 10 {
+		t.Fatalf("initial: total=%d queued=%d", state.Total, state.Queued)
+	}
+
+	if err := q.SetScanTotal(ctx, scan.ID, 3); err != nil {
+		t.Fatalf("set scan total: %v", err)
+	}
+
+	state = getScan(t, q, scan.ID)
+	if state.Total != 3 {
+		t.Fatalf("expected total=3, got %d", state.Total)
+	}
+	if state.Queued != 3 {
+		t.Fatalf("expected queued=3, got %d", state.Queued)
+	}
+}
+
+func TestRenewScanLockStopsOnContextCancel(t *testing.T) {
+	q := newTestQueue(t)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	if err != nil {
+		t.Fatalf("start scan: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		q.RenewScanLock(ctx, scan.ID, "repo", time.Hour, 0)
+		close(done)
+	}()
+
+	// Cancel immediately — should cause RenewScanLock to return
+	cancel()
+
+	select {
+	case <-done:
+		// Good
+	case <-time.After(2 * time.Second):
+		t.Fatal("RenewScanLock did not stop on context cancel")
+	}
+}
+
+func TestRenewScanLockLuaScriptRenewsCorrectOwner(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	lockKey := keyLockPrefix + "repo"
+	q.client.Set(ctx, lockKey, "scan-1", time.Minute)
+
+	// Lua script should renew when owner matches
+	renewed, err := renewLockScript.Run(ctx, q.client,
+		[]string{lockKey}, "scan-1", q.lockTTL.Milliseconds(),
+	).Int64()
+	if err != nil {
+		t.Fatalf("run script: %v", err)
+	}
+	if renewed != 1 {
+		t.Fatalf("expected renewed=1, got %d", renewed)
+	}
+
+	// Lua script should NOT renew when owner doesn't match
+	renewed, err = renewLockScript.Run(ctx, q.client,
+		[]string{lockKey}, "scan-2", q.lockTTL.Milliseconds(),
+	).Int64()
+	if err != nil {
+		t.Fatalf("run script: %v", err)
+	}
+	if renewed != 0 {
+		t.Fatalf("expected renewed=0 for wrong owner, got %d", renewed)
+	}
+}
+
+func TestRenewScanLockLuaScriptNoopWhenExpired(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	lockKey := keyLockPrefix + "repo"
+	// No lock set — simulates expired lock
+
+	renewed, err := renewLockScript.Run(ctx, q.client,
+		[]string{lockKey}, "scan-1", q.lockTTL.Milliseconds(),
+	).Int64()
+	if err != nil {
+		t.Fatalf("run script: %v", err)
+	}
+	if renewed != 0 {
+		t.Fatalf("expected renewed=0 for missing lock, got %d", renewed)
+	}
+}

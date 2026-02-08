@@ -82,6 +82,7 @@ func (w *Worker) processLoop(workerNum int) {
 
 		if w.cfg != nil && time.Since(lastRecovery) > time.Minute {
 			_, _ = w.queue.RecoverStaleStackScans(w.ctx, w.cfg.Worker.ScanMaxAge)
+			_, _ = w.queue.RecoverStaleScans(w.ctx, w.cfg.Worker.ScanMaxAge)
 			lastRecovery = time.Now()
 		}
 

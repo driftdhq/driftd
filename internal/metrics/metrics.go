@@ -97,6 +97,58 @@ func Register(q *queue.Queue) {
 			stackDuration,
 			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 				Namespace: "driftd",
+				Name:      "running_stack_scans",
+				Help:      "Number of stack scans currently marked running.",
+			}, func() float64 {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				val, err := q.RunningStackScanCount(ctx)
+				if err != nil {
+					return 0
+				}
+				return float64(val)
+			}),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Namespace: "driftd",
+				Name:      "oldest_running_stack_scan_age_seconds",
+				Help:      "Age of the oldest running stack scan in seconds.",
+			}, func() float64 {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				age, err := q.OldestRunningStackScanAge(ctx)
+				if err != nil {
+					return 0
+				}
+				return age.Seconds()
+			}),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Namespace: "driftd",
+				Name:      "running_scans",
+				Help:      "Number of scans currently marked running.",
+			}, func() float64 {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				val, err := q.RunningScanCount(ctx)
+				if err != nil {
+					return 0
+				}
+				return float64(val)
+			}),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Namespace: "driftd",
+				Name:      "oldest_running_scan_age_seconds",
+				Help:      "Age of the oldest running scan in seconds.",
+			}, func() float64 {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				age, err := q.OldestRunningScanAge(ctx)
+				if err != nil {
+					return 0
+				}
+				return age.Seconds()
+			}),
+			prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+				Namespace: "driftd",
 				Name:      "queue_depth",
 				Help:      "Number of pending stack scans in the queue.",
 			}, func() float64 {

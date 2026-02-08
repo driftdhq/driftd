@@ -125,7 +125,8 @@
             const source = new EventSource(`/api/repos/${encodeURIComponent(repoName)}/events`);
             source.addEventListener("update", (e) => {
                 const data = JSON.parse(e.data || "{}");
-                if (data.type !== "stack_update" || data.stack_path !== stackPath) return;
+                const kind = data.kind || (data.type === "stack_update" ? "stack" : "");
+                if (kind !== "stack" || data.stack_path !== stackPath) return;
                 if (data.status === "running") {
                     updateStatusBadge("running");
                     return;

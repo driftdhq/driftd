@@ -12,7 +12,7 @@ import (
 // and auto-finishing the scan when all stack scans are done. It also performs
 // compare-and-delete on the lock key to avoid releasing another scan's lock.
 //
-// KEYS: [1] scan hash key, [2] lock key, [3] scan:repo: key, [4] scan:last: key
+// KEYS: [1] scan hash key, [2] lock key, [3] scan:repo: key, [4] scan:last: key, [5] running scans zset
 // ARGV: [1] scan_id, [2] ended_at, [3..N] pairs of (field, delta) to apply
 //
 // Returns 1 if the scan was auto-finished, 0 otherwise.
@@ -21,6 +21,7 @@ local key = KEYS[1]
 local lock_key = KEYS[2]
 local repo_key = KEYS[3]
 local last_key = KEYS[4]
+local running_key = KEYS[5]
 local scan_id = ARGV[1]
 local ended_at = ARGV[2]
 
@@ -49,6 +50,7 @@ if (total == 0) or (comp + fail >= total) then
   end
   redis.call('DEL', repo_key)
   redis.call('SET', last_key, scan_id, 'EX', 604800)
+  redis.call('ZREM', running_key, scan_id)
   return 1
 end
 return 0
@@ -60,6 +62,7 @@ func (q *Queue) scanTransitionKeys(scanID, repoName string) []string {
 		keyLockPrefix + repoName,
 		keyScanRepo + repoName,
 		keyScanLast + repoName,
+		keyRunningScans,
 	}
 }
 

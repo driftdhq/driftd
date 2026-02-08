@@ -97,7 +97,8 @@
                 window.location.reload();
                 return;
             }
-            if (data.type === "scan_update") {
+            const kind = data.kind || (data.type === "scan_update" ? "scan" : "");
+            if (kind === "scan") {
                 if (data.status === "running") {
                     const pill = ensureScanMeta(card);
                     if (pill) {

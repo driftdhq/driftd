@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/pathutil"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -195,7 +196,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	stackPath := chi.URLParam(r, "*")
-	if !isValidRepoName(repoName) || !isSafeStackPath(stackPath) {
+	if !isValidRepoName(repoName) || !pathutil.IsSafeStackPath(stackPath) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -277,7 +278,7 @@ func filterParentStackStatuses(stacks []storage.StackStatus) []storage.StackStat
 func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 	repoName := chi.URLParam(r, "repo")
 	stackPath := chi.URLParam(r, "*")
-	if !isValidRepoName(repoName) || !isSafeStackPath(stackPath) {
+	if !isValidRepoName(repoName) || !pathutil.IsSafeStackPath(stackPath) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}

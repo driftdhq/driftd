@@ -115,6 +115,12 @@ func runServe(args []string) {
 		log.Fatalf("failed to install default terraform/terragrunt: %v", err)
 	}
 
+	if rebuilt, err := q.RebuildRunningScansIndex(context.Background()); err != nil {
+		log.Printf("Warning: failed to rebuild running scans index: %v", err)
+	} else if rebuilt > 0 {
+		log.Printf("Rebuilt running scans index: %d scans re-indexed", rebuilt)
+	}
+
 	// Start scheduler
 	sched := scheduler.New(q, cfg, repoProvider)
 	if err := sched.Start(); err != nil {

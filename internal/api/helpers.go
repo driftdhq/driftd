@@ -5,7 +5,6 @@ import (
 	"html"
 	"html/template"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -31,20 +30,6 @@ func isValidRepoName(name string) bool {
 		return false
 	}
 	return repoNamePattern.MatchString(name)
-}
-
-func isSafeStackPath(stackPath string) bool {
-	if stackPath == "" {
-		return true
-	}
-	if filepath.IsAbs(stackPath) {
-		return false
-	}
-	clean := filepath.Clean(stackPath)
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return false
-	}
-	return true
 }
 
 func (s *Server) sanitizeErrorMessage(msg string) string {

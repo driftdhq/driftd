@@ -22,6 +22,13 @@ const (
 
 var ErrScanNotFound = errors.New("scan not found")
 
+var renewLockScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('PEXPIRE', KEYS[1], ARGV[2])
+end
+return 0
+`)
+
 type Scan struct {
 	ID        string    `json:"id"`
 	RepoName  string    `json:"repo_name"`
@@ -109,6 +116,10 @@ func (q *Queue) StartScan(ctx context.Context, repoName, trigger, commit, actor 
 	})
 	pipe.Expire(ctx, scanKey, scanRetention)
 	pipe.Set(ctx, keyScanRepo+repoName, scanID, scanRetention)
+	pipe.ZAdd(ctx, keyRunningScans, redis.Z{
+		Score:  float64(scan.StartedAt.Unix()),
+		Member: scan.ID,
+	})
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		q.releaseOwnedLock(ctx, repoName, scanID)
@@ -159,18 +170,19 @@ func (q *Queue) RenewScanLock(ctx context.Context, scanID, repoName string, maxA
 			return
 		}
 
-		lockValue, err := q.client.Get(ctx, keyLockPrefix+repoName).Result()
+		renewed, err := renewLockScript.Run(ctx, q.client,
+			[]string{keyLockPrefix + repoName},
+			scanID, q.lockTTL.Milliseconds(),
+		).Int64()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				return
 			}
 			continue
 		}
-		if lockValue != scanID {
+		if renewed == 0 {
 			return
 		}
-
-		_ = q.client.Expire(ctx, keyLockPrefix+repoName, q.lockTTL).Err()
 	}
 }
 
@@ -233,6 +245,7 @@ func (q *Queue) FailScan(ctx context.Context, scanID, repoName, errMsg string) e
 		"error":    errMsg,
 	})
 	pipe.Del(ctx, keyScanRepo+repoName)
+	pipe.ZRem(ctx, keyRunningScans, scanID)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return err
 	}
@@ -264,6 +277,7 @@ func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string)
 	})
 	pipe.Del(ctx, keyScanRepo+repoName)
 	pipe.Set(ctx, keyScanLast+repoName, scanID, scanRetention)
+	pipe.ZRem(ctx, keyRunningScans, scanID)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return err
 	}

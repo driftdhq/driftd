@@ -22,6 +22,7 @@ const (
 	keyScanRepo              = "driftd:scan:repo:"
 	keyScanStackScans        = "driftd:scan:stack_scans:"
 	keyScanLast              = "driftd:scan:last:"
+	keyRunningScans          = "driftd:scan:running"
 
 	stackScanRetention = 7 * 24 * time.Hour // 7 days
 	scanRetention      = 7 * 24 * time.Hour // 7 days
