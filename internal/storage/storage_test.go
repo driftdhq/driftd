@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -293,6 +294,32 @@ func TestOverwriteResult(t *testing.T) {
 	}
 	if got.PlanOutput != "updated plan" {
 		t.Errorf("expected updated plan output")
+	}
+}
+
+func TestSaveResultDoesNotLeaveTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+
+	result := &RunResult{
+		Drifted:    true,
+		PlanOutput: "plan output",
+		RunAt:      time.Now(),
+	}
+	if err := s.SaveResult("repo", "stack", result); err != nil {
+		t.Fatalf("save result: %v", err)
+	}
+
+	stackDir := s.stackDir("repo", "stack")
+	entries, err := os.ReadDir(stackDir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".status.json.tmp-") || strings.HasPrefix(name, ".plan.txt.tmp-") {
+			t.Fatalf("found leftover temp file: %s", name)
+		}
 	}
 }
 
