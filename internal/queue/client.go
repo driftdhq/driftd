@@ -50,6 +50,18 @@ func (q *Queue) releaseLock(ctx context.Context, repoName string) error {
 	return q.client.Del(ctx, keyLockPrefix+repoName).Err()
 }
 
+// releaseOwnedLock deletes the lock only if it is still owned by the given scanID.
+// This prevents accidentally releasing a lock that was re-acquired by a different scan.
+func (q *Queue) releaseOwnedLock(ctx context.Context, repoName, scanID string) error {
+	script := redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+`)
+	return script.Run(ctx, q.client, []string{keyLockPrefix + repoName}, scanID).Err()
+}
+
 // Client returns the underlying Redis client for health checks.
 func (q *Queue) Client() *redis.Client {
 	return q.client

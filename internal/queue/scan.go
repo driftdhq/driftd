@@ -111,7 +111,7 @@ func (q *Queue) StartScan(ctx context.Context, repoName, trigger, commit, actor 
 	pipe.Set(ctx, keyScanRepo+repoName, scanID, scanRetention)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		q.releaseLock(ctx, repoName)
+		q.releaseOwnedLock(ctx, repoName, scanID)
 		return nil, fmt.Errorf("failed to create scan: %w", err)
 	}
 
@@ -231,10 +231,11 @@ func (q *Queue) FailScan(ctx context.Context, scanID, repoName, errMsg string) e
 		"ended_at": time.Now().Unix(),
 		"error":    errMsg,
 	})
-	pipe.Del(ctx, keyLockPrefix+repoName)
 	pipe.Del(ctx, keyScanRepo+repoName)
-	_, err := pipe.Exec(ctx)
-	return err
+	if _, err := pipe.Exec(ctx); err != nil {
+		return err
+	}
+	return q.releaseOwnedLock(ctx, repoName, scanID)
 }
 
 func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string) error {
@@ -249,11 +250,12 @@ func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string)
 		"ended_at": time.Now().Unix(),
 		"error":    reason,
 	})
-	pipe.Del(ctx, keyLockPrefix+repoName)
 	pipe.Del(ctx, keyScanRepo+repoName)
 	pipe.Set(ctx, keyScanLast+repoName, scanID, scanRetention)
-	_, err := pipe.Exec(ctx)
-	return err
+	if _, err := pipe.Exec(ctx); err != nil {
+		return err
+	}
+	return q.releaseOwnedLock(ctx, repoName, scanID)
 }
 
 func (q *Queue) GetActiveScan(ctx context.Context, repoName string) (*Scan, error) {
@@ -282,117 +284,118 @@ func (q *Queue) AttachStackScanToScan(ctx context.Context, scanID, stackScanID s
 	return q.client.SAdd(ctx, keyScanStackScans+scanID, stackScanID).Err()
 }
 
+// scanTransitionScript is the core Lua script for atomically updating scan counters
+// and auto-finishing the scan when all stack scans are done. It also performs
+// compare-and-delete on the lock key to avoid releasing another scan's lock.
+//
+// KEYS: [1] scan hash key, [2] lock key, [3] scan:repo: key, [4] scan:last: key
+// ARGV: [1] scan_id, [2] ended_at, [3..N] pairs of (field, delta) to apply
+//
+// Returns 1 if the scan was auto-finished, 0 otherwise.
+var scanTransitionScript = redis.NewScript(`
+local key = KEYS[1]
+local lock_key = KEYS[2]
+local repo_key = KEYS[3]
+local last_key = KEYS[4]
+local scan_id = ARGV[1]
+local ended_at = ARGV[2]
+
+-- Apply counter deltas (pairs of field, delta starting at ARGV[3])
+for i = 3, #ARGV, 2 do
+  local field = ARGV[i]
+  local delta = tonumber(ARGV[i+1])
+  local val = redis.call('HINCRBY', key, field, delta)
+  if val < 0 then
+    redis.call('HSET', key, field, 0)
+  end
+end
+
+-- Check if scan should auto-finish
+local total = tonumber(redis.call('HGET', key, 'total') or '0')
+local comp  = tonumber(redis.call('HGET', key, 'completed') or '0')
+local fail  = tonumber(redis.call('HGET', key, 'failed') or '0')
+
+if (total == 0) or (comp + fail >= total) then
+  local status = 'completed'
+  if fail > 0 then status = 'failed' end
+  redis.call('HSET', key, 'status', status, 'ended_at', ended_at)
+  -- Compare-and-delete: only release lock if we still own it
+  if redis.call('GET', lock_key) == scan_id then
+    redis.call('DEL', lock_key)
+  end
+  redis.call('DEL', repo_key)
+  redis.call('SET', last_key, scan_id, 'EX', 604800)
+  return 1
+end
+return 0
+`)
+
+func (q *Queue) scanTransitionKeys(scanID, repoName string) []string {
+	return []string{
+		keyScanPrefix + scanID,
+		keyLockPrefix + repoName,
+		keyScanRepo + repoName,
+		keyScanLast + repoName,
+	}
+}
+
+func (q *Queue) runScanTransition(ctx context.Context, scanID, repoName string, deltas ...any) error {
+	keys := q.scanTransitionKeys(scanID, repoName)
+	args := []any{scanID, time.Now().Unix()}
+	args = append(args, deltas...)
+	return scanTransitionScript.Run(ctx, q.client, keys, args...).Err()
+}
+
+func (q *Queue) repoNameForScan(ctx context.Context, scanID string) (string, error) {
+	repo, err := q.client.HGet(ctx, keyScanPrefix+scanID, "repo").Result()
+	if err != nil {
+		return "", fmt.Errorf("failed to get repo for scan %s: %w", scanID, err)
+	}
+	return repo, nil
+}
+
 func (q *Queue) markScanStackScanRunning(ctx context.Context, scanID string) error {
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", 1); err != nil {
+	repoName, err := q.repoNameForScan(ctx, scanID)
+	if err != nil {
 		return err
 	}
-	_, err := q.incrFloor(ctx, keyScanPrefix+scanID, "queued", -1)
-	return err
+	return q.runScanTransition(ctx, scanID, repoName, "running", 1, "queued", -1)
 }
 
 func (q *Queue) markScanStackScanRetry(ctx context.Context, scanID string) error {
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", -1); err != nil {
+	repoName, err := q.repoNameForScan(ctx, scanID)
+	if err != nil {
 		return err
 	}
-	_, err := q.incrFloor(ctx, keyScanPrefix+scanID, "queued", 1)
-	return err
+	return q.runScanTransition(ctx, scanID, repoName, "running", -1, "queued", 1)
 }
 
 func (q *Queue) markScanStackScanCompleted(ctx context.Context, scanID string, drifted bool) error {
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", -1); err != nil {
+	repoName, err := q.repoNameForScan(ctx, scanID)
+	if err != nil {
 		return err
 	}
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "completed", 1); err != nil {
-		return err
-	}
+	deltas := []any{"running", -1, "completed", 1}
 	if drifted {
-		if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "drifted", 1); err != nil {
-			return err
-		}
+		deltas = append(deltas, "drifted", 1)
 	}
-	return q.maybeFinishScan(ctx, scanID)
+	return q.runScanTransition(ctx, scanID, repoName, deltas...)
 }
 
 func (q *Queue) markScanStackScanFailed(ctx context.Context, scanID string) error {
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "running", -1); err != nil {
+	repoName, err := q.repoNameForScan(ctx, scanID)
+	if err != nil {
 		return err
 	}
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "failed", 1); err != nil {
-		return err
-	}
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "errored", 1); err != nil {
-		return err
-	}
-	return q.maybeFinishScan(ctx, scanID)
+	return q.runScanTransition(ctx, scanID, repoName, "running", -1, "failed", 1, "errored", 1)
 }
 
 func (q *Queue) MarkScanEnqueueFailed(ctx context.Context, scanID string) error {
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "queued", -1); err != nil {
-		return err
-	}
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "failed", 1); err != nil {
-		return err
-	}
-	if _, err := q.incrFloor(ctx, keyScanPrefix+scanID, "errored", 1); err != nil {
-		return err
-	}
-	return q.maybeFinishScan(ctx, scanID)
-}
-
-func (q *Queue) incrFloor(ctx context.Context, key, field string, delta int64) (int64, error) {
-	val, err := q.client.HIncrBy(ctx, key, field, delta).Result()
-	if err != nil {
-		return 0, err
-	}
-	if val < 0 {
-		if err := q.client.HSet(ctx, key, field, 0).Err(); err != nil {
-			return 0, err
-		}
-		return 0, nil
-	}
-	return val, nil
-}
-
-func (q *Queue) maybeFinishScan(ctx context.Context, scanID string) error {
-	scanKey := keyScanPrefix + scanID
-	values, err := q.client.HMGet(ctx, scanKey, "repo", "total", "completed", "failed").Result()
+	repoName, err := q.repoNameForScan(ctx, scanID)
 	if err != nil {
 		return err
 	}
-	if len(values) != 4 {
-		return nil
-	}
-
-	repoName, _ := values[0].(string)
-	total := toInt(values[1])
-	completed := toInt(values[2])
-	failed := toInt(values[3])
-
-	if total == 0 {
-		return q.finishScan(ctx, scanKey, repoName, scanID, 0)
-	}
-	if completed+failed < total {
-		return nil
-	}
-	return q.finishScan(ctx, scanKey, repoName, scanID, failed)
-}
-
-func (q *Queue) finishScan(ctx context.Context, scanKey, repoName, scanID string, failed int) error {
-	status := ScanStatusCompleted
-	if failed > 0 {
-		status = ScanStatusFailed
-	}
-
-	pipe := q.client.Pipeline()
-	pipe.HSet(ctx, scanKey, map[string]any{
-		"status":   status,
-		"ended_at": time.Now().Unix(),
-	})
-	pipe.Del(ctx, keyLockPrefix+repoName)
-	pipe.Del(ctx, keyScanRepo+repoName)
-	pipe.Set(ctx, keyScanLast+repoName, scanID, scanRetention)
-	_, err := pipe.Exec(ctx)
-	return err
+	return q.runScanTransition(ctx, scanID, repoName, "queued", -1, "failed", 1, "errored", 1)
 }
 
 func scanFromHash(values map[string]string) (*Scan, error) {

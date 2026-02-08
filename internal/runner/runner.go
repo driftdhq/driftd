@@ -98,7 +98,7 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 	}
 
 	output, err := runPlan(ctx, workDir, tool, tfBin, tgBin, tmpDir, stackPath)
-	result.PlanOutput = output
+	result.PlanOutput = RedactPlanOutput(output)
 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
