@@ -62,7 +62,7 @@
         const repoName = header.dataset.repo;
         const stackPath = header.dataset.stack;
         const scanForm = document.querySelector("[data-scan-form]");
-        const scanButton = scanForm?.querySelector("button");
+        const scanButton = document.querySelector("[data-rescan]");
         const statusBadge = header.querySelector(".badge");
         const planSection = document.getElementById("plan-output-section");
 
@@ -149,12 +149,13 @@
         if (scanForm) {
             scanForm.addEventListener("submit", (e) => e.preventDefault());
         }
-        if (scanButton) {
-            scanButton.addEventListener("click", (e) => {
-                e.preventDefault();
-                sendRescan();
-            });
-        }
+        document.addEventListener("click", (e) => {
+            const target = e.target;
+            if (!(target instanceof Element)) return;
+            if (!target.matches("[data-rescan]")) return;
+            e.preventDefault();
+            sendRescan();
+        });
 
         initCopyButton();
 
