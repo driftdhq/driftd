@@ -7,6 +7,11 @@ service:
   type: ClusterIP
   port: 8080
 
+metrics:
+  enabled: true
+  path: /metrics
+  port: 8080
+
 server:
   replicas: 1
   resources: {}

@@ -37,6 +37,10 @@ func (q *Queue) Close() error {
 	return q.client.Close()
 }
 
+func (q *Queue) QueueDepth(ctx context.Context) (int64, error) {
+	return q.client.LLen(ctx, keyQueue).Result()
+}
+
 // IsRepoLocked checks if a repo scan is in progress.
 func (q *Queue) IsRepoLocked(ctx context.Context, repoName string) (bool, error) {
 	locked, err := q.client.Exists(ctx, keyLockPrefix+repoName).Result()

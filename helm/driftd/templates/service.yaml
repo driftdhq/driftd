@@ -5,6 +5,12 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ include "driftd.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- if .Values.metrics.enabled }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: {{ .Values.metrics.path | quote }}
+    prometheus.io/port: {{ .Values.metrics.port | quote }}
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:

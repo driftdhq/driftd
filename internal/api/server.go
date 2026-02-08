@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/metrics"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/time/rate"
 )
 
@@ -133,6 +135,8 @@ func New(cfg *config.Config, s *storage.Storage, q *queue.Queue, templatesFS, st
 		opt(srv)
 	}
 
+	metrics.Register(q)
+
 	return srv, nil
 }
 
@@ -140,6 +144,8 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	r.Group(func(r chi.Router) {
 		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
