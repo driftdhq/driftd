@@ -159,14 +159,6 @@
         const updateScanProgress = (scan) => {
             if (!scan) return;
             const summary = document.querySelector(".scan-summary.active");
-            if (!summary && scan.status === "running") {
-                window.location.reload();
-                return;
-            }
-            if (scan.status && scan.status !== "running") {
-                window.location.reload();
-                return;
-            }
             if (!summary) return;
             const progressFill = summary.querySelector(".progress-fill");
             const progressMeta = summary.querySelector(".progress .meta");
