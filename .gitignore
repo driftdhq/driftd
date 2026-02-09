@@ -9,5 +9,10 @@
 
 .idea
 
+# Node/Playwright
+node_modules/
+playwright-report/
+test-results/
+
 # Helm dependency charts (downloaded via helm dep update)
 helm/*/charts/
