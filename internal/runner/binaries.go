@@ -10,8 +10,20 @@ import (
 	"sync"
 )
 
-var tfInstallMu sync.Mutex
-var tgInstallMu sync.Mutex
+var tfInstallLocks sync.Map
+var tgInstallLocks sync.Map
+
+func versionLock(store *sync.Map, key string) *sync.Mutex {
+	if key == "" {
+		key = "default"
+	}
+	if existing, ok := store.Load(key); ok {
+		return existing.(*sync.Mutex)
+	}
+	lock := &sync.Mutex{}
+	actual, _ := store.LoadOrStore(key, lock)
+	return actual.(*sync.Mutex)
+}
 
 func ensureTerraformBinary(ctx context.Context, workDir, version string) (string, error) {
 	if version == "" {
@@ -36,8 +48,9 @@ func ensureTerraformBinary(ctx context.Context, workDir, version string) (string
 		return target, nil
 	}
 
-	tfInstallMu.Lock()
-	defer tfInstallMu.Unlock()
+	lock := versionLock(&tfInstallLocks, version)
+	lock.Lock()
+	defer lock.Unlock()
 
 	if fileExists(target) {
 		return target, nil
@@ -95,8 +108,9 @@ func ensureTerragruntBinary(ctx context.Context, workDir, version string) (strin
 		return target, nil
 	}
 
-	tgInstallMu.Lock()
-	defer tgInstallMu.Unlock()
+	lock := versionLock(&tgInstallLocks, version)
+	lock.Lock()
+	defer lock.Unlock()
 
 	if fileExists(target) {
 		return target, nil
