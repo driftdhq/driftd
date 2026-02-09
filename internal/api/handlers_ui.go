@@ -358,10 +358,6 @@ func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trigger := "manual"
-	maxRetries := 0
-	if s.cfg.Worker.RetryOnce {
-		maxRetries = 1
-	}
 
 	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, "", "")
 	if err != nil {
@@ -378,19 +374,7 @@ func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-	_ = s.queue.SetScanTotal(r.Context(), scan.ID, 1)
-
-	stackScan := &queue.StackScan{
-		ScanID:     scan.ID,
-		RepoName:   repoName,
-		RepoURL:    repoCfg.URL,
-		StackPath:  stackPath,
-		MaxRetries: maxRetries,
-		Trigger:    trigger,
-	}
-
-	if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
-		_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
+	if _, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, trigger, "", ""); err != nil {
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}

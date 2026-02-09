@@ -14,6 +14,7 @@ const (
 
 	keyQueue                 = "driftd:queue:workitems"
 	keyStackScanPrefix       = "driftd:stack_scan:"
+	keyStackScanInflight     = "driftd:stack_scan:inflight:"
 	keyLockPrefix            = "driftd:lock:repo:"
 	keyRepoStackScans        = "driftd:stack_scans:repo:"
 	keyRepoStackScansOrdered = "driftd:stack_scans:repo:ordered:"
@@ -31,4 +32,5 @@ const (
 var (
 	ErrRepoLocked        = errors.New("repository scan already in progress")
 	ErrStackScanNotFound = errors.New("stack scan not found")
+	ErrStackScanInflight = errors.New("stack scan already inflight")
 )

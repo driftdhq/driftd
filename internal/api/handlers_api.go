@@ -84,11 +84,6 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trigger := "manual"
-	maxRetries := 0
-	if s.cfg.Worker.RetryOnce {
-		maxRetries = 1
-	}
-
 	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, "", "")
 	if err != nil {
 		if err == queue.ErrRepoLocked {
@@ -99,19 +94,9 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, stackPath := range stacks {
-		stackScan := &queue.StackScan{
-			ScanID:     scan.ID,
-			RepoName:   repoName,
-			RepoURL:    repoCfg.URL,
-			StackPath:  stackPath,
-			MaxRetries: maxRetries,
-			Trigger:    trigger,
-		}
-		if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
-			_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
-			break
-		}
+	if _, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, stacks, trigger, "", ""); err != nil {
+		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
+		return
 	}
 
 	http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
@@ -136,11 +121,6 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	maxRetries := 0
-	if s.cfg.Worker.RetryOnce {
-		maxRetries = 1
-	}
-
 	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
@@ -161,36 +141,11 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	// startScanWithCancel handles lock renewal and version detection
 
-	var stackIDs []string
-	var errors []string
-
-	for _, stackPath := range stacks {
-		stackScan := &queue.StackScan{
-			ScanID:     scan.ID,
-			RepoName:   repoName,
-			RepoURL:    repoCfg.URL,
-			StackPath:  stackPath,
-			MaxRetries: maxRetries,
-			Trigger:    req.Trigger,
-			Commit:     req.Commit,
-			Actor:      req.Actor,
-		}
-
-		if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
-			_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
-			if err == queue.ErrRepoLocked {
-				errors = append(errors, fmt.Sprintf("%s: repo locked", stackPath))
-			} else {
-				errors = append(errors, fmt.Sprintf("%s: %s", stackPath, s.sanitizeErrorMessage(err.Error())))
-			}
-			continue
-		}
-		stackIDs = append(stackIDs, stackScan.ID)
-	}
+	stackIDs, errors, enqueueErr := s.enqueueStacks(r.Context(), scan, repoCfg, stacks, req.Trigger, req.Commit, req.Actor)
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if len(stackIDs) == 0 && len(errors) > 0 {
+	if len(stackIDs) == 0 && enqueueErr != nil {
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(scanResponse{
 			Error:   "Failed to enqueue any stacks",
@@ -232,11 +187,6 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	maxRetries := 0
-	if s.cfg.Worker.RetryOnce {
-		maxRetries = 1
-	}
-
 	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
@@ -262,33 +212,18 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.queue.SetScanTotal(r.Context(), scan.ID, 1)
 
-	stackScan := &queue.StackScan{
-		ScanID:     scan.ID,
-		RepoName:   repoName,
-		RepoURL:    repoCfg.URL,
-		StackPath:  stackPath,
-		MaxRetries: maxRetries,
-		Trigger:    req.Trigger,
-		Commit:     req.Commit,
-		Actor:      req.Actor,
-	}
-
-	if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
+	stackIDs, _, enqueueErr := s.enqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, req.Trigger, req.Commit, req.Actor)
+	if enqueueErr != nil || len(stackIDs) == 0 {
 		_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
 		w.Header().Set("Content-Type", "application/json")
-		if err == queue.ErrRepoLocked {
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(scanResponse{Error: "Repository scan already in progress"})
-		} else {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(scanResponse{Error: s.sanitizeErrorMessage(err.Error())})
-		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(scanResponse{Error: s.sanitizeErrorMessage(enqueueErr.Error())})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scanResponse{
-		Stacks:  []string{stackScan.ID},
+		Stacks:  stackIDs,
 		Scan:    scan,
 		Message: "Stack enqueued",
 	})

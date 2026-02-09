@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -46,6 +47,7 @@ func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reaso
 	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
 	}
+	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
 	return q.removeStackScanRefs(ctx, stackScan)
 }
 
@@ -57,9 +59,19 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 		stackScan.ID = fmt.Sprintf("%s:%s:%d:%d", stackScan.RepoName, stackScan.StackPath, stackScan.CreatedAt.UnixNano(), rand.Int31())
 	}
 
+	inflight := inflightKey(stackScan.RepoName, stackScan.StackPath)
+	claimed, err := q.client.SetNX(ctx, inflight, stackScan.ID, stackScanRetention).Result()
+	if err != nil {
+		return fmt.Errorf("failed to mark stack scan inflight: %w", err)
+	}
+	if !claimed {
+		return ErrStackScanInflight
+	}
+
 	stackScanKey := keyStackScanPrefix + stackScan.ID
 	stackScanData, err := json.Marshal(stackScan)
 	if err != nil {
+		q.client.Del(ctx, inflight)
 		return fmt.Errorf("failed to marshal stack scan: %w", err)
 	}
 
@@ -76,6 +88,7 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 	pipe.LPush(ctx, keyQueue, stackScan.ID)
 
 	if _, err := pipe.Exec(ctx); err != nil {
+		q.client.Del(ctx, inflight)
 		return fmt.Errorf("failed to enqueue stack scan: %w", err)
 	}
 
@@ -173,6 +186,7 @@ func (q *Queue) RecoverOrphanedStackScans(ctx context.Context) (int, error) {
 			if stackScan.Status != StatusPending {
 				continue
 			}
+			_ = q.client.SetNX(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath), stackScan.ID, stackScanRetention).Err()
 			// Re-push to queue list so a worker can pick it up
 			if err := q.client.LPush(ctx, keyQueue, stackScan.ID).Err(); err != nil {
 				continue
@@ -194,6 +208,7 @@ func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool
 		return err
 	}
 	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
+	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
 	if err := q.removeStackScanRefs(ctx, stackScan); err != nil {
 		return err
 	}
@@ -234,6 +249,7 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 		return err
 	}
 	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
+	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
 	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
 	}
@@ -244,4 +260,15 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 		return q.markScanStackScanFailed(ctx, stackScan.ScanID)
 	}
 	return nil
+}
+
+func inflightKey(repoName, stackPath string) string {
+	if stackPath == "" {
+		return keyStackScanInflight + repoName
+	}
+	return keyStackScanInflight + repoName + ":" + safeStackKey(stackPath)
+}
+
+func safeStackKey(stackPath string) string {
+	return strings.ReplaceAll(stackPath, "/", "__")
 }

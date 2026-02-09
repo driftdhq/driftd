@@ -59,6 +59,9 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 			if activeErr == nil && activeScan != nil {
 				if queue.TriggerPriority(trigger) >= queue.TriggerPriority(activeScan.Trigger) {
 					scan, err = o.queue.CancelAndStartScan(ctx, activeScan.ID, repoCfg.Name, "superseded by new trigger", trigger, commit, actor, 0)
+					if err == nil {
+						o.queue.ClearInflightForScan(ctx, activeScan.ID)
+					}
 				}
 			}
 		}
@@ -117,11 +120,6 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set versions: %v", err))
 		return nil, nil, err
 	}
-	if err := o.queue.SetScanTotal(ctx, scan.ID, len(stacks)); err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set scan total: %v", err))
-		return nil, nil, err
-	}
-
 	return scan, stacks, nil
 }
 

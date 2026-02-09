@@ -101,34 +101,10 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	if err := s.queue.SetScanTotal(r.Context(), scan.ID, len(targetStacks)); err != nil {
-		_ = s.queue.FailScan(r.Context(), scan.ID, repoName, fmt.Sprintf("failed to set scan total: %v", err))
-		http.Error(w, "Failed to set scan total", http.StatusInternalServerError)
+	stackIDs, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, targetStacks, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+	if err != nil {
+		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
-	}
-
-	maxRetries := 0
-	if s.cfg.Worker.RetryOnce {
-		maxRetries = 1
-	}
-
-	var stackIDs []string
-	for _, stackPath := range targetStacks {
-		stackScan := &queue.StackScan{
-			ScanID:     scan.ID,
-			RepoName:   repoName,
-			RepoURL:    repoCfg.URL,
-			StackPath:  stackPath,
-			MaxRetries: maxRetries,
-			Trigger:    trigger,
-			Commit:     payload.HeadCommit.ID,
-			Actor:      payload.Pusher.Name,
-		}
-		if err := s.queue.Enqueue(r.Context(), stackScan); err != nil {
-			_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
-			continue
-		}
-		stackIDs = append(stackIDs, stackScan.ID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

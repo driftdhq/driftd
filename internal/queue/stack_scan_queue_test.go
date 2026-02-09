@@ -65,3 +65,97 @@ func TestRecoverOrphanedStackScans(t *testing.T) {
 		t.Fatalf("expected dequeued %s, got %s", job.ID, dequeued.ID)
 	}
 }
+
+func TestEnqueueDeduplication(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	job := &StackScan{
+		RepoName:  "repo",
+		RepoURL:   "file:///repo",
+		StackPath: "envs/dev",
+	}
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	dup := &StackScan{
+		RepoName:  "repo",
+		RepoURL:   "file:///repo",
+		StackPath: "envs/dev",
+	}
+	if err := q.Enqueue(ctx, dup); err != ErrStackScanInflight {
+		t.Fatalf("expected ErrStackScanInflight, got %v", err)
+	}
+}
+
+func TestInflightClearedOnComplete(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	job := &StackScan{
+		RepoName:  "repo",
+		RepoURL:   "file:///repo",
+		StackPath: "envs/dev",
+	}
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	deq := dequeueStackScan(t, q)
+	if err := q.Complete(ctx, deq, false); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	again := &StackScan{
+		RepoName:  "repo",
+		RepoURL:   "file:///repo",
+		StackPath: "envs/dev",
+	}
+	if err := q.Enqueue(ctx, again); err != nil {
+		t.Fatalf("expected enqueue after complete, got %v", err)
+	}
+}
+
+func TestInflightRetainedUntilFinalFailure(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	job := &StackScan{
+		RepoName:   "repo",
+		RepoURL:    "file:///repo",
+		StackPath:  "envs/dev",
+		MaxRetries: 1,
+	}
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	first := dequeueStackScan(t, q)
+	if err := q.Fail(ctx, first, "boom"); err != nil {
+		t.Fatalf("fail: %v", err)
+	}
+
+	dup := &StackScan{
+		RepoName:  "repo",
+		RepoURL:   "file:///repo",
+		StackPath: "envs/dev",
+	}
+	if err := q.Enqueue(ctx, dup); err != ErrStackScanInflight {
+		t.Fatalf("expected ErrStackScanInflight during retry, got %v", err)
+	}
+
+	retry := dequeueStackScan(t, q)
+	if err := q.Fail(ctx, retry, "boom again"); err != nil {
+		t.Fatalf("fail retry: %v", err)
+	}
+
+	after := &StackScan{
+		RepoName:  "repo",
+		RepoURL:   "file:///repo",
+		StackPath: "envs/dev",
+	}
+	if err := q.Enqueue(ctx, after); err != nil {
+		t.Fatalf("expected enqueue after final failure, got %v", err)
+	}
+}

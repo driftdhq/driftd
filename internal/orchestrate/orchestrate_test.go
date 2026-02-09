@@ -63,8 +63,8 @@ func TestStartScanCreatesScanAndStacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get scan: %v", err)
 	}
-	if state.Total != 1 || state.Queued != 1 {
-		t.Fatalf("expected total=1 queued=1, got total=%d queued=%d", state.Total, state.Queued)
+	if state.Total != 0 || state.Queued != 0 {
+		t.Fatalf("expected total=0 queued=0, got total=%d queued=%d", state.Total, state.Queued)
 	}
 	if state.WorkspacePath == "" {
 		t.Fatalf("expected workspace path set")

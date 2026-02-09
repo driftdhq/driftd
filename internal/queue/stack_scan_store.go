@@ -83,3 +83,18 @@ func (q *Queue) removeStackScanRefs(ctx context.Context, stackScan *StackScan) e
 	}
 	return q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err()
 }
+
+// ClearInflightForScan removes inflight markers for all stack scans belonging to a scan.
+func (q *Queue) ClearInflightForScan(ctx context.Context, scanID string) {
+	stackScanIDs, err := q.client.SMembers(ctx, keyScanStackScans+scanID).Result()
+	if err != nil {
+		return
+	}
+	for _, id := range stackScanIDs {
+		stackScan, err := q.GetStackScan(ctx, id)
+		if err != nil {
+			continue
+		}
+		q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
+	}
+}
