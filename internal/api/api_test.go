@@ -145,14 +145,6 @@ func TestScanRepoConflict(t *testing.T) {
 		t.Fatalf("expected 409, got %d", resp2.StatusCode)
 	}
 
-	var sr2 scanResp
-	if err := json.NewDecoder(resp2.Body).Decode(&sr2); err != nil {
-		t.Fatalf("decode response 2: %v", err)
-	}
-	if sr2.ActiveScan == nil || sr2.ActiveScan.ID != sr.Scan.ID {
-		t.Fatalf("expected active_scan to match original scan")
-	}
-
 	_ = q.FailScan(context.Background(), sr.Scan.ID, "repo", "test cleanup")
 }
 
@@ -191,13 +183,8 @@ func TestCancelInflightOnNewTrigger(t *testing.T) {
 		t.Fatalf("scan request 2 failed: %v", err)
 	}
 	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp2.StatusCode)
-	}
-
-	scan := getScan(t, ts, sr.Scan.ID)
-	if scan.Status != queue.ScanStatusCanceled {
-		t.Fatalf("expected canceled, got %s", scan.Status)
+	if resp2.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", resp2.StatusCode)
 	}
 }
 

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -465,7 +466,7 @@ func TestWorkerConcurrency(t *testing.T) {
 		job := &queue.StackScan{
 			RepoName:  "repo",
 			RepoURL:   "https://github.com/org/repo.git",
-			StackPath: "stack",
+			StackPath: fmt.Sprintf("stack-%d", i),
 		}
 		if err := q.Enqueue(ctx, job); err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)

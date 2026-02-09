@@ -50,6 +50,11 @@ func (q *Queue) IsRepoLocked(ctx context.Context, repoName string) (bool, error)
 	return locked > 0, nil
 }
 
+// ReleaseScanLock releases the repo lock if still owned by the scan.
+func (q *Queue) ReleaseScanLock(ctx context.Context, repoName, scanID string) error {
+	return q.releaseOwnedLock(ctx, repoName, scanID)
+}
+
 // releaseOwnedLock deletes the lock only if it is still owned by the given scanID.
 // This prevents accidentally releasing a lock that was re-acquired by a different scan.
 func (q *Queue) releaseOwnedLock(ctx context.Context, repoName, scanID string) error {

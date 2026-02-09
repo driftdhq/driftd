@@ -95,6 +95,10 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, stacks, trigger, "", ""); err != nil {
+		if err == errNoStacksEnqueued {
+			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+			return
+		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
@@ -146,6 +150,14 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if len(stackIDs) == 0 && enqueueErr != nil {
+		if enqueueErr == errNoStacksEnqueued {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(scanResponse{
+				Error:   "No stacks enqueued (all inflight)",
+				Message: strings.Join(errors, "; "),
+			})
+			return
+		}
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(scanResponse{
 			Error:   "Failed to enqueue any stacks",
@@ -216,8 +228,13 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 	if enqueueErr != nil || len(stackIDs) == 0 {
 		_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(scanResponse{Error: s.sanitizeErrorMessage(enqueueErr.Error())})
+		if enqueueErr == errNoStacksEnqueued {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(scanResponse{Error: "No stacks enqueued (all inflight)"})
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(scanResponse{Error: s.sanitizeErrorMessage(enqueueErr.Error())})
+		}
 		return
 	}
 

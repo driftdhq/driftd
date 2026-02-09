@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/driftdhq/driftd/internal/config"
@@ -11,6 +12,8 @@ import (
 func (s *Server) startScanWithCancel(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, []string, error) {
 	return s.orchestrator.StartScan(ctx, repoCfg, trigger, commit, actor)
 }
+
+var errNoStacksEnqueued = errors.New("no stacks enqueued")
 
 func (s *Server) enqueueStacks(ctx context.Context, scan *queue.Scan, repoCfg *config.RepoConfig, stacks []string, trigger, commit, actor string) ([]string, []string, error) {
 	maxRetries := 0
@@ -49,9 +52,10 @@ func (s *Server) enqueueStacks(ctx context.Context, scan *queue.Scan, repoCfg *c
 		return stackIDs, errs, err
 	}
 	if len(stackIDs) == 0 {
-		err := fmt.Errorf("no stacks enqueued (all inflight)")
-		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
-		return stackIDs, errs, err
+		_ = s.queue.CancelScan(ctx, scan.ID, repoCfg.Name, "all stacks inflight")
+		return stackIDs, errs, errNoStacksEnqueued
 	}
+
+	_ = s.queue.ReleaseScanLock(ctx, repoCfg.Name, scan.ID)
 	return stackIDs, errs, nil
 }

@@ -375,6 +375,10 @@ func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, trigger, "", ""); err != nil {
+		if err == errNoStacksEnqueued {
+			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+			return
+		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
