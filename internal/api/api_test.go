@@ -26,7 +26,6 @@ import (
 	"github.com/driftdhq/driftd/internal/worker"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 type fakeRunner struct {
@@ -35,16 +34,16 @@ type fakeRunner struct {
 	failures map[string]error
 }
 
-func (f *fakeRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error) {
+func (f *fakeRunner) Run(ctx context.Context, params *runner.RunParams) (*storage.RunResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	if err, ok := f.failures[stackPath]; ok {
-		return &runner.RunResult{RunAt: time.Now(), Error: err.Error()}, nil
+	if err, ok := f.failures[params.StackPath]; ok {
+		return &storage.RunResult{RunAt: time.Now(), Error: err.Error()}, nil
 	}
 
-	drifted := f.drifted[stackPath]
-	return &runner.RunResult{
+	drifted := f.drifted[params.StackPath]
+	return &storage.RunResult{
 		Drifted: drifted,
 		RunAt:   time.Now(),
 	}, nil
@@ -165,7 +164,7 @@ func TestScanRepoInvalidJSON(t *testing.T) {
 
 func TestCancelInflightOnNewTrigger(t *testing.T) {
 	runner := &fakeRunner{}
-	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
+	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
 	defer cleanup()
 
 	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
@@ -177,14 +176,28 @@ func TestCancelInflightOnNewTrigger(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+	if sr.Scan == nil {
+		t.Fatal("expected scan in first response")
+	}
+	firstScanID := sr.Scan.ID
 
+	// Second scan should cancel the first and succeed
 	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request 2 failed: %v", err)
 	}
 	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", resp2.StatusCode)
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	// Verify first scan was canceled
+	firstScan, err := q.GetScan(context.Background(), firstScanID)
+	if err != nil {
+		t.Fatalf("get first scan: %v", err)
+	}
+	if firstScan.Status != queue.ScanStatusCanceled {
+		t.Fatalf("expected first scan canceled, got %s", firstScan.Status)
 	}
 }
 

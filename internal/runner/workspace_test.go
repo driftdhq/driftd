@@ -107,7 +107,7 @@ func TestRunWithSharedWorkspace_UsesDirectly(t *testing.T) {
 
 	// Run will fail at planStack (no real terraform binary) but that's fine —
 	// we're testing that it reaches the stack path directly without copying.
-	result, _ := r.Run(context.Background(), "test-repo", "", "envs/prod", "", "", "", nil, workspace)
+	result, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: "envs/prod", WorkspacePath: workspace})
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -133,13 +133,13 @@ func TestRunWithSharedWorkspace_ConcurrentStacks(t *testing.T) {
 	r := New(store)
 
 	var wg sync.WaitGroup
-	results := make([]*RunResult, 2)
+	results := make([]*storage.RunResult, 2)
 
 	for i, stack := range []string{"envs/prod", "envs/dev"} {
 		wg.Add(1)
 		go func(idx int, sp string) {
 			defer wg.Done()
-			res, _ := r.Run(context.Background(), "test-repo", "", sp, "", "", "", nil, workspace)
+			res, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: sp, WorkspacePath: workspace})
 			results[idx] = res
 		}(i, stack)
 	}
@@ -170,7 +170,7 @@ func TestRunWithSharedWorkspace_InvalidStackPath(t *testing.T) {
 	store := storage.New(t.TempDir())
 	r := New(store)
 
-	result, _ := r.Run(context.Background(), "test-repo", "", "nonexistent/stack", "", "", "", nil, workspace)
+	result, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: "nonexistent/stack", WorkspacePath: workspace})
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -184,7 +184,7 @@ func TestRunWithSharedWorkspace_UnsafeStackPath(t *testing.T) {
 	store := storage.New(t.TempDir())
 	r := New(store)
 
-	result, _ := r.Run(context.Background(), "test-repo", "", "../etc/passwd", "", "", "", nil, workspace)
+	result, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: "../etc/passwd", WorkspacePath: workspace})
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}

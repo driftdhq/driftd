@@ -23,7 +23,6 @@ import (
 	"github.com/driftdhq/driftd/internal/worker"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 func main() {
@@ -132,9 +131,9 @@ func main() {
 type uiRunner struct{}
 
 // Run implements the worker.Runner interface using a lightweight fake.
-func (r *uiRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error) {
-	drifted := strings.Contains(stackPath, "drift")
-	return &runner.RunResult{
+func (r *uiRunner) Run(ctx context.Context, params *runner.RunParams) (*storage.RunResult, error) {
+	drifted := strings.Contains(params.StackPath, "drift")
+	return &storage.RunResult{
 		Drifted:   drifted,
 		Added:     1,
 		Changed:   0,

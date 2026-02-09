@@ -11,13 +11,13 @@ import (
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/runner"
-	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/driftdhq/driftd/internal/storage"
 )
 
 type mockRunner struct {
 	mu      sync.Mutex
 	calls   []runCall
-	results map[string]*runner.RunResult
+	results map[string]*storage.RunResult
 	errors  map[string]error
 }
 
@@ -31,30 +31,30 @@ type runCall struct {
 
 func newMockRunner() *mockRunner {
 	return &mockRunner{
-		results: make(map[string]*runner.RunResult),
+		results: make(map[string]*storage.RunResult),
 		errors:  make(map[string]error),
 	}
 }
 
-func (m *mockRunner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error) {
+func (m *mockRunner) Run(ctx context.Context, params *runner.RunParams) (*storage.RunResult, error) {
 	m.mu.Lock()
 	m.calls = append(m.calls, runCall{
-		repoName:      repoName,
-		stackPath:     stackPath,
-		tfVersion:     tfVersion,
-		tgVersion:     tgVersion,
-		workspacePath: workspacePath,
+		repoName:      params.RepoName,
+		stackPath:     params.StackPath,
+		tfVersion:     params.TFVersion,
+		tgVersion:     params.TGVersion,
+		workspacePath: params.WorkspacePath,
 	})
 	m.mu.Unlock()
 
-	key := repoName + ":" + stackPath
+	key := params.RepoName + ":" + params.StackPath
 	if err, ok := m.errors[key]; ok {
 		return nil, err
 	}
 	if result, ok := m.results[key]; ok {
 		return result, nil
 	}
-	return &runner.RunResult{Drifted: false}, nil
+	return &storage.RunResult{Drifted: false}, nil
 }
 
 func (m *mockRunner) getCalls() []runCall {
@@ -97,7 +97,7 @@ func TestWorkerStartStop(t *testing.T) {
 func TestWorkerProcessesStackScan(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
-	r.results["repo:envs/dev"] = &runner.RunResult{
+	r.results["repo:envs/dev"] = &storage.RunResult{
 		Drifted:   true,
 		Added:     1,
 		Changed:   2,
@@ -150,7 +150,7 @@ func TestWorkerProcessesStackScan(t *testing.T) {
 func TestWorkerHandlesRunnerError(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
-	r.results["repo:stack"] = &runner.RunResult{
+	r.results["repo:stack"] = &storage.RunResult{
 		Error: "terraform init failed",
 	}
 

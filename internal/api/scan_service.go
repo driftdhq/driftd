@@ -28,9 +28,6 @@ func (s *Server) enqueueStacks(ctx context.Context, scan *queue.Scan, repoCfg *c
 		_ = s.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set scan total: %v", err))
 		return stackIDs, errs, err
 	}
-	defer func() {
-		_ = s.queue.ReleaseScanLock(context.Background(), repoCfg.Name, scan.ID)
-	}()
 
 	for _, stackPath := range stacks {
 		stackScan := &queue.StackScan{
@@ -61,6 +58,5 @@ func (s *Server) enqueueStacks(ctx context.Context, scan *queue.Scan, repoCfg *c
 		return stackIDs, errs, errNoStacksEnqueued
 	}
 
-	_ = s.queue.ReleaseScanLock(ctx, repoCfg.Name, scan.ID)
 	return stackIDs, errs, nil
 }

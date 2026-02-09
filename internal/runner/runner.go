@@ -21,27 +21,29 @@ func New(s *storage.Storage) *Runner {
 	return &Runner{storage: s}
 }
 
-type RunResult struct {
-	Drifted    bool
-	Added      int
-	Changed    int
-	Destroyed  int
-	PlanOutput string
-	Error      string
-	RunAt      time.Time
+// RunParams contains all parameters needed to execute a plan.
+type RunParams struct {
+	RepoName      string
+	RepoURL       string
+	StackPath     string
+	TFVersion     string
+	TGVersion     string
+	RunID         string
+	Auth          transport.AuthMethod
+	WorkspacePath string
 }
 
-func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*RunResult, error) {
-	result := &RunResult{
+func (r *Runner) Run(ctx context.Context, params *RunParams) (*storage.RunResult, error) {
+	result := &storage.RunResult{
 		RunAt: time.Now(),
 	}
 
-	if !pathutil.IsSafeStackPath(stackPath) {
+	if !pathutil.IsSafeStackPath(params.StackPath) {
 		result.Error = "invalid stack path"
 		return result, nil
 	}
 
-	repoRoot, cleanup, err := r.prepareRepoRoot(ctx, repoURL, workspacePath, auth)
+	repoRoot, cleanup, err := r.prepareRepoRoot(ctx, params.RepoURL, params.WorkspacePath, params.Auth)
 	if err != nil {
 		result.Error = err.Error()
 		return result, nil
@@ -50,13 +52,13 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 		defer cleanup()
 	}
 
-	workDir := filepath.Join(repoRoot, stackPath)
+	workDir := filepath.Join(repoRoot, params.StackPath)
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
-		result.Error = fmt.Sprintf("stack path not found: %s", stackPath)
+		result.Error = fmt.Sprintf("stack path not found: %s", params.StackPath)
 		return result, nil
 	}
 
-	output, err := planStack(ctx, workDir, repoRoot, stackPath, tfVersion, tgVersion, runID)
+	output, err := planStack(ctx, workDir, repoRoot, params.StackPath, params.TFVersion, params.TGVersion, params.RunID)
 	result.PlanOutput = RedactPlanOutput(output)
 
 	if err != nil {
@@ -77,17 +79,7 @@ func (r *Runner) Run(ctx context.Context, repoName, repoURL, stackPath, tfVersio
 		result.Drifted = result.Added > 0 || result.Changed > 0 || result.Destroyed > 0
 	}
 
-	// Save to storage
-	storageResult := &storage.RunResult{
-		Drifted:    result.Drifted,
-		Added:      result.Added,
-		Changed:    result.Changed,
-		Destroyed:  result.Destroyed,
-		PlanOutput: result.PlanOutput,
-		Error:      result.Error,
-		RunAt:      result.RunAt,
-	}
-	if saveErr := r.storage.SaveResult(repoName, stackPath, storageResult); saveErr != nil {
+	if saveErr := r.storage.SaveResult(params.RepoName, params.StackPath, result); saveErr != nil {
 		return result, fmt.Errorf("failed to save result: %w", saveErr)
 	}
 

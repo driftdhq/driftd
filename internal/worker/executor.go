@@ -4,8 +4,18 @@ import (
 	"context"
 
 	"github.com/driftdhq/driftd/internal/runner"
+	"github.com/driftdhq/driftd/internal/storage"
 )
 
-func (w *Worker) executePlan(ctx context.Context, sc *ScanContext) (*runner.RunResult, error) {
-	return w.runner.Run(ctx, sc.RepoName, sc.RepoURL, sc.StackPath, sc.TFVersion, sc.TGVersion, sc.ScanID, sc.Auth, sc.WorkspacePath)
+func (w *Worker) executePlan(ctx context.Context, sc *ScanContext) (*storage.RunResult, error) {
+	return w.runner.Run(ctx, &runner.RunParams{
+		RepoName:      sc.RepoName,
+		RepoURL:       sc.RepoURL,
+		StackPath:     sc.StackPath,
+		TFVersion:     sc.TFVersion,
+		TGVersion:     sc.TGVersion,
+		RunID:         sc.ScanID,
+		Auth:          sc.Auth,
+		WorkspacePath: sc.WorkspacePath,
+	})
 }

@@ -7,9 +7,10 @@ import (
 
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/runner"
+	"github.com/driftdhq/driftd/internal/storage"
 )
 
-func (w *Worker) reportResult(job *queue.StackScan, sc *ScanContext, result *runner.RunResult, err error) {
+func (w *Worker) reportResult(job *queue.StackScan, sc *ScanContext, result *storage.RunResult, err error) {
 	if sc != nil && sc.WorkspacePath != "" && w.cfg != nil && w.cfg.Workspace.CleanupAfterPlanEnabled() {
 		stackDir := filepath.Join(sc.WorkspacePath, job.StackPath)
 		defer func() {
@@ -69,7 +70,7 @@ func (w *Worker) publishStackFailure(job *queue.StackScan, sc *ScanContext, errM
 	w.publishScanUpdate(sc.Scan, job.RepoName)
 }
 
-func (w *Worker) publishStackCompletion(job *queue.StackScan, sc *ScanContext, result *runner.RunResult) {
+func (w *Worker) publishStackCompletion(job *queue.StackScan, sc *ScanContext, result *storage.RunResult) {
 	now := time.Now()
 	drifted := result.Drifted
 	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{

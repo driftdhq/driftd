@@ -12,7 +12,7 @@ import (
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
-	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/driftdhq/driftd/internal/storage"
 )
 
 type Worker struct {
@@ -28,7 +28,7 @@ type Worker struct {
 }
 
 type Runner interface {
-	Run(ctx context.Context, repoName, repoURL, stackPath, tfVersion, tgVersion, runID string, auth transport.AuthMethod, workspacePath string) (*runner.RunResult, error)
+	Run(ctx context.Context, params *runner.RunParams) (*storage.RunResult, error)
 }
 
 func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config, provider repos.Provider) *Worker {
