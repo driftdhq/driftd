@@ -50,6 +50,9 @@ func TestRecoverOrphanedStackScans(t *testing.T) {
 	if err := q.saveStackScan(ctx, job); err != nil {
 		t.Fatalf("save scan: %v", err)
 	}
+	if err := q.client.SAdd(ctx, keyStackScanPending, job.ID).Err(); err != nil {
+		t.Fatalf("add pending: %v", err)
+	}
 
 	// No queue entry yet, so it is orphaned.
 	recovered, err := q.RecoverOrphanedStackScans(ctx)
@@ -63,6 +66,29 @@ func TestRecoverOrphanedStackScans(t *testing.T) {
 	dequeued := dequeueStackScan(t, q)
 	if dequeued.ID != job.ID {
 		t.Fatalf("expected dequeued %s, got %s", job.ID, dequeued.ID)
+	}
+}
+
+func TestPendingSetClearedWhenClaimed(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	job := &StackScan{
+		RepoName:  "repo",
+		RepoURL:   "file:///repo",
+		StackPath: "envs/dev",
+	}
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	deq := dequeueStackScan(t, q)
+	if deq == nil {
+		t.Fatal("expected dequeued stack")
+	}
+
+	if count, err := q.client.SCard(ctx, keyStackScanPending).Result(); err != nil || count != 0 {
+		t.Fatalf("expected pending set empty, got %d (err=%v)", count, err)
 	}
 }
 

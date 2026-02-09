@@ -15,6 +15,7 @@ const (
 	keyQueue                 = "driftd:queue:workitems"
 	keyStackScanPrefix       = "driftd:stack_scan:"
 	keyStackScanInflight     = "driftd:stack_scan:inflight:"
+	keyStackScanPending      = "driftd:stack_scan:pending"
 	keyLockPrefix            = "driftd:lock:repo:"
 	keyRepoStackScans        = "driftd:stack_scans:repo:"
 	keyRepoStackScansOrdered = "driftd:stack_scans:repo:ordered:"

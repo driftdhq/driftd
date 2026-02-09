@@ -82,6 +82,7 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 		Score:  float64(stackScan.CreatedAt.Unix()),
 		Member: stackScan.ID,
 	})
+	pipe.SAdd(ctx, keyStackScanPending, stackScan.ID)
 	if stackScan.ScanID != "" {
 		pipe.SAdd(ctx, keyScanStackScans+stackScan.ScanID, stackScan.ID)
 	}
@@ -116,7 +117,7 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error
 			continue
 		}
 
-		if err := q.claimAndMarkRunning(ctx, stackScan, workerID); err != nil {
+	if err := q.claimAndMarkRunning(ctx, stackScan, workerID); err != nil {
 			if errors.Is(err, ErrAlreadyClaimed) {
 				continue
 			}
@@ -149,6 +150,7 @@ func (q *Queue) claimAndMarkRunning(ctx context.Context, stackScan *StackScan, w
 	if err := q.saveStackScan(ctx, stackScan); err != nil {
 		return err
 	}
+	_ = q.client.SRem(ctx, keyStackScanPending, stackScan.ID).Err()
 	if err := q.client.ZAdd(ctx, keyRunningStackScans, redis.Z{
 		Score:  float64(stackScan.StartedAt.Unix()),
 		Member: stackScan.ID,
@@ -170,24 +172,21 @@ func (q *Queue) RecoverOrphanedStackScans(ctx context.Context) (int, error) {
 	var cursor uint64
 	recovered := 0
 	for {
-		keys, next, err := q.client.Scan(ctx, cursor, keyStackScanPrefix+"*", 100).Result()
+		ids, next, err := q.client.SScan(ctx, keyStackScanPending, cursor, "*", 200).Result()
 		if err != nil {
 			return recovered, err
 		}
-		for _, key := range keys {
-			data, err := q.client.Get(ctx, key).Result()
+		for _, id := range ids {
+			stackScan, err := q.GetStackScan(ctx, id)
 			if err != nil {
-				continue
-			}
-			var stackScan StackScan
-			if err := json.Unmarshal([]byte(data), &stackScan); err != nil {
+				_ = q.client.SRem(ctx, keyStackScanPending, id).Err()
 				continue
 			}
 			if stackScan.Status != StatusPending {
+				_ = q.client.SRem(ctx, keyStackScanPending, id).Err()
 				continue
 			}
 			_ = q.client.SetNX(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath), stackScan.ID, stackScanRetention).Err()
-			// Re-push to queue list so a worker can pick it up
 			if err := q.client.LPush(ctx, keyQueue, stackScan.ID).Err(); err != nil {
 				continue
 			}
@@ -209,6 +208,7 @@ func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool
 	}
 	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
 	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
+	q.client.SRem(ctx, keyStackScanPending, stackScan.ID)
 	if err := q.removeStackScanRefs(ctx, stackScan); err != nil {
 		return err
 	}
@@ -232,6 +232,7 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 		}
 		// Delete claim key so the retry can be claimed by a worker
 		q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
+		q.client.SAdd(ctx, keyStackScanPending, stackScan.ID)
 		if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 			return err
 		}
@@ -250,6 +251,7 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 	}
 	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
 	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
+	q.client.SRem(ctx, keyStackScanPending, stackScan.ID)
 	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
 	}
