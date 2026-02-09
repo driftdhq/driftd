@@ -44,12 +44,9 @@ func TestNewScheduler(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if s == nil {
 		t.Fatal("expected non-nil scheduler")
-	}
-	if s.queue != q {
-		t.Error("scheduler queue not set correctly")
 	}
 	if s.cfg != cfg {
 		t.Error("scheduler config not set correctly")
@@ -68,7 +65,7 @@ func TestSchedulerStartStop(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -97,7 +94,7 @@ func TestSchedulerStartWithSchedule(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -132,7 +129,7 @@ func TestSchedulerStartWithMultipleSchedules(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -155,7 +152,7 @@ func TestSchedulerCallbacks(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 
 	s.OnRepoAdded("repo1", "0 * * * *")
 	if len(s.entries) != 1 {
@@ -186,7 +183,7 @@ func TestSchedulerStartInvalidSchedule(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	err := s.Start()
 	if err == nil {
 		s.Stop()
@@ -200,7 +197,7 @@ func TestSchedulerNoRepos(t *testing.T) {
 		Repos: []config.RepoConfig{},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start with no repos: %v", err)
 	}
@@ -224,7 +221,7 @@ func TestSchedulerStopIsIdempotent(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -252,7 +249,7 @@ func TestSchedulerEmptyScheduleSkipped(t *testing.T) {
 		},
 	}
 
-	s := New(q, cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}

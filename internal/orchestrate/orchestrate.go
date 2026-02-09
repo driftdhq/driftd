@@ -123,6 +123,79 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 	return scan, stacks, nil
 }
 
+// EnqueueStacksResult holds the outcome of an enqueue operation.
+type EnqueueStacksResult struct {
+	StackIDs []string
+	Errors   []string
+}
+
+// ErrNoStacksEnqueued is returned when all stacks were skipped or failed to enqueue.
+var ErrNoStacksEnqueued = errors.New("no stacks enqueued")
+
+// EnqueueStacks sets the scan total, batch-enqueues stack scans, and adjusts
+// scan counters for any skips or failures. Returns ErrNoStacksEnqueued if
+// nothing was successfully enqueued (scan is auto-cancelled in that case).
+func (o *ScanOrchestrator) EnqueueStacks(ctx context.Context, scan *queue.Scan, repoCfg *config.RepoConfig, stacks []string, trigger, commit, actor string) (*EnqueueStacksResult, error) {
+	maxRetries := 0
+	if o.cfg != nil && o.cfg.Worker.RetryOnce {
+		maxRetries = 1
+	}
+
+	if err := o.queue.SetScanTotal(ctx, scan.ID, len(stacks)); err != nil {
+		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set scan total: %v", err))
+		return nil, err
+	}
+
+	// Build StackScan objects
+	batch := make([]*queue.StackScan, len(stacks))
+	for i, stackPath := range stacks {
+		batch[i] = &queue.StackScan{
+			ScanID:     scan.ID,
+			RepoName:   repoCfg.Name,
+			RepoURL:    repoCfg.URL,
+			StackPath:  stackPath,
+			MaxRetries: maxRetries,
+			Trigger:    trigger,
+			Commit:     commit,
+			Actor:      actor,
+		}
+	}
+
+	batchResult, err := o.queue.EnqueueBatch(ctx, batch)
+	if err != nil {
+		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("batch enqueue failed: %v", err))
+		return nil, err
+	}
+
+	result := &EnqueueStacksResult{
+		Errors: batchResult.Errors,
+	}
+	for _, ss := range batchResult.Enqueued {
+		result.StackIDs = append(result.StackIDs, ss.ID)
+	}
+
+	// Adjust scan counters for skips and errors in one atomic call
+	skipCount := batchResult.Skipped
+	errCount := len(batchResult.Errors)
+	if skipCount > 0 || errCount > 0 {
+		var deltas []any
+		if skipCount > 0 {
+			deltas = append(deltas, "queued", -skipCount, "total", -skipCount)
+		}
+		if errCount > 0 {
+			deltas = append(deltas, "queued", -errCount, "failed", errCount, "errored", errCount)
+		}
+		_ = o.queue.AdjustScanCounters(ctx, scan.ID, repoCfg.Name, deltas...)
+	}
+
+	if len(result.StackIDs) == 0 {
+		_ = o.queue.CancelScan(ctx, scan.ID, repoCfg.Name, "all stacks inflight")
+		return result, ErrNoStacksEnqueued
+	}
+
+	return result, nil
+}
+
 func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, auth transport.AuthMethod) (string, string, error) {
 	base := filepath.Join(o.cfg.DataDir, "workspaces", repoCfg.Name, "repo")
 	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {

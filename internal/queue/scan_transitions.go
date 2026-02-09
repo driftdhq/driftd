@@ -121,6 +121,14 @@ func (q *Queue) markScanStackScanFailed(ctx context.Context, scanID string) erro
 	return q.runScanTransition(ctx, scanID, repoName, "running", -1, "failed", 1, "errored", 1)
 }
 
+// AdjustScanCounters atomically updates scan counters and auto-finishes the scan
+// if all stacks are done. Use this when you know the repoName and want to apply
+// multiple counter deltas in a single call (e.g. batch enqueue skips/failures).
+// Deltas are pairs of (field, delta): "queued", -3, "total", -3
+func (q *Queue) AdjustScanCounters(ctx context.Context, scanID, repoName string, deltas ...any) error {
+	return q.runScanTransition(ctx, scanID, repoName, deltas...)
+}
+
 func (q *Queue) MarkScanEnqueueFailed(ctx context.Context, scanID string) error {
 	repoName, err := q.repoNameForScan(ctx, scanID)
 	if err != nil {

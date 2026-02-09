@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/driftdhq/driftd/internal/orchestrate"
 	"github.com/driftdhq/driftd/internal/pathutil"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/go-chi/chi/v5"
@@ -94,8 +95,8 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, stacks, trigger, "", ""); err != nil {
-		if err == errNoStacksEnqueued {
+	if _, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, stacks, trigger, "", ""); err != nil {
+		if err == orchestrate.ErrNoStacksEnqueued {
 			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
 			return
 		}
@@ -145,34 +146,34 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	// startScanWithCancel handles lock renewal and version detection
 
-	stackIDs, errors, enqueueErr := s.enqueueStacks(r.Context(), scan, repoCfg, stacks, req.Trigger, req.Commit, req.Actor)
+	enqResult, enqueueErr := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, stacks, req.Trigger, req.Commit, req.Actor)
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if len(stackIDs) == 0 && enqueueErr != nil {
-		if enqueueErr == errNoStacksEnqueued {
+	if enqueueErr != nil {
+		if enqueueErr == orchestrate.ErrNoStacksEnqueued {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(scanResponse{
 				Error:   "No stacks enqueued (all inflight)",
-				Message: strings.Join(errors, "; "),
+				Message: strings.Join(enqResult.Errors, "; "),
 			})
 			return
 		}
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(scanResponse{
 			Error:   "Failed to enqueue any stacks",
-			Message: strings.Join(errors, "; "),
+			Message: enqueueErr.Error(),
 		})
 		return
 	}
 
 	resp := scanResponse{
-		Stacks:  stackIDs,
+		Stacks:  enqResult.StackIDs,
 		Scan:    scan,
-		Message: fmt.Sprintf("Enqueued %d stacks", len(stackIDs)),
+		Message: fmt.Sprintf("Enqueued %d stacks", len(enqResult.StackIDs)),
 	}
-	if len(errors) > 0 {
-		resp.Error = strings.Join(errors, "; ")
+	if len(enqResult.Errors) > 0 {
+		resp.Error = strings.Join(enqResult.Errors, "; ")
 	}
 
 	json.NewEncoder(w).Encode(resp)
@@ -222,13 +223,11 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-	_ = s.queue.SetScanTotal(r.Context(), scan.ID, 1)
 
-	stackIDs, _, enqueueErr := s.enqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, req.Trigger, req.Commit, req.Actor)
-	if enqueueErr != nil || len(stackIDs) == 0 {
-		_ = s.queue.MarkScanEnqueueFailed(r.Context(), scan.ID)
-		w.Header().Set("Content-Type", "application/json")
-		if enqueueErr == errNoStacksEnqueued {
+	enqResult, enqueueErr := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, req.Trigger, req.Commit, req.Actor)
+	w.Header().Set("Content-Type", "application/json")
+	if enqueueErr != nil {
+		if enqueueErr == orchestrate.ErrNoStacksEnqueued {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(scanResponse{Error: "No stacks enqueued (all inflight)"})
 		} else {
@@ -238,9 +237,8 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scanResponse{
-		Stacks:  stackIDs,
+		Stacks:  enqResult.StackIDs,
 		Scan:    scan,
 		Message: "Stack enqueued",
 	})

@@ -127,7 +127,7 @@ func runServe(args []string) {
 	defer orch.Stop()
 
 	// Start scheduler
-	sched := scheduler.New(q, cfg, repoProvider, orch)
+	sched := scheduler.New(cfg, repoProvider, orch)
 	if err := sched.Start(); err != nil {
 		log.Fatalf("failed to start scheduler: %v", err)
 	}

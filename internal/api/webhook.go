@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/driftdhq/driftd/internal/orchestrate"
 	"github.com/driftdhq/driftd/internal/queue"
 )
 
@@ -101,12 +102,16 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	stackIDs, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, targetStacks, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
-	if err != nil && err != errNoStacksEnqueued {
+	enqResult, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, targetStacks, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+	if err != nil && err != orchestrate.ErrNoStacksEnqueued {
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
 
+	var stackIDs []string
+	if enqResult != nil {
+		stackIDs = enqResult.StackIDs
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scanResponse{
 		Stacks:  stackIDs,

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/orchestrate"
 	"github.com/driftdhq/driftd/internal/pathutil"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/storage"
@@ -374,8 +375,8 @@ func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-	if _, _, err := s.enqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, trigger, "", ""); err != nil {
-		if err == errNoStacksEnqueued {
+	if _, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, trigger, "", ""); err != nil {
+		if err == orchestrate.ErrNoStacksEnqueued {
 			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
 			return
 		}

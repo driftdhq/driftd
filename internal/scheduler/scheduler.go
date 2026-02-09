@@ -14,7 +14,6 @@ import (
 
 type Scheduler struct {
 	cron         *cron.Cron
-	queue        *queue.Queue
 	cfg          *config.Config
 	provider     repos.Provider
 	orchestrator *orchestrate.ScanOrchestrator
@@ -23,10 +22,9 @@ type Scheduler struct {
 	entries map[string]cron.EntryID
 }
 
-func New(q *queue.Queue, cfg *config.Config, provider repos.Provider, orch *orchestrate.ScanOrchestrator) *Scheduler {
+func New(cfg *config.Config, provider repos.Provider, orch *orchestrate.ScanOrchestrator) *Scheduler {
 	return &Scheduler{
 		cron:         cron.New(),
-		queue:        q,
 		cfg:          cfg,
 		provider:     provider,
 		orchestrator: orch,
@@ -120,11 +118,6 @@ func (s *Scheduler) enqueueRepoScans(repoName string) {
 		return
 	}
 
-	maxRetries := 0
-	if s.cfg.Worker.RetryOnce {
-		maxRetries = 1
-	}
-
 	scan, stacks, err := s.orchestrator.StartScan(ctx, repoCfg, "scheduled", "", "")
 	if err != nil {
 		if err == queue.ErrRepoLocked {
@@ -135,22 +128,10 @@ func (s *Scheduler) enqueueRepoScans(repoName string) {
 		return
 	}
 
-	for _, stackPath := range stacks {
-		job := &queue.StackScan{
-			ScanID:     scan.ID,
-			RepoName:   repoName,
-			RepoURL:    repoCfg.URL,
-			StackPath:  stackPath,
-			MaxRetries: maxRetries,
-			Trigger:    "scheduled",
-		}
-
-		if err := s.queue.Enqueue(ctx, job); err != nil {
-			_ = s.queue.MarkScanEnqueueFailed(ctx, scan.ID)
-			log.Printf("Failed to enqueue scheduled scan for %s/%s: %v", repoName, stackPath, err)
-			continue
-		}
-
-		log.Printf("Enqueued scheduled scan for %s/%s", repoName, stackPath)
+	result, err := s.orchestrator.EnqueueStacks(ctx, scan, repoCfg, stacks, "scheduled", "", "")
+	if err != nil {
+		log.Printf("Failed to enqueue scheduled scan for %s: %v", repoName, err)
+		return
 	}
+	log.Printf("Enqueued %d scheduled stacks for %s", len(result.StackIDs), repoName)
 }
