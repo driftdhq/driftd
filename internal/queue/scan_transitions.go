@@ -15,7 +15,7 @@ import (
 // KEYS: [1] scan hash key, [2] lock key, [3] scan:repo: key, [4] scan:last: key, [5] running scans zset
 // ARGV: [1] scan_id, [2] ended_at, [3..N] pairs of (field, delta) to apply
 //
-// Returns 1 if the scan was auto-finished, 0 otherwise.
+// Returns a tuple: [status, completed, failed, total, drifted, ended_at].
 var scanTransitionScript = redis.NewScript(`
 local key = KEYS[1]
 local lock_key = KEYS[2]
@@ -39,11 +39,15 @@ end
 local total = tonumber(redis.call('HGET', key, 'total') or '0')
 local comp  = tonumber(redis.call('HGET', key, 'completed') or '0')
 local fail  = tonumber(redis.call('HGET', key, 'failed') or '0')
+local drifted = tonumber(redis.call('HGET', key, 'drifted') or '0')
+local status = redis.call('HGET', key, 'status') or 'running'
+local ended = 0
 
 if (total == 0) or (comp + fail >= total) then
-  local status = 'completed'
+  status = 'completed'
   if fail > 0 then status = 'failed' end
   redis.call('HSET', key, 'status', status, 'ended_at', ended_at)
+  ended = tonumber(ended_at)
   -- Compare-and-delete: only release lock if we still own it
   if redis.call('GET', lock_key) == scan_id then
     redis.call('DEL', lock_key)
@@ -51,10 +55,18 @@ if (total == 0) or (comp + fail >= total) then
   redis.call('DEL', repo_key)
   redis.call('SET', last_key, scan_id, 'EX', 604800)
   redis.call('ZREM', running_key, scan_id)
-  return 1
 end
-return 0
+return {status, comp, fail, total, drifted, ended}
 `)
+
+type scanTransitionState struct {
+	Status   string
+	Completed int
+	Failed    int
+	Total     int
+	Drifted   int
+	EndedAt   *time.Time
+}
 
 func (q *Queue) scanTransitionKeys(scanID, repoName string) []string {
 	return []string{
@@ -70,10 +82,15 @@ func (q *Queue) runScanTransition(ctx context.Context, scanID, repoName string, 
 	keys := q.scanTransitionKeys(scanID, repoName)
 	args := []any{scanID, time.Now().Unix()}
 	args = append(args, deltas...)
-	if err := scanTransitionScript.Run(ctx, q.client, keys, args...).Err(); err != nil {
+	result, err := scanTransitionScript.Run(ctx, q.client, keys, args...).Result()
+	if err != nil {
 		return err
 	}
-	q.publishScanUpdate(ctx, scanID, repoName)
+	state, err := parseScanTransitionState(result)
+	if err != nil {
+		return err
+	}
+	q.publishScanUpdateFromState(ctx, scanID, repoName, state)
 	return nil
 }
 
@@ -145,22 +162,35 @@ func (q *Queue) MarkScanEnqueueSkipped(ctx context.Context, scanID string) error
 	return q.runScanTransition(ctx, scanID, repoName, "queued", -1, "total", -1)
 }
 
-func (q *Queue) publishScanUpdate(ctx context.Context, scanID, repoName string) {
-	scan, err := q.GetScan(ctx, scanID)
-	if err != nil {
-		return
-	}
-	var endedAt *time.Time
-	if !scan.EndedAt.IsZero() {
-		endedAt = &scan.EndedAt
-	}
+func (q *Queue) publishScanUpdateFromState(ctx context.Context, scanID, repoName string, state scanTransitionState) {
 	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
-		RepoName:  repoName,
-		ScanID:    scanID,
-		Status:    scan.Status,
-		Completed: scan.Completed,
-		Failed:    scan.Failed,
-		Total:     scan.Total,
-		EndedAt:   endedAt,
+		RepoName:   repoName,
+		ScanID:     scanID,
+		Status:     state.Status,
+		Completed:  state.Completed,
+		Failed:     state.Failed,
+		Total:      state.Total,
+		DriftedCnt: state.Drifted,
+		EndedAt:    state.EndedAt,
 	})
+}
+
+func parseScanTransitionState(result any) (scanTransitionState, error) {
+	arr, ok := result.([]interface{})
+	if !ok || len(arr) < 6 {
+		return scanTransitionState{}, fmt.Errorf("unexpected scan transition result: %v", result)
+	}
+
+	state := scanTransitionState{
+		Status:    fmt.Sprintf("%v", arr[0]),
+		Completed: toInt(arr[1]),
+		Failed:    toInt(arr[2]),
+		Total:     toInt(arr[3]),
+		Drifted:   toInt(arr[4]),
+	}
+	if ended := toInt64(arr[5]); ended > 0 {
+		endedAt := time.Unix(ended, 0)
+		state.EndedAt = &endedAt
+	}
+	return state, nil
 }

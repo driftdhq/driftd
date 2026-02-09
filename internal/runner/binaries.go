@@ -59,22 +59,19 @@ func ensureTerraformBinary(ctx context.Context, workDir, version string) (string
 		return "", err
 	}
 
-	restore, err := ensureVersionFile(workDir, ".terraform-version", version)
+	tmpDir, err := os.MkdirTemp("", "driftd-switch-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpDir)
+	switchDir := tmpDir
+
+	restore, err := ensureVersionFile(switchDir, ".terraform-version", version)
 	if err != nil {
 		return "", err
 	}
 	if restore != nil {
 		defer restore()
-	}
-
-	switchDir := workDir
-	if fileExists(filepath.Join(workDir, "terragrunt.hcl")) {
-		tmpDir, err := os.MkdirTemp("", "driftd-switch-*")
-		if err != nil {
-			return "", err
-		}
-		defer os.RemoveAll(tmpDir)
-		switchDir = tmpDir
 	}
 	if err := runSwitch(ctx, switchDir, "tfswitch", cacheDir, target, version); err != nil {
 		return "", err
@@ -119,22 +116,19 @@ func ensureTerragruntBinary(ctx context.Context, workDir, version string) (strin
 		return "", err
 	}
 
-	restore, err := ensureVersionFile(workDir, ".terragrunt-version", version)
+	tmpDir, err := os.MkdirTemp("", "driftd-switch-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpDir)
+	switchDir := tmpDir
+
+	restore, err := ensureVersionFile(switchDir, ".terragrunt-version", version)
 	if err != nil {
 		return "", err
 	}
 	if restore != nil {
 		defer restore()
-	}
-
-	switchDir := workDir
-	if fileExists(filepath.Join(workDir, "terragrunt.hcl")) {
-		tmpDir, err := os.MkdirTemp("", "driftd-switch-*")
-		if err != nil {
-			return "", err
-		}
-		defer os.RemoveAll(tmpDir)
-		switchDir = tmpDir
 	}
 	if err := runSwitch(ctx, switchDir, "tgswitch", cacheDir, target, version); err != nil {
 		return "", err
