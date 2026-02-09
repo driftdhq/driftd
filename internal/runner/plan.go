@@ -44,38 +44,113 @@ func detectTool(stackDir string) string {
 }
 
 func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPath, runID string) (string, error) {
-	var output bytes.Buffer
 	dataKey := runID
 	if dataKey == "" {
 		dataKey = filepath.Base(repoRoot)
 	}
-	dataDir := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath), safePath(dataKey))
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	sharedPluginCacheDir := os.Getenv("TF_PLUGIN_CACHE_DIR")
+	if sharedPluginCacheDir == "" {
+		sharedPluginCacheDir = "/cache/terraform/plugins"
+	}
+	// If the shared cache dir can't be created, fall back to per-run cache.
+	if err := os.MkdirAll(sharedPluginCacheDir, 0755); err != nil {
+		sharedPluginCacheDir = ""
+	}
+
+	// Provider download / install can occasionally fail with a checksum mismatch under concurrency
+	// when using a shared TF_PLUGIN_CACHE_DIR. Retry once with an isolated cache to self-heal.
+	out, err := runPlanOnce(ctx, workDir, tool, tfBin, tgBin, stackPath, dataKey, sharedPluginCacheDir, false)
+	if err == nil || !isProviderChecksumMismatch(out) {
+		return cleanTerragruntOutput(tool, out), err
+	}
+
+	// Retry with a per-run cache (and a fresh TF_DATA_DIR / TG_DOWNLOAD_DIR).
+	out2, err2 := runPlanOnce(ctx, workDir, tool, tfBin, tgBin, stackPath, dataKey, "", true)
+	// Prefer retry output; it usually includes the original error plus the new attempt.
+	if out2 != "" {
+		out = out + "\n\n--- retry (fresh plugin cache) ---\n\n" + out2
+	}
+	return cleanTerragruntOutput(tool, out), err2
+}
+
+func cleanTerragruntOutput(tool, output string) string {
+	if tool != "terragrunt" {
+		return output
+	}
+	lines := strings.Split(output, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		raw := line
+		line = strings.TrimPrefix(line, "STDOUT ")
+		line = strings.TrimPrefix(line, "INFO   ")
+		line = strings.TrimPrefix(line, "WARN   ")
+		line = strings.TrimPrefix(line, "ERROR  ")
+		if idx := strings.Index(line, "terraform.planonly: "); idx != -1 {
+			line = line[idx+len("terraform.planonly: "):]
+			cleaned = append(cleaned, line)
+			continue
+		}
+		if idx := strings.Index(line, "terraform: "); idx != -1 {
+			line = line[idx+len("terraform: "):]
+			cleaned = append(cleaned, line)
+			continue
+		}
+		if raw != line {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.Join(cleaned, "\n")
+}
+
+func isProviderChecksumMismatch(output string) bool {
+	// Terraform error strings observed in the wild for corrupted/stale provider installs.
+	return strings.Contains(output, "Required plugins are not installed") &&
+		strings.Contains(output, "does not match any of the checksums recorded in the dependency lock file")
+}
+
+func runPlanOnce(
+	ctx context.Context,
+	workDir, tool, tfBin, tgBin, stackPath, dataKey, pluginCacheDir string,
+	isRetry bool,
+) (string, error) {
+	var output bytes.Buffer
+
+	// Unique TF_DATA_DIR per attempt prevents cross-attempt contamination and avoids collisions.
+	base := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath), safePath(dataKey))
+	if err := os.MkdirAll(base, 0755); err != nil {
+		return "", fmt.Errorf("create TF_DATA_DIR base: %w", err)
+	}
+	dataDir, err := os.MkdirTemp(base, "run-*")
+	if err != nil {
 		return "", fmt.Errorf("create TF_DATA_DIR: %w", err)
 	}
 	defer os.RemoveAll(dataDir)
 
-	pluginCacheDir := os.Getenv("TF_PLUGIN_CACHE_DIR")
 	if pluginCacheDir == "" {
-		pluginCacheDir = "/cache/terraform/plugins"
-	}
-	if err := os.MkdirAll(pluginCacheDir, 0755); err != nil {
-		// Fallback to per-run cache; slower but better than failing the plan.
 		pluginCacheDir = filepath.Join(dataDir, "plugin-cache")
 		_ = os.MkdirAll(pluginCacheDir, 0755)
 	}
 
 	var tgDownloadDir string
 	if tool == "terragrunt" {
-		// Per-run dir; avoid collisions between concurrent scans.
-		tgDownloadDir = filepath.Join(os.TempDir(), "driftd-tg", safePath(dataKey), safePath(stackPath))
-		if err := os.MkdirAll(tgDownloadDir, 0755); err == nil {
-			defer os.RemoveAll(tgDownloadDir)
+		// Unique per attempt; avoid stale/corrupt downloads between retries.
+		tgBase := filepath.Join(os.TempDir(), "driftd-tg", safePath(dataKey), safePath(stackPath))
+		if err := os.MkdirAll(tgBase, 0755); err == nil {
+			if d, err := os.MkdirTemp(tgBase, "run-*"); err == nil {
+				tgDownloadDir = d
+				defer os.RemoveAll(tgDownloadDir)
+			}
 		}
 	}
 
 	if tool == "terraform" {
-		initCmd := exec.CommandContext(ctx, tfBin, "init", "-input=false")
+		args := []string{"init", "-input=false"}
+		if isRetry {
+			// Attempt to refresh provider packages if the first attempt hit a mismatch.
+			args = append(args, "-upgrade")
+		}
+		initCmd := exec.CommandContext(ctx, tfBin, args...)
 		initCmd.Dir = workDir
 		initCmd.Env = append(filteredEnv(),
 			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
@@ -110,38 +185,8 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	planCmd.Stdout = &output
 	planCmd.Stderr = &output
 
-	err := planCmd.Run()
-	return cleanTerragruntOutput(tool, output.String()), err
-}
-
-func cleanTerragruntOutput(tool, output string) string {
-	if tool != "terragrunt" {
-		return output
-	}
-	lines := strings.Split(output, "\n")
-	cleaned := make([]string, 0, len(lines))
-	for _, line := range lines {
-		raw := line
-		line = strings.TrimPrefix(line, "STDOUT ")
-		line = strings.TrimPrefix(line, "INFO   ")
-		line = strings.TrimPrefix(line, "WARN   ")
-		line = strings.TrimPrefix(line, "ERROR  ")
-		if idx := strings.Index(line, "terraform.planonly: "); idx != -1 {
-			line = line[idx+len("terraform.planonly: "):]
-			cleaned = append(cleaned, line)
-			continue
-		}
-		if idx := strings.Index(line, "terraform: "); idx != -1 {
-			line = line[idx+len("terraform: "):]
-			cleaned = append(cleaned, line)
-			continue
-		}
-		if raw != line {
-			continue
-		}
-		cleaned = append(cleaned, line)
-	}
-	return strings.Join(cleaned, "\n")
+	err = planCmd.Run()
+	return output.String(), err
 }
 
 var planSummaryRegex = regexp.MustCompile(`Plan: (\d+) to add, (\d+) to change, (\d+) to destroy`)
