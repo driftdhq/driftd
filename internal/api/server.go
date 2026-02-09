@@ -193,7 +193,8 @@ func (s *Server) Handler() http.Handler {
 			r.Use(s.apiAuthMiddleware)
 		}
 		r.Get("/health", s.handleHealth)
-		r.Get("/stacks/{stackID}", s.handleGetStackScan)
+		// Stack scan IDs can contain slashes (stack paths), so use a wildcard.
+		r.Get("/stacks/*", s.handleGetStackScan)
 		r.Get("/scans/{scanID}", s.handleGetScan)
 		r.Get("/repos/{repo}/stacks", s.handleListRepoStackScans)
 		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/scan", s.handleScanRepo)

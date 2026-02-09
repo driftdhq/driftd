@@ -25,7 +25,6 @@ func TestCleanupWorkspaceArtifacts(t *testing.T) {
 	}
 
 	files := []string{
-		filepath.Join(root, ".terraform.lock.hcl"),
 		filepath.Join(root, "crash.log"),
 		filepath.Join(root, ".terraform.tfstate.lock.info"),
 		filepath.Join(root, "errored.tfstate"),
@@ -43,6 +42,7 @@ func TestCleanupWorkspaceArtifacts(t *testing.T) {
 	}
 
 	keepFiles := []string{
+		filepath.Join(root, ".terraform.lock.hcl"),
 		filepath.Join(root, "main.tf"),
 		filepath.Join(root, "README.md"),
 		filepath.Join(root, "envs", "prod", "outputs.tf"),

@@ -24,7 +24,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetStackScan(w http.ResponseWriter, r *http.Request) {
-	stackID := chi.URLParam(r, "stackID")
+	// Route uses wildcard due to slashes in IDs.
+	stackID := chi.URLParam(r, "*")
 
 	stackScan, err := s.queue.GetStackScan(r.Context(), stackID)
 	if err != nil {
@@ -71,8 +72,8 @@ type scanResponse struct {
 	Stacks     []string `json:"stacks,omitempty"`
 	Scan       *apiScan `json:"scan,omitempty"`
 	ActiveScan *apiScan `json:"active_scan,omitempty"`
-	Message    string  `json:"message,omitempty"`
-	Error      string  `json:"error,omitempty"`
+	Message    string   `json:"message,omitempty"`
+	Error      string   `json:"error,omitempty"`
 }
 
 func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
@@ -155,26 +156,8 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	enqueueErr := error(nil)
 
 	w.Header().Set("Content-Type", "application/json")
-
-	if enqueueErr != nil {
-		if enqueueErr == orchestrate.ErrNoStacksEnqueued {
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(scanResponse{
-				Error:   "No stacks enqueued (all inflight)",
-				Message: strings.Join(enqResult.Errors, "; "),
-			})
-			return
-		}
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(scanResponse{
-			Error:   "Failed to enqueue any stacks",
-			Message: enqueueErr.Error(),
-		})
-		return
-	}
 
 	resp := scanResponse{
 		Stacks:  enqResult.StackIDs,

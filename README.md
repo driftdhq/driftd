@@ -266,9 +266,9 @@ The Helm chart supports `server.envFrom` and `worker.envFrom` for mounting secre
 driftd uses [tfswitch](https://tfswitch.warrensbox.com/) and [tgswitch](https://github.com/warrensbox/tgswitch) to detect versions from:
 
 - `.terraform-version` / `.terragrunt-version` files
-- `required_version` in terraform configuration
+- (optional) `DRIFTD_DEFAULT_TERRAFORM_VERSION` / `DRIFTD_DEFAULT_TERRAGRUNT_VERSION` env vars (as a global default)
 
-If no version is specified, it uses the latest version.
+If a stack has no version file and no default env var is set, driftd uses `terraform`/`terragrunt` from `PATH` (if present).
 
 </details>
 
@@ -283,7 +283,7 @@ If no version is specified, it uses the latest version.
 | GET | `/repos/{repo}/stacks/{stack...}` | Stack detail with plan output |
 | GET | `/api/health` | Health check |
 | GET | `/api/scans/{scanID}` | Scan status |
-| GET | `/api/stacks/{stackID}` | Stack scan status |
+| GET | `/api/stacks/{stackID...}` | Stack scan status |
 | POST | `/api/repos/{repo}/scan` | Trigger full repo scan |
 | POST | `/api/repos/{repo}/stacks/{stack...}` | Trigger single stack scan |
 | POST | `/api/webhooks/github` | GitHub webhook endpoint |

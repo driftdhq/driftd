@@ -35,8 +35,8 @@ func planStack(ctx context.Context, workDir, repoRoot, stackPath, tfVersion, tgV
 	return runPlan(ctx, workDir, tool, tfBin, tgBin, repoRoot, stackPath, runID)
 }
 
-func detectTool(stackPath string) string {
-	tgPath := filepath.Join(stackPath, "terragrunt.hcl")
+func detectTool(stackDir string) string {
+	tgPath := filepath.Join(stackDir, "terragrunt.hcl")
 	if _, err := os.Stat(tgPath); err == nil {
 		return "terragrunt"
 	}
@@ -50,11 +50,29 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 		dataKey = filepath.Base(repoRoot)
 	}
 	dataDir := filepath.Join(os.TempDir(), "driftd-tfdata", safePath(stackPath), safePath(dataKey))
-	if err := os.MkdirAll(dataDir, 0755); err == nil {
-		defer os.RemoveAll(dataDir)
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return "", fmt.Errorf("create TF_DATA_DIR: %w", err)
 	}
-	pluginCacheDir := filepath.Join(dataDir, "plugin-cache")
-	ensureCacheDir(pluginCacheDir)
+	defer os.RemoveAll(dataDir)
+
+	pluginCacheDir := os.Getenv("TF_PLUGIN_CACHE_DIR")
+	if pluginCacheDir == "" {
+		pluginCacheDir = "/cache/terraform/plugins"
+	}
+	if err := os.MkdirAll(pluginCacheDir, 0755); err != nil {
+		// Fallback to per-run cache; slower but better than failing the plan.
+		pluginCacheDir = filepath.Join(dataDir, "plugin-cache")
+		_ = os.MkdirAll(pluginCacheDir, 0755)
+	}
+
+	var tgDownloadDir string
+	if tool == "terragrunt" {
+		// Per-run dir; avoid collisions between concurrent scans.
+		tgDownloadDir = filepath.Join(os.TempDir(), "driftd-tg", safePath(dataKey), safePath(stackPath))
+		if err := os.MkdirAll(tgDownloadDir, 0755); err == nil {
+			defer os.RemoveAll(tgDownloadDir)
+		}
+	}
 
 	if tool == "terraform" {
 		initCmd := exec.CommandContext(ctx, tfBin, "init", "-input=false")
@@ -75,9 +93,9 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 		planCmd = exec.CommandContext(ctx, tgBin, "plan", "-detailed-exitcode", "-input=false")
 		planCmd.Env = append(filteredEnv(),
 			fmt.Sprintf("TG_TF_PATH=%s", tfBin),
-			fmt.Sprintf("TG_DOWNLOAD_DIR=%s", filepath.Join(os.TempDir(), "driftd-tg", safePath(stackPath))),
+			fmt.Sprintf("TG_DOWNLOAD_DIR=%s", tgDownloadDir),
 			fmt.Sprintf("TERRAGRUNT_TFPATH=%s", tfBin),
-			fmt.Sprintf("TERRAGRUNT_DOWNLOAD=%s", filepath.Join(os.TempDir(), "driftd-tg", safePath(stackPath))),
+			fmt.Sprintf("TERRAGRUNT_DOWNLOAD=%s", tgDownloadDir),
 			fmt.Sprintf("TF_DATA_DIR=%s", dataDir),
 			fmt.Sprintf("TF_PLUGIN_CACHE_DIR=%s", pluginCacheDir),
 		)
@@ -94,13 +112,6 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 
 	err := planCmd.Run()
 	return cleanTerragruntOutput(tool, output.String()), err
-}
-
-func ensureCacheDir(path string) {
-	if path == "" {
-		path = "/cache/terraform/plugins"
-	}
-	_ = os.MkdirAll(path, 0755)
 }
 
 func cleanTerragruntOutput(tool, output string) string {
@@ -151,7 +162,46 @@ func parsePlanSummary(output string) (added, changed, destroyed int) {
 }
 
 func filteredEnv() []string {
-	allowed := []string{"PATH", "HOME", "TMPDIR"}
+	allowed := map[string]struct{}{
+		"PATH":               {},
+		"HOME":               {},
+		"TMPDIR":             {},
+		"LANG":               {},
+		"LC_ALL":             {},
+		"SSL_CERT_FILE":      {},
+		"SSL_CERT_DIR":       {},
+		"REQUESTS_CA_BUNDLE": {},
+		"CURL_CA_BUNDLE":     {},
+		// Proxy vars (often needed for provider/network access).
+		"HTTP_PROXY":  {},
+		"HTTPS_PROXY": {},
+		"NO_PROXY":    {},
+		"http_proxy":  {},
+		"https_proxy": {},
+		"no_proxy":    {},
+		// Git/SSH commonly needed for modules.
+		"SSH_AUTH_SOCK":   {},
+		"GIT_SSH":         {},
+		"GIT_SSH_COMMAND": {},
+	}
+	allowedPrefixes := []string{
+		"TF_",
+		"TERRAGRUNT_",
+		// Common cloud/provider credentials.
+		"AWS_",
+		"GOOGLE_",
+		"ARM_",
+		"AZURE_",
+		"CLOUDFLARE_",
+		"DIGITALOCEAN_",
+		"OCI_",
+		// Kubernetes related (for some providers/backends).
+		"KUBE",
+		// Git credentials for module sources (e.g. GIT_ASKPASS, GIT_TERMINAL_PROMPT).
+		"GIT_",
+		// CI context can affect terraform/terragrunt behaviors.
+		"CI",
+	}
 	env := os.Environ()
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
@@ -160,12 +210,12 @@ func filteredEnv() []string {
 			continue
 		}
 		key := parts[0]
-		if strings.HasPrefix(key, "TF_") || strings.HasPrefix(key, "TERRAGRUNT_") {
+		if _, ok := allowed[key]; ok {
 			out = append(out, entry)
 			continue
 		}
-		for _, allow := range allowed {
-			if key == allow {
+		for _, pfx := range allowedPrefixes {
+			if strings.HasPrefix(key, pfx) {
 				out = append(out, entry)
 				break
 			}

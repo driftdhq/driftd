@@ -36,7 +36,8 @@ func CleanupWorkspaceArtifacts(root string) error {
 			return nil
 		}
 
-		if name == ".terraform.lock.hcl" || name == "crash.log" || name == ".terraform.tfstate.lock.info" || name == "errored.tfstate" || isTerraformStateFile(name) {
+		// Keep .terraform.lock.hcl for reproducibility; it influences provider selection.
+		if name == "crash.log" || name == ".terraform.tfstate.lock.info" || name == "errored.tfstate" || isTerraformStateFile(name) {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				return err
 			}

@@ -33,6 +33,8 @@ type WorkerConfig struct {
 	RetryOnce   bool          `yaml:"retry_once"`
 	ScanMaxAge  time.Duration `yaml:"scan_max_age"`
 	RenewEvery  time.Duration `yaml:"renew_every"`
+	// StackTimeout caps how long a single stack plan is allowed to run in a worker.
+	StackTimeout time.Duration `yaml:"stack_timeout"`
 }
 
 type WorkspaceConfig struct {
@@ -62,6 +64,10 @@ type APIAuthConfig struct {
 
 type APIConfig struct {
 	RateLimitPerMinute int `yaml:"rate_limit_per_minute"`
+	// TrustProxy enables honoring X-Forwarded-For / X-Real-IP without checking the
+	// direct peer IP. Prefer leaving this false and relying on private/loopback
+	// proxy checks.
+	TrustProxy bool `yaml:"trust_proxy"`
 }
 
 const (
@@ -130,11 +136,12 @@ func Load(path string) (*Config, error) {
 			DB:   0,
 		},
 		Worker: WorkerConfig{
-			Concurrency: 5,
-			LockTTL:     30 * time.Minute,
-			RetryOnce:   true,
-			ScanMaxAge:  6 * time.Hour,
-			RenewEvery:  0,
+			Concurrency:  5,
+			LockTTL:      30 * time.Minute,
+			RetryOnce:    true,
+			ScanMaxAge:   6 * time.Hour,
+			RenewEvery:   0,
+			StackTimeout: 30 * time.Minute,
 		},
 		Workspace: WorkspaceConfig{
 			Retention: 5,
@@ -191,6 +198,12 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.Worker.RenewEvery == 0 {
 		cfg.Worker.RenewEvery = cfg.Worker.LockTTL / 3
+	}
+	if cfg.Worker.StackTimeout == 0 {
+		cfg.Worker.StackTimeout = 30 * time.Minute
+	}
+	if cfg.Worker.StackTimeout < time.Second {
+		return nil, fmt.Errorf("worker.stack_timeout must be at least 1s")
 	}
 	if cfg.Workspace.Retention <= 0 {
 		cfg.Workspace.Retention = 5

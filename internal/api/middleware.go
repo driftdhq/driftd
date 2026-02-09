@@ -112,7 +112,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
+		ip := s.clientIP(r)
 		limiter := s.getRateLimiter(ip)
 		if !limiter.Allow() {
 			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
@@ -128,11 +128,18 @@ func (s *Server) ensureCSRFToken(w http.ResponseWriter, r *http.Request) string 
 	}
 
 	token := generateToken(32)
+	secure := false
+	if r.TLS != nil {
+		secure = true
+	} else if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		secure = true
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     csrfCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 	return token
@@ -153,15 +160,21 @@ func generateToken(length int) string {
 	return base64.RawURLEncoding.EncodeToString(buf)
 }
 
-func clientIP(r *http.Request) string {
+func (s *Server) clientIP(r *http.Request) string {
+	peerIP := peerIPFromRemoteAddr(r.RemoteAddr)
+	trustProxy := peerIP != nil && (peerIP.IsLoopback() || peerIP.IsPrivate())
+	if s != nil && s.cfg != nil && s.cfg.API.TrustProxy {
+		trustProxy = true
+	}
+
 	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
+	if forwarded != "" && trustProxy {
 		parts := strings.Split(forwarded, ",")
 		return strings.TrimSpace(parts[0])
 	}
 
 	realIP := r.Header.Get("X-Real-IP")
-	if realIP != "" {
+	if realIP != "" && trustProxy {
 		return realIP
 	}
 
@@ -170,6 +183,15 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return ip
+}
+
+func peerIPFromRemoteAddr(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		// remoteAddr may already be just a host.
+		host = remoteAddr
+	}
+	return net.ParseIP(host)
 }
 
 func (s *Server) getRateLimiter(ip string) *rate.Limiter {

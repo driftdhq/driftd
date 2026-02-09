@@ -126,9 +126,21 @@ func TestFilteredEnv(t *testing.T) {
 	if err := os.Setenv("TMPDIR", "/tmpdir"); err != nil {
 		t.Fatalf("set env: %v", err)
 	}
+	if err := os.Setenv("AWS_ACCESS_KEY_ID", "AKIA0123456789ABCDEF"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("AWS_SECRET_ACCESS_KEY", "secret"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if err := os.Setenv("HTTP_PROXY", "http://proxy.local:3128"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
 	defer func() {
 		_ = os.Unsetenv("TF_TEST_VAR")
 		_ = os.Unsetenv("TERRAGRUNT_TEST_VAR")
+		_ = os.Unsetenv("AWS_ACCESS_KEY_ID")
+		_ = os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+		_ = os.Unsetenv("HTTP_PROXY")
 		_ = os.Unsetenv("SHOULD_NOT_LEAK")
 		_ = os.Setenv("HOME", origHome)
 		_ = os.Setenv("PATH", origPath)
@@ -153,6 +165,12 @@ func TestFilteredEnv(t *testing.T) {
 	}
 	if _, ok := envMap["SHOULD_NOT_LEAK"]; ok {
 		t.Fatalf("unexpected SHOULD_NOT_LEAK in env")
+	}
+	if envMap["AWS_ACCESS_KEY_ID"] == "" || envMap["AWS_SECRET_ACCESS_KEY"] == "" {
+		t.Fatalf("expected AWS credentials to be present in env")
+	}
+	if envMap["HTTP_PROXY"] == "" {
+		t.Fatalf("expected HTTP_PROXY to be present in env")
 	}
 	if envMap["HOME"] == "" || envMap["PATH"] == "" || envMap["TMPDIR"] == "" {
 		t.Fatalf("expected HOME, PATH, TMPDIR to be present")
