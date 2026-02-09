@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/driftdhq/driftd/internal/stack"
 	"github.com/driftdhq/driftd/internal/version"
 	"github.com/go-git/go-git/v5"
+	gitcfg "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
@@ -85,7 +87,7 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 		return nil, nil, err
 	}
 
-	workspacePath, commitSHA, err := o.cloneWorkspace(ctx, repoCfg, scan.ID, auth)
+	workspacePath, commitSHA, err := o.cloneWorkspace(ctx, repoCfg, auth)
 	if err != nil {
 		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
@@ -95,7 +97,7 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set workspace: %v", err))
 		return nil, nil, err
 	}
-	go o.cleanupWorkspaces(repoCfg.Name, scan.ID)
+	go o.cleanupWorkspaces(repoCfg.Name)
 
 	stacks, err := stack.Discover(workspacePath, repoCfg.IgnorePaths)
 	if err != nil {
@@ -123,12 +125,50 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 	return scan, stacks, nil
 }
 
-func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (string, string, error) {
-	base := filepath.Join(o.cfg.DataDir, "workspaces", repoCfg.Name, scanID, "repo")
+func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, auth transport.AuthMethod) (string, string, error) {
+	base := filepath.Join(o.cfg.DataDir, "workspaces", repoCfg.Name, "repo")
 	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
 		return base, "", err
 	}
 
+	repo, err := git.PlainOpen(base)
+	if err != nil {
+		if errors.Is(err, git.ErrRepositoryNotExists) {
+			return o.cloneFresh(ctx, repoCfg, base, auth)
+		}
+		return base, "", err
+	}
+
+	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	fetchErr := repo.FetchContext(fetchCtx, &git.FetchOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+		Tags:       git.NoTags,
+		Force:      true,
+		RefSpecs:   []gitcfg.RefSpec{"+refs/heads/*:refs/remotes/origin/*"},
+	})
+	if fetchErr != nil && !errors.Is(fetchErr, git.NoErrAlreadyUpToDate) {
+		return base, "", fetchErr
+	}
+
+	hash, err := resolveTargetRef(repo, repoCfg.Branch)
+	if err != nil {
+		return base, "", err
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return base, "", err
+	}
+	if err := wt.Reset(&git.ResetOptions{Mode: git.HardReset, Commit: hash}); err != nil {
+		return base, "", err
+	}
+
+	return base, hash.String(), nil
+}
+
+func (o *ScanOrchestrator) cloneFresh(ctx context.Context, repoCfg *config.RepoConfig, base string, auth transport.AuthMethod) (string, string, error) {
 	cloneOpts := &git.CloneOptions{
 		URL:   repoCfg.URL,
 		Depth: 1,
@@ -152,7 +192,32 @@ func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.R
 	return base, head.Hash().String(), nil
 }
 
-func (o *ScanOrchestrator) cleanupWorkspaces(repoName, keepScanID string) {
+func resolveTargetRef(repo *git.Repository, branch string) (plumbing.Hash, error) {
+	if branch != "" {
+		refName := plumbing.NewRemoteReferenceName("origin", branch)
+		if ref, err := repo.Reference(refName, true); err == nil {
+			return ref.Hash(), nil
+		}
+	}
+
+	for _, name := range []plumbing.ReferenceName{
+		plumbing.NewRemoteReferenceName("origin", "HEAD"),
+		plumbing.NewRemoteReferenceName("origin", "main"),
+		plumbing.NewRemoteReferenceName("origin", "master"),
+	} {
+		if ref, err := repo.Reference(name, true); err == nil {
+			return ref.Hash(), nil
+		}
+	}
+
+	head, err := repo.Head()
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return head.Hash(), nil
+}
+
+func (o *ScanOrchestrator) cleanupWorkspaces(repoName string) {
 	retention := o.cfg.Workspace.Retention
 	if retention <= 0 {
 		return
@@ -175,7 +240,7 @@ func (o *ScanOrchestrator) cleanupWorkspaces(repoName, keepScanID string) {
 			continue
 		}
 		id := entry.Name()
-		if id == keepScanID {
+		if id == "repo" {
 			continue
 		}
 		info, err := entry.Info()

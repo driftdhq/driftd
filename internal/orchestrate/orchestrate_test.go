@@ -16,6 +16,7 @@ import (
 
 func TestStartScanCreatesScanAndStacks(t *testing.T) {
 	repoDir := t.TempDir()
+	dataDir := t.TempDir()
 	initGitRepo(t, repoDir)
 
 	mr, err := miniredis.Run()
@@ -31,7 +32,7 @@ func TestStartScanCreatesScanAndStacks(t *testing.T) {
 	defer q.Close()
 
 	cfg := &config.Config{
-		DataDir: repoDir,
+		DataDir: dataDir,
 		Worker: config.WorkerConfig{
 			LockTTL:    time.Minute,
 			ScanMaxAge: time.Hour,
@@ -71,9 +72,73 @@ func TestStartScanCreatesScanAndStacks(t *testing.T) {
 	if _, err := os.Stat(state.WorkspacePath); err != nil {
 		t.Fatalf("workspace missing: %v", err)
 	}
+	expectedWorkspace := filepath.Join(dataDir, "workspaces", repoCfg.Name, "repo")
+	if state.WorkspacePath != expectedWorkspace {
+		t.Fatalf("expected workspace path %s, got %s", expectedWorkspace, state.WorkspacePath)
+	}
 }
 
-func initGitRepo(t *testing.T, dir string) {
+func TestCloneWorkspaceFetchesUpdates(t *testing.T) {
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	repo := initGitRepo(t, repoDir)
+
+	cfg := &config.Config{
+		DataDir: dataDir,
+		Worker: config.WorkerConfig{
+			LockTTL:    time.Minute,
+			ScanMaxAge: time.Hour,
+			RenewEvery: time.Minute,
+		},
+	}
+	orch := New(cfg, nil)
+
+	repoCfg := &config.RepoConfig{
+		Name: "repo",
+		URL:  "file://" + repoDir,
+	}
+
+	workspace, commit1, err := orch.cloneWorkspace(context.Background(), repoCfg, nil)
+	if err != nil {
+		t.Fatalf("clone workspace: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(repoDir, "second.tf"), []byte(`resource "null_resource" "second" {}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	if _, err := wt.Add("second.tf"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := wt.Commit("second", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "tester",
+			Email: "tester@example.com",
+			When:  time.Now(),
+		},
+	}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	workspace2, commit2, err := orch.cloneWorkspace(context.Background(), repoCfg, nil)
+	if err != nil {
+		t.Fatalf("clone workspace (update): %v", err)
+	}
+	if workspace != workspace2 {
+		t.Fatalf("expected same workspace, got %s and %s", workspace, workspace2)
+	}
+	if commit1 == commit2 {
+		t.Fatalf("expected new commit hash after fetch")
+	}
+	if _, err := os.Stat(filepath.Join(workspace2, "second.tf")); err != nil {
+		t.Fatalf("expected updated file in workspace: %v", err)
+	}
+}
+
+func initGitRepo(t *testing.T, dir string) *git.Repository {
 	t.Helper()
 
 	repo, err := git.PlainInit(dir, false)
@@ -101,4 +166,5 @@ func initGitRepo(t *testing.T, dir string) {
 	}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
+	return repo
 }
