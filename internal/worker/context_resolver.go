@@ -40,8 +40,6 @@ func (w *Worker) resolveScanContext(ctx context.Context, job *queue.StackScan) (
 			} else {
 				sc.TGVersion = scan.TerragruntVersion
 			}
-
-			w.publishScanUpdate(scan, job.RepoName)
 		}
 	}
 

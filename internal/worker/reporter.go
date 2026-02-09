@@ -67,7 +67,6 @@ func (w *Worker) publishStackFailure(job *queue.StackScan, sc *ScanContext, errM
 		Error:     errMsg,
 		RunAt:     &now,
 	})
-	w.publishScanUpdate(sc.Scan, job.RepoName)
 }
 
 func (w *Worker) publishStackCompletion(job *queue.StackScan, sc *ScanContext, result *storage.RunResult) {
@@ -81,25 +80,5 @@ func (w *Worker) publishStackCompletion(job *queue.StackScan, sc *ScanContext, r
 		Status:    "completed",
 		Drifted:   &drifted,
 		RunAt:     &now,
-	})
-	w.publishScanUpdate(sc.Scan, job.RepoName)
-}
-
-func (w *Worker) publishScanUpdate(scan *queue.Scan, repoName string) {
-	if scan == nil {
-		return
-	}
-	_ = w.queue.PublishEvent(w.ctx, repoName, queue.RepoEvent{
-		Type:       "scan_update",
-		RepoName:   repoName,
-		ScanID:     scan.ID,
-		CommitSHA:  scan.CommitSHA,
-		StartedAt:  &scan.StartedAt,
-		EndedAt:    scanEndedAt(scan),
-		Status:     scan.Status,
-		Completed:  scan.Completed,
-		Failed:     scan.Failed,
-		Total:      scan.Total,
-		DriftedCnt: scan.Drifted,
 	})
 }

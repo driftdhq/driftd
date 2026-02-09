@@ -691,6 +691,12 @@ a:hover {
     min-width: 200px;
 }
 
+.scan-summary .progress .meta {
+    min-width: 7ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
 .progress-bar {
     width: 200px;
     height: 8px;
