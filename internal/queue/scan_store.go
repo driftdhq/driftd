@@ -203,8 +203,7 @@ func (q *Queue) CancelAndStartScan(ctx context.Context, oldScanID, repoName, can
 
 	// Publish cancel event for old scan
 	endedAtTime := time.Unix(endedAt, 0)
-	_ = q.PublishEvent(ctx, repoName, RepoEvent{
-		Type:     "scan_update",
+	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
 		RepoName: repoName,
 		ScanID:   oldScanID,
 		Status:   ScanStatusCanceled,
@@ -390,8 +389,7 @@ func (q *Queue) FailScan(ctx context.Context, scanID, repoName, errMsg string) e
 	if err := q.releaseOwnedLock(ctx, repoName, scanID); err != nil {
 		return err
 	}
-	_ = q.PublishEvent(ctx, repoName, RepoEvent{
-		Type:     "scan_update",
+	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
 		RepoName: repoName,
 		ScanID:   scanID,
 		Status:   ScanStatusFailed,
@@ -422,8 +420,7 @@ func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string)
 	if err := q.releaseOwnedLock(ctx, repoName, scanID); err != nil {
 		return err
 	}
-	_ = q.PublishEvent(ctx, repoName, RepoEvent{
-		Type:     "scan_update",
+	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
 		RepoName: repoName,
 		ScanID:   scanID,
 		Status:   ScanStatusCanceled,

@@ -154,8 +154,7 @@ func (q *Queue) publishScanUpdate(ctx context.Context, scanID, repoName string) 
 	if !scan.EndedAt.IsZero() {
 		endedAt = &scan.EndedAt
 	}
-	_ = q.PublishEvent(ctx, repoName, RepoEvent{
-		Type:      "scan_update",
+	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
 		RepoName:  repoName,
 		ScanID:    scanID,
 		Status:    scan.Status,

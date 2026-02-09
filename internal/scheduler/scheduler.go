@@ -118,7 +118,7 @@ func (s *Scheduler) enqueueRepoScans(repoName string) {
 		return
 	}
 
-	scan, stacks, err := s.orchestrator.StartScan(ctx, repoCfg, "scheduled", "", "")
+	_, result, err := s.orchestrator.StartAndEnqueue(ctx, repoCfg, "scheduled", "", "")
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			log.Printf("Skipping scheduled scan for %s: repo already running", repoName)
@@ -128,10 +128,5 @@ func (s *Scheduler) enqueueRepoScans(repoName string) {
 		return
 	}
 
-	result, err := s.orchestrator.EnqueueStacks(ctx, scan, repoCfg, stacks, "scheduled", "", "")
-	if err != nil {
-		log.Printf("Failed to enqueue scheduled scan for %s: %v", repoName, err)
-		return
-	}
 	log.Printf("Enqueued %d scheduled stacks for %s", len(result.StackIDs), repoName)
 }

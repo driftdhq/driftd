@@ -13,8 +13,7 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 	log.Printf("Processing stack scan %s: %s/%s", job.ID, job.RepoName, job.StackPath)
 
 	now := time.Now()
-	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
-		Type:      "stack_update",
+	_ = w.queue.PublishStackEvent(w.ctx, job.RepoName, queue.StackEvent{
 		RepoName:  job.RepoName,
 		ScanID:    job.ScanID,
 		StackPath: job.StackPath,

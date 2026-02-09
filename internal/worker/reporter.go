@@ -58,8 +58,7 @@ func (w *Worker) failStack(job *queue.StackScan, sc *ScanContext, errMsg string)
 
 func (w *Worker) publishStackFailure(job *queue.StackScan, sc *ScanContext, errMsg string) {
 	now := time.Now()
-	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
-		Type:      "stack_update",
+	_ = w.queue.PublishStackEvent(w.ctx, job.RepoName, queue.StackEvent{
 		RepoName:  job.RepoName,
 		ScanID:    job.ScanID,
 		StackPath: job.StackPath,
@@ -72,8 +71,7 @@ func (w *Worker) publishStackFailure(job *queue.StackScan, sc *ScanContext, errM
 func (w *Worker) publishStackCompletion(job *queue.StackScan, sc *ScanContext, result *storage.RunResult) {
 	now := time.Now()
 	drifted := result.Drifted
-	_ = w.queue.PublishEvent(w.ctx, job.RepoName, queue.RepoEvent{
-		Type:      "stack_update",
+	_ = w.queue.PublishStackEvent(w.ctx, job.RepoName, queue.StackEvent{
 		RepoName:  job.RepoName,
 		ScanID:    job.ScanID,
 		StackPath: job.StackPath,

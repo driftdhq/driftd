@@ -89,9 +89,13 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trigger := "manual"
-	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, "", "")
+	_, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), repoCfg, trigger, "", "")
 	if err != nil {
 		if err == queue.ErrRepoLocked {
+			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+			return
+		}
+		if err == orchestrate.ErrNoStacksEnqueued {
 			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
 			return
 		}
@@ -99,12 +103,8 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, stacks, trigger, "", ""); err != nil {
-		if err == orchestrate.ErrNoStacksEnqueued {
-			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
-			return
-		}
-		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
+	if err == orchestrate.ErrNoStacksEnqueued || (enqResult != nil && len(enqResult.StackIDs) == 0) {
+		http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
 		return
 	}
 
@@ -130,7 +130,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
+	scan, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), repoName)
@@ -145,12 +145,17 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		if err == orchestrate.ErrNoStacksEnqueued {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(scanResponse{
+				Error: "No stacks enqueued (all inflight)",
+			})
+			return
+		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	// startScanWithCancel handles lock renewal and version detection
-
-	enqResult, enqueueErr := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, stacks, req.Trigger, req.Commit, req.Actor)
+	enqueueErr := error(nil)
 
 	w.Header().Set("Content-Type", "application/json")
 

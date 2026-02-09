@@ -69,8 +69,7 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 			return nil, nil, err
 		}
 	}
-	_ = o.queue.PublishEvent(ctx, repoCfg.Name, queue.RepoEvent{
-		Type:      "scan_update",
+	_ = o.queue.PublishScanEvent(ctx, repoCfg.Name, queue.ScanEvent{
 		RepoName:  repoCfg.Name,
 		ScanID:    scan.ID,
 		Status:    scan.Status,
@@ -121,6 +120,26 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 		return nil, nil, err
 	}
 	return scan, stacks, nil
+}
+
+// StartAndEnqueue starts a scan and enqueues all discovered stacks.
+func (o *ScanOrchestrator) StartAndEnqueue(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, *EnqueueStacksResult, error) {
+	scan, stacks, err := o.StartScan(ctx, repoCfg, trigger, commit, actor)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := o.EnqueueStacks(ctx, scan, repoCfg, stacks, trigger, commit, actor)
+	return scan, result, err
+}
+
+// StartAndEnqueueStacks starts a scan and enqueues a specific stack list.
+func (o *ScanOrchestrator) StartAndEnqueueStacks(ctx context.Context, repoCfg *config.RepoConfig, stacks []string, trigger, commit, actor string) (*queue.Scan, *EnqueueStacksResult, error) {
+	scan, _, err := o.StartScan(ctx, repoCfg, trigger, commit, actor)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := o.EnqueueStacks(ctx, scan, repoCfg, stacks, trigger, commit, actor)
+	return scan, result, err
 }
 
 // EnqueueStacksResult holds the outcome of an enqueue operation.
