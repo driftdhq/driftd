@@ -28,7 +28,7 @@ that fits alongside tools like Atlantis or CI-based applies.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Trigger   │────►│   Clone &   │────►│   Enqueue   │────►│   Workers   │
+│   Trigger   │────►│    Sync &   │────►│   Enqueue   │────►│   Workers   │
 │ (cron/API)  │     │   Discover  │     │   Stacks    │     │  Run Plans  │
 └─────────────┘     └─────────────┘     └─────────────┘     └──────┬──────┘
                                                                    │
@@ -39,7 +39,7 @@ that fits alongside tools like Atlantis or CI-based applies.
 ```
 
 1. **Trigger** — Cron schedule, API call, or GitHub webhook initiates a scan
-2. **Clone** — Server clones the repo and discovers stacks
+2. **Sync** — Server updates a repo workspace (clone or fetch/reset) and discovers stacks
 3. **Enqueue** — One job per stack is added to the Redis queue
 4. **Process** — Workers dequeue jobs, run `terraform plan`, save results
 5. **Display** — Web UI shows drift status from stored plan outputs
@@ -56,7 +56,7 @@ flowchart TB
 
     subgraph Data["Data Layer"]
         Redis[("<b>Redis</b><br/>Queue &bull; Locks &bull; State")]
-        Storage[("<b>Storage</b><br/>Plan Outputs")]
+        Storage[("<b>Storage</b><br/>Plans & Workspace")]
     end
 
     subgraph Workers["Worker Pool (scalable)"]
@@ -66,7 +66,7 @@ flowchart TB
     end
 
     Server <--> |"scans/stacks"| Redis
-    Server --> |"clone repos"| Storage
+    Server --> |"sync workspace"| Storage
     W1 & W2 & W3 <--> |"dequeue"| Redis
     W1 & W2 & W3 <--> |"read/write"| Storage
 ```
@@ -76,7 +76,7 @@ flowchart TB
 | **serve** | Web UI, REST API, scheduler. Single replica. |
 | **worker** | Processes stack scans. Scale horizontally based on workload. |
 | **Redis** | Job queue, scan state, repo locks. Ephemeral — can be wiped safely. |
-| **Storage** | Plan outputs and drift status. Mount a PVC for persistence. |
+| **Storage** | Plan outputs and repo workspaces. Mount a PVC for persistence. |
 
 ---
 
@@ -340,8 +340,9 @@ Mount `/cache` as a persistent volume:
 │   ├── plugins/     # TF_PLUGIN_CACHE_DIR - shared providers
 │   └── versions/    # tfswitch binary cache
 └── terragrunt/
-    ├── download/    # TERRAGRUNT_DOWNLOAD - module cache
     └── versions/    # tgswitch binary cache
+
+Terragrunt module downloads use a per-plan temp directory under `/tmp/driftd-tg`.
 ```
 
 Shared providers across stacks, cached binaries, reduced downloads.
