@@ -41,9 +41,9 @@
             {{if $repo.HealthyStacks}}<span class="healthy-count">{{$repo.HealthyStacks}} healthy stacks</span>{{end}}
             {{if $repo.DriftedStacks}}<span class="drifted-count">{{$repo.DriftedStacks}} drifted stacks</span>{{end}}
             {{if $repo.Active}}
-                <span class="meta-pill">Scanning {{$repo.Progress}}</span>
+                <span class="meta-pill scan-pill" data-last-scan="{{if not $repo.LastRun.IsZero}}Last scan {{timeAgo $repo.LastRun}}{{end}}">Scanning {{$repo.Progress}}</span>
             {{else if not $repo.LastRun.IsZero}}
-                <span class="meta-pill">Last scan {{timeAgo $repo.LastRun}}</span>
+                <span class="meta-pill scan-pill" data-last-scan="Last scan {{timeAgo $repo.LastRun}}">Last scan {{timeAgo $repo.LastRun}}</span>
             {{end}}
             {{if $repo.CommitSHA}}
                 {{$repoCfg := index $.ConfigByName .Name}}
@@ -70,24 +70,7 @@
         const getRepoCard = (repoName) =>
             document.querySelector(`.repo-card[data-repo-name="${CSS.escape(repoName)}"]`);
 
-        const ensureScanMeta = (card) => {
-            const meta = card.querySelector(".repo-meta");
-            if (!meta) return null;
-            let pill = meta.querySelector(".meta-pill.scan-pill");
-            if (!pill) {
-                pill = document.createElement("span");
-                pill.className = "meta-pill scan-pill";
-                meta.appendChild(pill);
-            }
-            return pill;
-        };
-
-        const removeScanMeta = (card) => {
-            const pill = card.querySelector(".meta-pill.scan-pill");
-            if (pill) {
-                pill.remove();
-            }
-        };
+        const getScanPill = (card) => card.querySelector(".meta-pill.scan-pill");
 
         source.addEventListener("update", (e) => {
             const data = JSON.parse(e.data || "{}");
@@ -100,14 +83,22 @@
             const kind = data.kind || (data.type === "scan_update" ? "scan" : "");
             if (kind === "scan") {
                 if (data.status === "running") {
-                    const pill = ensureScanMeta(card);
+                    const pill = getScanPill(card);
                     if (pill) {
                         const done = (data.completed || 0) + (data.failed || 0);
                         const total = data.total || 0;
                         pill.textContent = `Scanning ${done} / ${total}`;
                     }
                 } else if (data.status) {
-                    removeScanMeta(card);
+                    const pill = getScanPill(card);
+                    if (pill) {
+                        const lastScan = pill.getAttribute("data-last-scan");
+                        if (lastScan) {
+                            pill.textContent = lastScan;
+                        } else {
+                            pill.remove();
+                        }
+                    }
                 }
             }
         });

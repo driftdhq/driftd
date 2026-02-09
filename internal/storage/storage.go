@@ -51,8 +51,12 @@ func New(dataDir string) *Storage {
 	return &Storage{dataDir: dataDir}
 }
 
-func (s *Storage) stackDir(repoName, stackPath string) string {
-	return filepath.Join(s.dataDir, repoName, safePath(stackPath))
+func (s *Storage) resultsDir() string {
+	return filepath.Join(s.dataDir, "results")
+}
+
+func (s *Storage) stackDir(baseDir, repoName, stackPath string) string {
+	return filepath.Join(baseDir, repoName, safePath(stackPath))
 }
 
 func safePath(path string) string {
@@ -60,7 +64,7 @@ func safePath(path string) string {
 }
 
 func (s *Storage) SaveResult(repoName, stackPath string, result *RunResult) error {
-	dir := s.stackDir(repoName, stackPath)
+	dir := s.stackDir(s.resultsDir(), repoName, stackPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -119,12 +123,22 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 }
 
 func (s *Storage) GetResult(repoName, stackPath string) (*RunResult, error) {
-	dir := s.stackDir(repoName, stackPath)
+	// Prefer the new layout under <data_dir>/results, but support legacy reads
+	// from <data_dir>/<repo>/<stack> for existing installations.
+	dir := s.stackDir(s.resultsDir(), repoName, stackPath)
 
 	statusPath := filepath.Join(dir, "status.json")
 	statusData, err := os.ReadFile(statusPath)
 	if err != nil {
-		return nil, err
+		legacyDir := s.stackDir(s.dataDir, repoName, stackPath)
+		legacyStatus := filepath.Join(legacyDir, "status.json")
+		legacyData, legacyErr := os.ReadFile(legacyStatus)
+		if legacyErr != nil {
+			return nil, err
+		}
+		dir = legacyDir
+		statusPath = legacyStatus
+		statusData = legacyData
 	}
 
 	var result RunResult
@@ -142,79 +156,92 @@ func (s *Storage) GetResult(repoName, stackPath string) (*RunResult, error) {
 }
 
 func (s *Storage) ListRepos() ([]RepoStatus, error) {
-	entries, err := os.ReadDir(s.dataDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var repos []RepoStatus
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		stacks, err := s.ListStacks(entry.Name())
+	// Prefer repos under results/, but also include legacy repos for upgrades.
+	repoNames := map[string]struct{}{}
+	for _, base := range []string{s.resultsDir(), s.dataDir} {
+		entries, err := os.ReadDir(base)
 		if err != nil {
 			continue
 		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if isReservedRepoDir(name) {
+				continue
+			}
+			repoNames[name] = struct{}{}
+		}
+	}
 
+	if len(repoNames) == 0 {
+		return nil, nil
+	}
+
+	var repos []RepoStatus
+	for name := range repoNames {
+		stacks, err := s.ListStacks(name)
+		if err != nil {
+			continue
+		}
 		driftedCount := 0
 		for _, stack := range stacks {
 			if stack.Drifted {
 				driftedCount++
 			}
 		}
-
 		repos = append(repos, RepoStatus{
-			Name:          entry.Name(),
+			Name:          name,
 			Drifted:       driftedCount > 0,
 			Stacks:        len(stacks),
 			DriftedStacks: driftedCount,
 		})
 	}
-
 	return repos, nil
 }
 
 func (s *Storage) ListStacks(repoName string) ([]StackStatus, error) {
-	repoDir := filepath.Join(s.dataDir, repoName)
-	entries, err := os.ReadDir(repoDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
+	merged := map[string]StackStatus{}
 
-	var stacks []StackStatus
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		stackPath, err := decodeSafePath(entry.Name())
+	// Load legacy first, then results/ overwrites.
+	for _, base := range []string{s.dataDir, s.resultsDir()} {
+		repoDir := filepath.Join(base, repoName)
+		entries, err := os.ReadDir(repoDir)
 		if err != nil {
 			continue
 		}
-		result, err := s.GetResult(repoName, stackPath)
-		if err != nil {
-			continue
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			stackPath, err := decodeSafePath(entry.Name())
+			if err != nil {
+				continue
+			}
+			result, err := s.GetResult(repoName, stackPath)
+			if err != nil {
+				continue
+			}
+			merged[stackPath] = StackStatus{
+				Path:      stackPath,
+				Drifted:   result.Drifted,
+				Added:     result.Added,
+				Changed:   result.Changed,
+				Destroyed: result.Destroyed,
+				Error:     result.Error,
+				RunAt:     result.RunAt,
+			}
 		}
-
-		stacks = append(stacks, StackStatus{
-			Path:      stackPath,
-			Drifted:   result.Drifted,
-			Added:     result.Added,
-			Changed:   result.Changed,
-			Destroyed: result.Destroyed,
-			Error:     result.Error,
-			RunAt:     result.RunAt,
-		})
 	}
 
+	if len(merged) == 0 {
+		return nil, nil
+	}
+	stacks := make([]StackStatus, 0, len(merged))
+	for _, st := range merged {
+		stacks = append(stacks, st)
+	}
 	return stacks, nil
 }
 
@@ -225,4 +252,13 @@ func decodeSafePath(value string) (string, error) {
 		return strings.ReplaceAll(value, "__", "/"), nil
 	}
 	return string(data), nil
+}
+
+func isReservedRepoDir(name string) bool {
+	switch name {
+	case "workspaces", "results":
+		return true
+	default:
+		return false
+	}
 }

@@ -30,7 +30,11 @@ func (w *Worker) processStackScan(job *queue.StackScan) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(w.ctx, 30*time.Minute)
+	timeout := 30 * time.Minute
+	if w.cfg != nil && w.cfg.Worker.StackTimeout > 0 {
+		timeout = w.cfg.Worker.StackTimeout
+	}
+	ctx, cancel := context.WithTimeout(w.ctx, timeout)
 	defer cancel()
 	if job.ScanID != "" {
 		go w.watchScanCancel(ctx, cancel, job.ScanID)

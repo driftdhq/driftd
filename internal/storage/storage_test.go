@@ -310,7 +310,7 @@ func TestSaveResultDoesNotLeaveTempFiles(t *testing.T) {
 		t.Fatalf("save result: %v", err)
 	}
 
-	stackDir := s.stackDir("repo", "stack")
+	stackDir := s.stackDir(s.resultsDir(), "repo", "stack")
 	entries, err := os.ReadDir(stackDir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -338,7 +338,7 @@ func TestGetResultMissingPlanFile(t *testing.T) {
 	}
 
 	// Delete the plan file
-	planPath := filepath.Join(s.stackDir("repo", "stack"), "plan.txt")
+	planPath := filepath.Join(s.stackDir(s.resultsDir(), "repo", "stack"), "plan.txt")
 	if err := os.Remove(planPath); err != nil {
 		t.Fatalf("remove plan: %v", err)
 	}
