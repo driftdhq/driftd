@@ -48,19 +48,19 @@ func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPa
 	if dataKey == "" {
 		dataKey = filepath.Base(repoRoot)
 	}
-	sharedPluginCacheDir := os.Getenv("TF_PLUGIN_CACHE_DIR")
-	if sharedPluginCacheDir == "" {
-		sharedPluginCacheDir = "/cache/terraform/plugins"
+	pluginCacheBase := os.Getenv("TF_PLUGIN_CACHE_DIR")
+	if pluginCacheBase == "" {
+		pluginCacheBase = "/cache/terraform/plugins"
 	}
-	// If the shared cache dir can't be created, fall back to per-run cache.
-	if err := os.MkdirAll(sharedPluginCacheDir, 0755); err != nil {
-		sharedPluginCacheDir = ""
+	// If the base cache dir can't be created, fall back to per-run cache.
+	if err := os.MkdirAll(pluginCacheBase, 0755); err != nil {
+		pluginCacheBase = ""
 	}
 
 	// Provider download / install can occasionally fail with a checksum mismatch under concurrency
 	// when using a shared TF_PLUGIN_CACHE_DIR. Retry once with an isolated cache to self-heal.
-	out, err := runPlanOnce(ctx, workDir, tool, tfBin, tgBin, stackPath, dataKey, sharedPluginCacheDir, false)
-	if err == nil || !isProviderChecksumMismatch(out) {
+	out, err := runPlanOnce(ctx, workDir, tool, tfBin, tgBin, stackPath, dataKey, pluginCacheBase, false)
+	if err == nil || !shouldRetryWithIsolatedCache(out) {
 		return cleanTerragruntOutput(tool, out), err
 	}
 
@@ -109,9 +109,20 @@ func isProviderChecksumMismatch(output string) bool {
 		strings.Contains(output, "does not match any of the checksums recorded in the dependency lock file")
 }
 
+func shouldRetryWithIsolatedCache(output string) bool {
+	if isProviderChecksumMismatch(output) {
+		return true
+	}
+	// Provider installation races in a shared cache can yield transient ETXTBUSY errors.
+	if strings.Contains(output, "Failed to install provider") && strings.Contains(output, "text file busy") {
+		return true
+	}
+	return false
+}
+
 func runPlanOnce(
 	ctx context.Context,
-	workDir, tool, tfBin, tgBin, stackPath, dataKey, pluginCacheDir string,
+	workDir, tool, tfBin, tgBin, stackPath, dataKey, pluginCacheBase string,
 	isRetry bool,
 ) (string, error) {
 	var output bytes.Buffer
@@ -127,6 +138,15 @@ func runPlanOnce(
 	}
 	defer os.RemoveAll(dataDir)
 
+	// Default to a per-stack plugin cache under the configured base directory.
+	// This avoids concurrent writers fighting over the same cached provider paths.
+	pluginCacheDir := ""
+	if pluginCacheBase != "" {
+		pluginCacheDir = filepath.Join(pluginCacheBase, safePath(dataKey), safePath(stackPath))
+		if err := os.MkdirAll(pluginCacheDir, 0755); err != nil {
+			pluginCacheDir = ""
+		}
+	}
 	if pluginCacheDir == "" {
 		pluginCacheDir = filepath.Join(dataDir, "plugin-cache")
 		_ = os.MkdirAll(pluginCacheDir, 0755)

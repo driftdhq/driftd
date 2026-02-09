@@ -40,7 +40,7 @@ echo "TF_DATA_DIR=${TF_DATA_DIR:-}" >> "` + logPath + `"
 
 if [ "$cmd" = "init" ]; then
   case "${TF_PLUGIN_CACHE_DIR:-}" in
-    "` + sharedCache + `")
+    ` + sharedCache + `/*)
       echo "Error: Required plugins are not installed"
       echo "does not match any of the checksums recorded in the dependency lock file"
       exit 1
@@ -102,11 +102,11 @@ exit 0
 	if len(pluginCacheDirs) < 2 {
 		t.Fatalf("expected at least 2 TF_PLUGIN_CACHE_DIR entries\nlog:\n%s", log)
 	}
-	if pluginCacheDirs[0] != sharedCache {
-		t.Fatalf("expected first attempt to use shared cache %q, got %q", sharedCache, pluginCacheDirs[0])
+	if !strings.HasPrefix(pluginCacheDirs[0], sharedCache+string(os.PathSeparator)) {
+		t.Fatalf("expected first attempt to use cache under %q, got %q", sharedCache, pluginCacheDirs[0])
 	}
-	if pluginCacheDirs[1] == sharedCache {
-		t.Fatalf("expected retry to use isolated cache, but got shared cache again\nlog:\n%s", log)
+	if strings.HasPrefix(pluginCacheDirs[1], sharedCache+string(os.PathSeparator)) {
+		t.Fatalf("expected retry to use isolated cache, but got cache under %q again\nlog:\n%s", sharedCache, log)
 	}
 
 	// Unique TF_DATA_DIR per attempt.
