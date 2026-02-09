@@ -50,10 +50,10 @@ func (f *fakeRunner) Run(ctx context.Context, params *runner.RunParams) (*storag
 }
 
 type scanResp struct {
-	Stacks     []string    `json:"stacks"`
-	Scan       *queue.Scan `json:"scan"`
-	ActiveScan *queue.Scan `json:"active_scan"`
-	Error      string      `json:"error"`
+	Stacks     []string `json:"stacks"`
+	Scan       *apiScan `json:"scan"`
+	ActiveScan *apiScan `json:"active_scan"`
+	Error      string  `json:"error"`
 }
 
 func TestScanRepoCompletesScan(t *testing.T) {
@@ -1011,7 +1011,7 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 	return srv, server, q, cleanup
 }
 
-func waitForScan(t *testing.T, ts *httptest.Server, scanID string, timeout time.Duration) *queue.Scan {
+func waitForScan(t *testing.T, ts *httptest.Server, scanID string, timeout time.Duration) *apiScan {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
@@ -1020,7 +1020,7 @@ func waitForScan(t *testing.T, ts *httptest.Server, scanID string, timeout time.
 		if err != nil {
 			t.Fatalf("get scan: %v", err)
 		}
-		var scan queue.Scan
+		var scan apiScan
 		if err := json.NewDecoder(resp.Body).Decode(&scan); err != nil {
 			resp.Body.Close()
 			t.Fatalf("decode scan: %v", err)
@@ -1037,7 +1037,7 @@ func waitForScan(t *testing.T, ts *httptest.Server, scanID string, timeout time.
 	return nil
 }
 
-func getScan(t *testing.T, ts *httptest.Server, scanID string) *queue.Scan {
+func getScan(t *testing.T, ts *httptest.Server, scanID string) *apiScan {
 	t.Helper()
 
 	resp, err := http.Get(ts.URL + "/api/scans/" + scanID)
@@ -1046,7 +1046,7 @@ func getScan(t *testing.T, ts *httptest.Server, scanID string) *queue.Scan {
 	}
 	defer resp.Body.Close()
 
-	var scan queue.Scan
+	var scan apiScan
 	if err := json.NewDecoder(resp.Body).Decode(&scan); err != nil {
 		t.Fatalf("decode scan: %v", err)
 	}

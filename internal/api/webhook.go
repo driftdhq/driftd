@@ -115,7 +115,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scanResponse{
 		Stacks:  stackIDs,
-		Scan:    scan,
+		Scan:    toAPIScan(scan),
 		Message: fmt.Sprintf("Enqueued %d stacks", len(stackIDs)),
 	})
 }

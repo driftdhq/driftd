@@ -37,7 +37,7 @@ func (s *Server) handleGetStackScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stackScan)
+	json.NewEncoder(w).Encode(toAPIStackScan(stackScan))
 }
 
 func (s *Server) handleListRepoStackScans(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,11 @@ func (s *Server) handleListRepoStackScans(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stackScans)
+	apiScans := make([]*apiStackScan, 0, len(stackScans))
+	for _, scan := range stackScans {
+		apiScans = append(apiScans, toAPIStackScan(scan))
+	}
+	json.NewEncoder(w).Encode(apiScans)
 }
 
 type scanRequest struct {
@@ -64,11 +68,11 @@ type scanRequest struct {
 }
 
 type scanResponse struct {
-	Stacks     []string    `json:"stacks,omitempty"`
-	Scan       *queue.Scan `json:"scan,omitempty"`
-	ActiveScan *queue.Scan `json:"active_scan,omitempty"`
-	Message    string      `json:"message,omitempty"`
-	Error      string      `json:"error,omitempty"`
+	Stacks     []string `json:"stacks,omitempty"`
+	Scan       *apiScan `json:"scan,omitempty"`
+	ActiveScan *apiScan `json:"active_scan,omitempty"`
+	Message    string  `json:"message,omitempty"`
+	Error      string  `json:"error,omitempty"`
 }
 
 func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +141,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(scanResponse{
 				Error:      "Repository scan already in progress",
-				ActiveScan: activeScan,
+				ActiveScan: toAPIScan(activeScan),
 			})
 			return
 		}
@@ -169,7 +173,7 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 
 	resp := scanResponse{
 		Stacks:  enqResult.StackIDs,
-		Scan:    scan,
+		Scan:    toAPIScan(scan),
 		Message: fmt.Sprintf("Enqueued %d stacks", len(enqResult.StackIDs)),
 	}
 	if len(enqResult.Errors) > 0 {
@@ -210,7 +214,7 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(scanResponse{Error: "Repository scan already in progress", ActiveScan: activeScan})
+			json.NewEncoder(w).Encode(scanResponse{Error: "Repository scan already in progress", ActiveScan: toAPIScan(activeScan)})
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
@@ -239,7 +243,7 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(scanResponse{
 		Stacks:  enqResult.StackIDs,
-		Scan:    scan,
+		Scan:    toAPIScan(scan),
 		Message: "Stack enqueued",
 	})
 }
@@ -262,7 +266,7 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(scan)
+	json.NewEncoder(w).Encode(toAPIScan(scan))
 }
 
 func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
