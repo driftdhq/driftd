@@ -52,6 +52,33 @@
 
 {{if .Stacks}}
 <section class="stacks">
+    <form method="GET" action="/repos/{{.Name}}" class="stack-controls">
+        <label class="stack-control">
+            Sort
+            <select name="sort">
+                <option value="path" {{if eq .Sort "path"}}selected{{end}}>Path</option>
+                <option value="status" {{if eq .Sort "status"}}selected{{end}}>Status</option>
+                <option value="last_run" {{if eq .Sort "last_run"}}selected{{end}}>Last Run</option>
+            </select>
+        </label>
+        <label class="stack-control">
+            Order
+            <select name="order">
+                <option value="asc" {{if eq .Order "asc"}}selected{{end}}>Asc</option>
+                <option value="desc" {{if eq .Order "desc"}}selected{{end}}>Desc</option>
+            </select>
+        </label>
+        <label class="stack-control">
+            Per page
+            <select name="per">
+                <option value="25" {{if eq .Pagination.PerPage 25}}selected{{end}}>25</option>
+                <option value="50" {{if eq .Pagination.PerPage 50}}selected{{end}}>50</option>
+                <option value="100" {{if eq .Pagination.PerPage 100}}selected{{end}}>100</option>
+                <option value="200" {{if eq .Pagination.PerPage 200}}selected{{end}}>200</option>
+            </select>
+        </label>
+        <button type="submit" class="btn btn-small">Apply</button>
+    </form>
     <div class="stack-tree">
         <div class="stack-tree-header">
             <div class="stack-cell stack-name">Stack</div>
@@ -79,6 +106,16 @@
                 </div>
             </div>
             {{end}}
+        </div>
+    </div>
+    <div class="stack-pagination">
+        <div class="stack-pagination-meta">
+            Showing {{len .Stacks}} of {{.Pagination.Total}} stacks
+        </div>
+        <div class="stack-pagination-actions">
+            {{if .Pagination.PrevURL}}<a class="btn btn-small" href="{{.Pagination.PrevURL}}">Prev</a>{{end}}
+            <span class="meta">Page {{.Pagination.Page}} / {{.Pagination.TotalPages}}</span>
+            {{if .Pagination.NextURL}}<a class="btn btn-small" href="{{.Pagination.NextURL}}">Next</a>{{end}}
         </div>
     </div>
 </section>

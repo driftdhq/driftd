@@ -5,7 +5,9 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +53,18 @@ type repoPageData struct {
 	ActiveScan *queue.Scan
 	LastScan   *queue.Scan
 	CSRFToken  string
+	Pagination repoPagination
+	Sort       string
+	Order      string
+}
+
+type repoPagination struct {
+	Page       int
+	PerPage    int
+	Total      int
+	TotalPages int
+	PrevURL    string
+	NextURL    string
 }
 
 type stackPageData struct {
@@ -172,6 +186,9 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 
 	stacks, _ := s.storage.ListStacks(repoName)
 	stacks = filterParentStackStatuses(stacks)
+	page, perPage, sortBy, sortOrder := parseRepoListParams(r)
+	stacks = sortStacks(stacks, sortBy, sortOrder)
+	pageStacks, pagination := paginateStacks(stacks, page, perPage, "/repos/"+repoName, sortBy, sortOrder)
 	csrfToken := csrfTokenFromContext(r.Context())
 	repoCfg, _ := s.getRepoConfig(repoName)
 	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
@@ -180,17 +197,150 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 
 	data := repoPageData{
 		Name:       repoName,
-		Stacks:     stacks,
+		Stacks:     pageStacks,
 		Config:     repoCfg,
 		Locked:     locked,
 		ActiveScan: activeScan,
 		LastScan:   lastScan,
 		CSRFToken:  csrfToken,
+		Pagination: pagination,
+		Sort:       sortBy,
+		Order:      sortOrder,
 	}
 
 	if err := s.tmplRepo.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("template error: %v", err)
 	}
+}
+
+func parseRepoListParams(r *http.Request) (page, perPage int, sortBy, sortOrder string) {
+	q := r.URL.Query()
+	page = clampInt(parseInt(q.Get("page"), 1), 1, 10_000)
+	perPage = clampInt(parseInt(q.Get("per"), 50), 10, 200)
+	sortBy = q.Get("sort")
+	if sortBy == "" {
+		sortBy = "path"
+	}
+	switch sortBy {
+	case "path", "status", "last_run":
+	default:
+		sortBy = "path"
+	}
+	sortOrder = strings.ToLower(q.Get("order"))
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "asc"
+	}
+	return page, perPage, sortBy, sortOrder
+}
+
+func parseInt(value string, fallback int) int {
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func clampInt(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func sortStacks(stacks []storage.StackStatus, sortBy, sortOrder string) []storage.StackStatus {
+	if len(stacks) < 2 {
+		return stacks
+	}
+	sorted := make([]storage.StackStatus, len(stacks))
+	copy(sorted, stacks)
+	less := func(i, j int) bool {
+		switch sortBy {
+		case "status":
+			// error -> drifted -> healthy
+			ai := statusRank(sorted[i])
+			aj := statusRank(sorted[j])
+			if ai != aj {
+				return ai < aj
+			}
+		case "last_run":
+			ti := sorted[i].RunAt
+			tj := sorted[j].RunAt
+			if !ti.Equal(tj) {
+				return ti.Before(tj)
+			}
+		}
+		return sorted[i].Path < sorted[j].Path
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		if sortOrder == "desc" {
+			return !less(i, j)
+		}
+		return less(i, j)
+	})
+	return sorted
+}
+
+func statusRank(stack storage.StackStatus) int {
+	if stack.Error != "" {
+		return 0
+	}
+	if stack.Drifted {
+		return 1
+	}
+	return 2
+}
+
+func paginateStacks(stacks []storage.StackStatus, page, perPage int, basePath, sortBy, sortOrder string) ([]storage.StackStatus, repoPagination) {
+	total := len(stacks)
+	totalPages := total / perPage
+	if total%perPage != 0 {
+		totalPages++
+	}
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	start := (page - 1) * perPage
+	if start > total {
+		start = total
+	}
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+
+	pagination := repoPagination{
+		Page:       page,
+		PerPage:    perPage,
+		Total:      total,
+		TotalPages: totalPages,
+	}
+	if page > 1 {
+		pagination.PrevURL = buildRepoListURL(basePath, page-1, perPage, sortBy, sortOrder)
+	}
+	if page < totalPages {
+		pagination.NextURL = buildRepoListURL(basePath, page+1, perPage, sortBy, sortOrder)
+	}
+	return stacks[start:end], pagination
+}
+
+func buildRepoListURL(basePath string, page, perPage int, sortBy, sortOrder string) string {
+	params := url.Values{}
+	params.Set("page", strconv.Itoa(page))
+	params.Set("per", strconv.Itoa(perPage))
+	params.Set("sort", sortBy)
+	params.Set("order", sortOrder)
+	return basePath + "?" + params.Encode()
 }
 
 func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {

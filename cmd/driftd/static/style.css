@@ -452,6 +452,38 @@ a:hover {
     display: inline;
 }
 
+/* Stack Controls */
+.stack-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+}
+
+.stack-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.stack-control select {
+    background: rgba(15, 23, 42, 0.92);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+:root[data-theme="light"] .stack-control select {
+    background: var(--panel);
+    color: var(--text);
+}
+
 /* Stack Tree */
 .stack-tree {
     background: rgba(15, 23, 42, 0.92);
@@ -556,6 +588,22 @@ a:hover {
 
 .stack-group-children {
     border-top: 1px solid var(--border);
+}
+
+/* Stack Pagination */
+.stack-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.stack-pagination-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 /* Badges */
