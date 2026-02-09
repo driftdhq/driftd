@@ -129,6 +129,14 @@ func (q *Queue) MarkScanEnqueueFailed(ctx context.Context, scanID string) error 
 	return q.runScanTransition(ctx, scanID, repoName, "queued", -1, "failed", 1, "errored", 1)
 }
 
+func (q *Queue) MarkScanEnqueueSkipped(ctx context.Context, scanID string) error {
+	repoName, err := q.repoNameForScan(ctx, scanID)
+	if err != nil {
+		return err
+	}
+	return q.runScanTransition(ctx, scanID, repoName, "queued", -1, "total", -1)
+}
+
 func (q *Queue) publishScanUpdate(ctx context.Context, scanID, repoName string) {
 	scan, err := q.GetScan(ctx, scanID)
 	if err != nil {
