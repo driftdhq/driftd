@@ -318,6 +318,10 @@ a:hover {
     text-decoration: none;
 }
 
+.project-row-link {
+    cursor: pointer;
+}
+
 .project-row:last-child {
     border-bottom: none;
 }
