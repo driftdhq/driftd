@@ -1,5 +1,8 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /src
 
@@ -9,10 +12,10 @@ RUN go mod download
 
 # Build
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /driftd ./cmd/driftd
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /driftd ./cmd/driftd
 
 # Tools stage (keep curl/bash out of the runtime image)
-FROM alpine:3.21 AS tools
+FROM --platform=$BUILDPLATFORM alpine:3.21 AS tools
 
 ARG TARGETARCH
 ARG TFSWITCH_VERSION=v1.13.0
