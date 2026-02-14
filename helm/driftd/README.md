@@ -5,7 +5,6 @@ This chart deploys the Driftd server and worker components.
 ## Prerequisites
 
 - Helm v3
-- Redis (managed or in-cluster)
 - A storage class that supports your desired access mode (RWX recommended for shared data/cache)
 
 ## Install
@@ -95,7 +94,12 @@ worker:
 
 ## Redis
 
-The chart does not install Redis. Configure `config.redis.addr` (and `password` if needed) to point at your Redis service.
+This chart installs Bitnami Redis by default (`redis.enabled=true`).
+
+To use external Redis instead:
+
+- set `redis.enabled=false`
+- set `config.redis.addr` (and `config.redis.password` if needed)
 
 ## Storage
 

@@ -82,7 +82,8 @@ flowchart TB
 
 ## Deployment
 
-**Prerequisites:** A Kubernetes cluster, a Redis instance (ElastiCache, Memorystore, or self-hosted), and git credentials for your projects.
+**Prerequisites:** A Kubernetes cluster and git credentials for your projects.
+Redis can be deployed in-cluster via the Helm chart (default) or provided externally.
 
 ### Helm
 
@@ -96,6 +97,28 @@ See `helm/driftd/README.md` for full chart documentation.
 For external OIDC with oauth2-proxy (Okta/Google/Azure AD), see:
 `helm/driftd/examples/oauth2-proxy/`.
 
+### Quickstart (Minikube)
+
+```bash
+minikube start --cpus=4 --memory=6g
+
+kubectl create secret generic driftd-runtime \
+  --from-literal=DRIFTD_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+helm upgrade --install driftd ./helm/driftd \
+  --set image.repository=ghcr.io/driftdhq/driftd \
+  --set image.tag=latest \
+  --set storage.data.storageClassName=standard \
+  --set storage.cache.storageClassName=standard \
+  --set config.insecure_dev_mode=true
+
+kubectl port-forward svc/driftd 8080:8080
+```
+
+For secure local mode, set `config.insecure_dev_mode=false` and configure
+`ui_auth` and/or `api_auth`.
+
 ### From Source
 
 ```bash
@@ -107,8 +130,8 @@ go build -o driftd ./cmd/driftd
 ### Kubernetes Layout
 
 - **Server**: Single replica Deployment (runs the scheduler)
-- **Workers**: Deployment with HPA based on queue depth
-- **Redis**: Managed Redis or self-hosted
+- **Workers**: Deployment (HPA optional, based on queue/workload)
+- **Redis**: In-cluster subchart by default, or managed Redis/self-hosted
 - **Storage**: PVC mounted at `/data` and `/cache`
 
 ---
@@ -253,6 +276,8 @@ auth:
 
 When `insecure_dev_mode: false`, you must also set `DRIFTD_ENCRYPTION_KEY`
 for both `serve` and `worker` processes.
+If `/data` already contains encrypted settings, keep the same key (or migrate
+data) when redeploying.
 
 ### UI Basic Auth
 
