@@ -3,6 +3,11 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -75,14 +80,28 @@ const (
 	minRenewEvery = 10 * time.Second
 )
 
+var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+type ProjectConfig struct {
+	Name        string   `yaml:"name"`
+	Path        string   `yaml:"path"`
+	Schedule    string   `yaml:"schedule,omitempty"`
+	IgnorePaths []string `yaml:"ignore_paths,omitempty"`
+}
+
 type RepoConfig struct {
-	Name                       string         `yaml:"name"`
-	URL                        string         `yaml:"url"`
-	Branch                     string         `yaml:"branch"`
-	IgnorePaths                []string       `yaml:"ignore_paths"`
-	Schedule                   string         `yaml:"schedule"` // cron expression, empty = no scheduled scans
-	CancelInflightOnNewTrigger *bool          `yaml:"cancel_inflight_on_new_trigger"`
-	Git                        *GitAuthConfig `yaml:"git"`
+	Name                       string          `yaml:"name"`
+	URL                        string          `yaml:"url"`
+	Branch                     string          `yaml:"branch"`
+	IgnorePaths                []string        `yaml:"ignore_paths"`
+	Schedule                   string          `yaml:"schedule"` // cron expression, empty = no scheduled scans
+	CancelInflightOnNewTrigger *bool           `yaml:"cancel_inflight_on_new_trigger"`
+	Git                        *GitAuthConfig  `yaml:"git"`
+	Projects                   []ProjectConfig `yaml:"projects,omitempty"`
+
+	// Derived fields used internally after config load/expansion.
+	RootPath string `yaml:"-"`
+	CloneURL string `yaml:"-"`
 }
 
 func (r *RepoConfig) CancelInflightEnabled() bool {
@@ -90,6 +109,16 @@ func (r *RepoConfig) CancelInflightEnabled() bool {
 		return true
 	}
 	return *r.CancelInflightOnNewTrigger
+}
+
+func (r *RepoConfig) EffectiveCloneURL() string {
+	if r == nil {
+		return ""
+	}
+	if r.CloneURL != "" {
+		return r.CloneURL
+	}
+	return r.URL
 }
 
 func (w WorkspaceConfig) CleanupAfterPlanEnabled() bool {
@@ -239,6 +268,176 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	if cfg.Worker.RenewEvery > cfg.Worker.LockTTL/2 {
 		return nil, fmt.Errorf("worker.renew_every must be <= lock_ttl/2")
 	}
+	expandedRepos, err := expandMonorepos(cfg.Repos)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Repos = expandedRepos
 
 	return cfg, nil
+}
+
+func expandMonorepos(repos []RepoConfig) ([]RepoConfig, error) {
+	expanded := make([]RepoConfig, 0, len(repos))
+	seenNames := make(map[string]struct{}, len(repos))
+
+	for i, repo := range repos {
+		source := fmt.Sprintf("repos[%d]", i)
+		if !isValidRepoName(repo.Name) {
+			return nil, fmt.Errorf("%s: invalid repo name %q", source, repo.Name)
+		}
+		if strings.TrimSpace(repo.URL) == "" {
+			return nil, fmt.Errorf("%s (%s): url is required", source, repo.Name)
+		}
+
+		if len(repo.Projects) == 0 {
+			repo.Projects = nil
+			repo.RootPath = ""
+			repo.CloneURL = repo.URL
+			if err := appendExpandedRepo(&expanded, seenNames, repo, source); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		projectRepos, err := expandRepoProjects(repo, source)
+		if err != nil {
+			return nil, err
+		}
+		for _, projectRepo := range projectRepos {
+			if err := appendExpandedRepo(&expanded, seenNames, projectRepo, source); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return expanded, nil
+}
+
+func appendExpandedRepo(expanded *[]RepoConfig, seen map[string]struct{}, repo RepoConfig, source string) error {
+	if _, ok := seen[repo.Name]; ok {
+		return fmt.Errorf("%s: duplicate repo/project name %q after expansion", source, repo.Name)
+	}
+	seen[repo.Name] = struct{}{}
+	*expanded = append(*expanded, repo)
+	return nil
+}
+
+func expandRepoProjects(parent RepoConfig, source string) ([]RepoConfig, error) {
+	cleanPaths := make([]string, 0, len(parent.Projects))
+	for idx := range parent.Projects {
+		project := parent.Projects[idx]
+		if !isValidRepoName(project.Name) {
+			return nil, fmt.Errorf("%s (%s): invalid project name %q", source, parent.Name, project.Name)
+		}
+		cleanPath, err := normalizeProjectPath(project.Path)
+		if err != nil {
+			return nil, fmt.Errorf("%s (%s): invalid project path %q: %w", source, parent.Name, project.Path, err)
+		}
+		cleanPaths = append(cleanPaths, cleanPath)
+		parent.Projects[idx].Path = cleanPath
+	}
+
+	if err := validateNoOverlappingProjectPaths(cleanPaths); err != nil {
+		return nil, fmt.Errorf("%s (%s): %w", source, parent.Name, err)
+	}
+
+	expanded := make([]RepoConfig, 0, len(parent.Projects))
+	for _, project := range parent.Projects {
+		ignorePaths := copyStringSlice(parent.IgnorePaths)
+		if project.IgnorePaths != nil {
+			ignorePaths = copyStringSlice(project.IgnorePaths)
+		}
+		schedule := parent.Schedule
+		if project.Schedule != "" {
+			schedule = project.Schedule
+		}
+
+		expanded = append(expanded, RepoConfig{
+			Name:                       project.Name,
+			URL:                        parent.URL,
+			Branch:                     parent.Branch,
+			IgnorePaths:                ignorePaths,
+			Schedule:                   schedule,
+			CancelInflightOnNewTrigger: copyBoolPtr(parent.CancelInflightOnNewTrigger),
+			Git:                        copyGitAuth(parent.Git),
+			Projects:                   nil,
+			RootPath:                   project.Path,
+			CloneURL:                   parent.URL,
+		})
+	}
+
+	return expanded, nil
+}
+
+func normalizeProjectPath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	slashPath := filepath.ToSlash(trimmed)
+	clean := path.Clean(slashPath)
+	if clean == "." {
+		return "", fmt.Errorf("path must not be '.'")
+	}
+	if strings.HasPrefix(clean, "/") {
+		return "", fmt.Errorf("path must be relative")
+	}
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("path must not traverse outside repository")
+	}
+	return clean, nil
+}
+
+func validateNoOverlappingProjectPaths(paths []string) error {
+	if len(paths) < 2 {
+		return nil
+	}
+	sorted := append([]string(nil), paths...)
+	sort.Strings(sorted)
+	for i := 1; i < len(sorted); i++ {
+		prev := sorted[i-1]
+		curr := sorted[i]
+		if prev == curr || strings.HasPrefix(curr, prev+"/") {
+			return fmt.Errorf("overlapping project paths detected: %q and %q", prev, curr)
+		}
+	}
+	return nil
+}
+
+func copyBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
+func copyStringSlice(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	copied := make([]string, len(values))
+	copy(copied, values)
+	return copied
+}
+
+func copyGitAuth(cfg *GitAuthConfig) *GitAuthConfig {
+	if cfg == nil {
+		return nil
+	}
+	copied := *cfg
+	if cfg.GitHubApp != nil {
+		app := *cfg.GitHubApp
+		copied.GitHubApp = &app
+	}
+	return &copied
+}
+
+func isValidRepoName(name string) bool {
+	if name == "" || len(name) > 255 {
+		return false
+	}
+	return repoNamePattern.MatchString(name)
 }

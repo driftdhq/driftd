@@ -6,10 +6,12 @@ import (
 	"html/template"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/secrets"
 )
 
@@ -74,6 +76,7 @@ func (s *Server) listConfiguredRepos() []config.RepoConfig {
 		repo := config.RepoConfig{
 			Name:                       entry.Name,
 			URL:                        entry.URL,
+			CloneURL:                   entry.URL,
 			Branch:                     entry.Branch,
 			IgnorePaths:                entry.IgnorePaths,
 			Schedule:                   entry.Schedule,
@@ -92,6 +95,62 @@ func (s *Server) listConfiguredRepos() []config.RepoConfig {
 	}
 
 	return repos
+}
+
+func (s *Server) getReposByURL(urls ...string) ([]*config.RepoConfig, error) {
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	candidates := make(map[string]struct{}, len(urls))
+	for _, rawURL := range urls {
+		canonical, ok := repos.CanonicalURL(rawURL)
+		if !ok {
+			continue
+		}
+		candidates[canonical] = struct{}{}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	all := s.listConfiguredRepos()
+	names := make(map[string]struct{})
+	for _, repo := range all {
+		canonical, ok := repos.CanonicalURL(repo.EffectiveCloneURL())
+		if !ok {
+			continue
+		}
+		if _, match := candidates[canonical]; !match {
+			continue
+		}
+		names[repo.Name] = struct{}{}
+	}
+
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	sortedNames := make([]string, 0, len(names))
+	for name := range names {
+		sortedNames = append(sortedNames, name)
+	}
+	sort.Strings(sortedNames)
+
+	matched := make([]*config.RepoConfig, 0, len(sortedNames))
+	for _, name := range sortedNames {
+		repoCfg, err := s.getRepoConfig(name)
+		if err != nil {
+			if err == secrets.ErrRepoNotFound {
+				continue
+			}
+			return nil, err
+		}
+		if repoCfg != nil {
+			matched = append(matched, repoCfg)
+		}
+	}
+	return matched, nil
 }
 
 func formatPlanOutput(plan string) template.HTML {

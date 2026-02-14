@@ -69,11 +69,12 @@ type scanRequest struct {
 }
 
 type scanResponse struct {
-	Stacks     []string `json:"stacks,omitempty"`
-	Scan       *apiScan `json:"scan,omitempty"`
-	ActiveScan *apiScan `json:"active_scan,omitempty"`
-	Message    string   `json:"message,omitempty"`
-	Error      string   `json:"error,omitempty"`
+	Stacks     []string   `json:"stacks,omitempty"`
+	Scan       *apiScan   `json:"scan,omitempty"`
+	Scans      []*apiScan `json:"scans,omitempty"`
+	ActiveScan *apiScan   `json:"active_scan,omitempty"`
+	Message    string     `json:"message,omitempty"`
+	Error      string     `json:"error,omitempty"`
 }
 
 func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {

@@ -17,6 +17,7 @@ const (
 	keyStackScanInflight     = "driftd:stack_scan:inflight:"
 	keyStackScanPending      = "driftd:stack_scan:pending"
 	keyLockPrefix            = "driftd:lock:repo:"
+	keyCloneLockPrefix       = "driftd:lock:clone:"
 	keyRepoStackScans        = "driftd:stack_scans:repo:"
 	keyRepoStackScansOrdered = "driftd:stack_scans:repo:ordered:"
 	keyRunningStackScans     = "driftd:stack_scans:running"

@@ -72,7 +72,7 @@ func TestStartScanCreatesScanAndStacks(t *testing.T) {
 	if _, err := os.Stat(state.WorkspacePath); err != nil {
 		t.Fatalf("workspace missing: %v", err)
 	}
-	expectedWorkspace := filepath.Join(dataDir, "workspaces", repoCfg.Name, "repo")
+	expectedWorkspace := filepath.Join(dataDir, "workspaces", "scans", repoCfg.Name, scan.ID, "repo")
 	if state.WorkspacePath != expectedWorkspace {
 		t.Fatalf("expected workspace path %s, got %s", expectedWorkspace, state.WorkspacePath)
 	}
@@ -98,7 +98,7 @@ func TestCloneWorkspaceFetchesUpdates(t *testing.T) {
 		URL:  "file://" + repoDir,
 	}
 
-	workspace, commit1, err := orch.cloneWorkspace(context.Background(), repoCfg, nil)
+	workspace, commit1, err := orch.cloneWorkspace(context.Background(), repoCfg, "scan-a", nil)
 	if err != nil {
 		t.Fatalf("clone workspace: %v", err)
 	}
@@ -123,18 +123,21 @@ func TestCloneWorkspaceFetchesUpdates(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 
-	workspace2, commit2, err := orch.cloneWorkspace(context.Background(), repoCfg, nil)
+	workspace2, commit2, err := orch.cloneWorkspace(context.Background(), repoCfg, "scan-b", nil)
 	if err != nil {
 		t.Fatalf("clone workspace (update): %v", err)
 	}
-	if workspace != workspace2 {
-		t.Fatalf("expected same workspace, got %s and %s", workspace, workspace2)
+	if workspace == workspace2 {
+		t.Fatalf("expected immutable per-scan workspaces, got same path %s", workspace)
 	}
 	if commit1 == commit2 {
 		t.Fatalf("expected new commit hash after fetch")
 	}
 	if _, err := os.Stat(filepath.Join(workspace2, "second.tf")); err != nil {
 		t.Fatalf("expected updated file in workspace: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "second.tf")); err == nil {
+		t.Fatalf("expected first workspace snapshot to remain immutable")
 	}
 }
 

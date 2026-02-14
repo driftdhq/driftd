@@ -13,7 +13,7 @@ func TestDiscoverStacks(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "envs/dev/terragrunt.hcl"))
 	writeFile(t, filepath.Join(dir, "modules/shared/main.tf"))
 
-	stacks, err := Discover(dir, []string{"**/modules/**"})
+	stacks, err := Discover(dir, "", []string{"**/modules/**"})
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestDiscoverRespectsDefaultIgnore(t *testing.T) {
 	writeFile(t, filepath.Join(dir, ".terragrunt-cache/ignored.hcl"))
 	writeFile(t, filepath.Join(dir, "app/main.tf"))
 
-	stacks, err := Discover(dir, nil)
+	stacks, err := Discover(dir, "", nil)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestDiscoverPrefersTerragruntWhenRootConfigPresent(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "modules/app/main.tf"))
 	writeFile(t, filepath.Join(dir, "modules/db/main.tf"))
 
-	stacks, err := Discover(dir, nil)
+	stacks, err := Discover(dir, "", nil)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -76,5 +76,37 @@ func writeFile(t *testing.T, path string) {
 	}
 	if err := os.WriteFile(path, []byte(""), 0644); err != nil {
 		t.Fatalf("write: %v", err)
+	}
+}
+
+func TestDiscoverScopedRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "aws/accountA/prod/main.tf"))
+	writeFile(t, filepath.Join(dir, "aws/accountA/dev/main.tf"))
+	writeFile(t, filepath.Join(dir, "aws/accountB/prod/main.tf"))
+
+	stacks, err := Discover(dir, "aws/accountA", nil)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+
+	sort.Strings(stacks)
+	want := []string{"aws/accountA/dev", "aws/accountA/prod"}
+	if len(stacks) != len(want) {
+		t.Fatalf("expected %d stacks, got %d (%v)", len(want), len(stacks), stacks)
+	}
+	for i := range want {
+		if stacks[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, stacks)
+		}
+	}
+}
+
+func TestDiscoverScopedRootMissing(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "envs/prod/main.tf"))
+
+	if _, err := Discover(dir, "aws/accountA", nil); err == nil {
+		t.Fatalf("expected error for missing root path")
 	}
 }

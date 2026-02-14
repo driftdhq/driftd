@@ -50,10 +50,11 @@ func (f *fakeRunner) Run(ctx context.Context, params *runner.RunParams) (*storag
 }
 
 type scanResp struct {
-	Stacks     []string `json:"stacks"`
-	Scan       *apiScan `json:"scan"`
-	ActiveScan *apiScan `json:"active_scan"`
-	Error      string  `json:"error"`
+	Stacks     []string   `json:"stacks"`
+	Scan       *apiScan   `json:"scan"`
+	Scans      []*apiScan `json:"scans"`
+	ActiveScan *apiScan   `json:"active_scan"`
+	Error      string     `json:"error"`
 }
 
 func TestScanRepoCompletesScan(t *testing.T) {
@@ -450,7 +451,7 @@ func TestRateLimitScan(t *testing.T) {
 
 func TestWebhookIgnoresNonInfraFiles(t *testing.T) {
 	runner := &fakeRunner{}
-	_, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
 		cfg.Webhook.Enabled = true
 		cfg.Webhook.GitHubSecret = "secret"
 	})
@@ -462,9 +463,13 @@ func TestWebhookIgnoresNonInfraFiles(t *testing.T) {
 			Name          string `json:"name"`
 			FullName      string `json:"full_name"`
 			DefaultBranch string `json:"default_branch"`
+			CloneURL      string `json:"clone_url"`
+			SSHURL        string `json:"ssh_url"`
+			HTMLURL       string `json:"html_url"`
 		}{
 			Name:          "repo",
 			DefaultBranch: "main",
+			CloneURL:      srv.cfg.GetRepo("repo").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -497,7 +502,7 @@ func TestWebhookIgnoresNonInfraFiles(t *testing.T) {
 
 func TestWebhookIgnoresUnmatchedInfraFiles(t *testing.T) {
 	runner := &fakeRunner{}
-	_, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
 		cfg.Webhook.Enabled = true
 		cfg.Webhook.GitHubSecret = "secret"
 	})
@@ -509,9 +514,13 @@ func TestWebhookIgnoresUnmatchedInfraFiles(t *testing.T) {
 			Name          string `json:"name"`
 			FullName      string `json:"full_name"`
 			DefaultBranch string `json:"default_branch"`
+			CloneURL      string `json:"clone_url"`
+			SSHURL        string `json:"ssh_url"`
+			HTMLURL       string `json:"html_url"`
 		}{
 			Name:          "repo",
 			DefaultBranch: "main",
+			CloneURL:      srv.cfg.GetRepo("repo").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -549,12 +558,136 @@ func TestWebhookIgnoresUnmatchedInfraFiles(t *testing.T) {
 	}
 }
 
+func TestWebhookMatchesByCloneURLWhenNameDiffers(t *testing.T) {
+	runner := &fakeRunner{}
+	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Webhook.Enabled = true
+		cfg.Webhook.GitHubSecret = "secret"
+		cfg.Repos[0].Name = "configured-repo"
+	})
+	defer cleanup()
+
+	payload := gitHubPushPayload{
+		Ref: "refs/heads/main",
+		Repository: struct {
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			DefaultBranch string `json:"default_branch"`
+			CloneURL      string `json:"clone_url"`
+			SSHURL        string `json:"ssh_url"`
+			HTMLURL       string `json:"html_url"`
+		}{
+			Name:          "payload-repo",
+			DefaultBranch: "main",
+			CloneURL:      srv.cfg.GetRepo("configured-repo").URL,
+		},
+		Commits: []struct {
+			Added    []string `json:"added"`
+			Modified []string `json:"modified"`
+			Removed  []string `json:"removed"`
+		}{
+			{Modified: []string{"envs/prod/main.tf"}},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/webhooks/github", bytes.NewBuffer(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+computeTestHMAC(body, "secret"))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(sr.Scans) != 1 {
+		t.Fatalf("expected exactly one scan, got %d", len(sr.Scans))
+	}
+	if _, err := q.GetActiveScan(context.Background(), "configured-repo"); err != nil {
+		t.Fatalf("expected active scan for configured-repo: %v", err)
+	}
+}
+
+func TestWebhookUsesConfiguredBranchWhenSet(t *testing.T) {
+	runner := &fakeRunner{}
+	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Webhook.Enabled = true
+		cfg.Webhook.GitHubSecret = "secret"
+		cfg.Repos[0].Branch = "release"
+	})
+	defer cleanup()
+
+	payload := gitHubPushPayload{
+		Ref: "refs/heads/release",
+		Repository: struct {
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			DefaultBranch string `json:"default_branch"`
+			CloneURL      string `json:"clone_url"`
+			SSHURL        string `json:"ssh_url"`
+			HTMLURL       string `json:"html_url"`
+		}{
+			Name:          "repo",
+			DefaultBranch: "main",
+			CloneURL:      srv.cfg.GetRepo("repo").URL,
+		},
+		Commits: []struct {
+			Added    []string `json:"added"`
+			Modified []string `json:"modified"`
+			Removed  []string `json:"removed"`
+		}{
+			{Modified: []string{"envs/prod/main.tf"}},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/webhooks/github", bytes.NewBuffer(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+computeTestHMAC(body, "secret"))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if _, err := q.GetActiveScan(context.Background(), "repo"); err != nil {
+		t.Fatalf("expected active scan for branch-matched repo: %v", err)
+	}
+}
+
 func TestSelectStacksForChanges(t *testing.T) {
 	stacks := []string{"envs/prod", "envs/dev"}
 	changes := []string{"envs/prod/main.tf"}
 	selected := selectStacksForChanges(stacks, changes)
 	if len(selected) != 1 || selected[0] != "envs/prod" {
 		t.Fatalf("unexpected selection: %#v", selected)
+	}
+}
+
+func TestSelectStacksForChangesIncludesRoot(t *testing.T) {
+	stacks := []string{"", "envs/prod"}
+	changes := []string{"envs/prod/main.tf"}
+	selected := selectStacksForChanges(stacks, changes)
+	if len(selected) != 2 {
+		t.Fatalf("expected root + envs/prod, got %#v", selected)
+	}
+	if selected[0] != "" || selected[1] != "envs/prod" {
+		t.Fatalf("unexpected selection order/content: %#v", selected)
 	}
 }
 

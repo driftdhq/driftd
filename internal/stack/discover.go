@@ -1,7 +1,9 @@
 package stack
 
 import (
+	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,9 +21,35 @@ var defaultIgnore = []string{
 	"**/node_modules/**",
 }
 
-func Discover(repoDir string, ignore []string) ([]string, error) {
+func Discover(repoDir, rootPath string, ignore []string) ([]string, error) {
 	patterns := append([]string{}, defaultIgnore...)
 	patterns = append(patterns, ignore...)
+	scopeRoot := ""
+	walkRoot := repoDir
+	if rootPath != "" {
+		if filepath.IsAbs(rootPath) {
+			return nil, fmt.Errorf("root path must be relative: %q", rootPath)
+		}
+		clean := filepath.Clean(rootPath)
+		if clean == "." {
+			return nil, fmt.Errorf("root path must not be '.'")
+		}
+		if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+			return nil, fmt.Errorf("root path must not traverse outside repository: %q", rootPath)
+		}
+		scopeRoot = filepath.ToSlash(clean)
+		walkRoot = filepath.Join(repoDir, clean)
+		info, err := os.Stat(walkRoot)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("root path does not exist: %q", scopeRoot)
+			}
+			return nil, err
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("root path is not a directory: %q", scopeRoot)
+		}
+	}
 
 	seenTG := map[string]struct{}{}
 	seenTF := map[string]struct{}{}
@@ -29,7 +57,7 @@ func Discover(repoDir string, ignore []string) ([]string, error) {
 	var terraformStacks []string
 	rootHasTerragrunt := false
 
-	err := filepath.WalkDir(repoDir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -51,9 +79,13 @@ func Discover(repoDir string, ignore []string) ([]string, error) {
 		}
 
 		dir := filepath.ToSlash(filepath.Dir(rel))
+		normalizedDir := dir
+		if normalizedDir == "." {
+			normalizedDir = ""
+		}
 		base := filepath.Base(rel)
 		if base == "terragrunt.hcl" {
-			if dir == "." {
+			if normalizedDir == scopeRoot {
 				rootHasTerragrunt = true
 			}
 			addStack(dir, seenTG, &terragruntStacks)

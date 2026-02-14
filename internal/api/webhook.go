@@ -12,8 +12,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/orchestrate"
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/secrets"
 )
 
 type gitHubPushPayload struct {
@@ -22,6 +24,9 @@ type gitHubPushPayload struct {
 		Name          string `json:"name"`
 		FullName      string `json:"full_name"`
 		DefaultBranch string `json:"default_branch"`
+		CloneURL      string `json:"clone_url"`
+		SSHURL        string `json:"ssh_url"`
+		HTMLURL       string `json:"html_url"`
 	} `json:"repository"`
 	HeadCommit struct {
 		ID string `json:"id"`
@@ -64,60 +69,87 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	branch := strings.TrimPrefix(payload.Ref, "refs/heads/")
-	if payload.Repository.DefaultBranch != "" && branch != payload.Repository.DefaultBranch {
+
+	changedFiles := extractChangedFiles(payload, s.cfg.Webhook.MaxFiles)
+	if len(changedFiles) == 0 {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
-	repoName := payload.Repository.Name
-	if !isValidRepoName(repoName) {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(scanResponse{Error: "Invalid repository name"})
+	candidates, err := s.getReposByURL(payload.Repository.CloneURL, payload.Repository.SSHURL, payload.Repository.HTMLURL)
+	if err != nil {
+		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
-
-	repoCfg, err := s.getRepoConfig(repoName)
-	if err != nil || repoCfg == nil {
+	if len(candidates) == 0 && isValidRepoName(payload.Repository.Name) {
+		repoCfg, lookupErr := s.getRepoConfig(payload.Repository.Name)
+		if lookupErr == nil && repoCfg != nil {
+			candidates = append(candidates, repoCfg)
+		} else if lookupErr != nil && lookupErr != secrets.ErrRepoNotFound {
+			http.Error(w, s.sanitizeErrorMessage(lookupErr.Error()), http.StatusInternalServerError)
+			return
+		}
+	}
+	if len(candidates) == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(scanResponse{Error: "Repository not configured"})
 		return
 	}
 
 	trigger := "webhook"
-	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
-	if err != nil {
-		if err == queue.ErrRepoLocked {
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(scanResponse{Error: "Repository scan already in progress"})
+	var (
+		apiScans            []*apiScan
+		stackIDs            []string
+		branchMatchedConfig bool
+	)
+	for _, repoCfg := range candidates {
+		if !repoMatchesWebhookBranch(repoCfg, branch, payload.Repository.DefaultBranch) {
+			continue
+		}
+		branchMatchedConfig = true
+
+		scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+		if err != nil {
+			if err == queue.ErrRepoLocked {
+				continue
+			}
+			http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+
+		targetStacks := selectStacksForChanges(stacks, changedFiles)
+		if len(targetStacks) == 0 {
+			_ = s.queue.FailScan(r.Context(), scan.ID, repoCfg.Name, "no matching stacks for webhook changes")
+			continue
+		}
+
+		enqResult, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, targetStacks, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+		if err != nil && err != orchestrate.ErrNoStacksEnqueued {
+			http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		apiScans = append(apiScans, toAPIScan(scan))
+		if enqResult != nil {
+			stackIDs = append(stackIDs, enqResult.StackIDs...)
+		}
 	}
 
-	changedFiles := extractChangedFiles(payload, s.cfg.Webhook.MaxFiles)
-	targetStacks := selectStacksForChanges(stacks, changedFiles)
-	if len(targetStacks) == 0 {
-		_ = s.queue.FailScan(r.Context(), scan.ID, repoName, "no matching stacks for webhook changes")
+	if !branchMatchedConfig || len(apiScans) == 0 {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	enqResult, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, targetStacks, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
-	if err != nil && err != orchestrate.ErrNoStacksEnqueued {
-		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
-		return
-	}
 
-	var stackIDs []string
-	if enqResult != nil {
-		stackIDs = enqResult.StackIDs
-	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(scanResponse{
+	resp := scanResponse{
 		Stacks:  stackIDs,
-		Scan:    toAPIScan(scan),
+		Scans:   apiScans,
 		Message: fmt.Sprintf("Enqueued %d stacks", len(stackIDs)),
-	})
+	}
+	if len(apiScans) == 1 {
+		resp.Scan = apiScans[0]
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 func extractChangedFiles(payload gitHubPushPayload, maxFiles int) []string {
@@ -156,7 +188,7 @@ func selectStacksForChanges(stacks []string, changedFiles []string) []string {
 	selected := map[string]struct{}{}
 	for _, file := range changedFiles {
 		for stack := range stackSet {
-			if stack != "." && !strings.HasPrefix(file, stack+"/") {
+			if stack != "" && !strings.HasPrefix(file, stack+"/") {
 				continue
 			}
 			selected[stack] = struct{}{}
@@ -182,6 +214,20 @@ func isInfraFile(path string) bool {
 		return true
 	}
 	return false
+}
+
+func repoMatchesWebhookBranch(repoCfg *config.RepoConfig, payloadBranch, payloadDefaultBranch string) bool {
+	if repoCfg == nil {
+		return false
+	}
+	target := repoCfg.Branch
+	if target == "" {
+		target = payloadDefaultBranch
+	}
+	if target == "" {
+		return true
+	}
+	return payloadBranch == target
 }
 
 func (s *Server) validateWebhookRequest(w http.ResponseWriter, r *http.Request, body []byte) bool {

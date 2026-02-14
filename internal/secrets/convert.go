@@ -17,6 +17,7 @@ func RepoConfigFromEntry(entry *RepoEntry, creds *RepoCredentials, integration *
 	cfg := &config.RepoConfig{
 		Name:        entry.Name,
 		URL:         entry.URL,
+		CloneURL:    entry.URL,
 		Branch:      entry.Branch,
 		IgnorePaths: entry.IgnorePaths,
 		Schedule:    entry.Schedule,

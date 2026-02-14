@@ -2,17 +2,21 @@ package orchestrate
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/gitauth"
 	"github.com/driftdhq/driftd/internal/queue"
+	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/stack"
 	"github.com/driftdhq/driftd/internal/version"
 	"github.com/go-git/go-git/v5"
@@ -31,6 +35,11 @@ type ScanOrchestrator struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
+
+const (
+	cloneLockRetryEvery = 250 * time.Millisecond
+	defaultCloneLockTTL = 5 * time.Minute
+)
 
 func New(cfg *config.Config, q *queue.Queue) *ScanOrchestrator {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -89,7 +98,7 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 		return nil, nil, err
 	}
 
-	workspacePath, commitSHA, err := o.cloneWorkspace(ctx, repoCfg, auth)
+	workspacePath, commitSHA, err := o.cloneWorkspace(ctx, repoCfg, scan.ID, auth)
 	if err != nil {
 		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
@@ -101,7 +110,7 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 	}
 	go o.cleanupWorkspaces(repoCfg.Name)
 
-	stacks, err := stack.Discover(workspacePath, repoCfg.IgnorePaths)
+	stacks, err := stack.Discover(workspacePath, repoCfg.RootPath, repoCfg.IgnorePaths)
 	if err != nil {
 		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
 		return nil, nil, err
@@ -215,82 +224,152 @@ func (o *ScanOrchestrator) EnqueueStacks(ctx context.Context, scan *queue.Scan, 
 	return result, nil
 }
 
-func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, auth transport.AuthMethod) (string, string, error) {
-	base := filepath.Join(o.cfg.DataDir, "workspaces", repoCfg.Name, "repo")
-	if err := os.MkdirAll(filepath.Dir(base), 0755); err != nil {
-		return base, "", err
+func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (string, string, error) {
+	cloneURL := repoCfg.EffectiveCloneURL()
+	if strings.TrimSpace(cloneURL) == "" {
+		return "", "", fmt.Errorf("repo clone URL is empty")
+	}
+	if scanID == "" {
+		scanID = fmt.Sprintf("%s:%d", repoCfg.Name, time.Now().UnixNano())
 	}
 
-	repo, err := git.PlainOpen(base)
-	if err != nil {
-		if errors.Is(err, git.ErrRepositoryNotExists) {
-			return o.cloneFresh(ctx, repoCfg, base, auth)
+	urlHash := hashCloneURL(cloneURL)
+	mirrorPath := filepath.Join(o.cfg.DataDir, "workspaces", "_shared", urlHash, "mirror.git")
+	scanWorkspace := filepath.Join(o.cfg.DataDir, "workspaces", "scans", repoCfg.Name, scanID, "repo")
+
+	if o.queue != nil {
+		owner := scanID
+		lockTTL := o.cfg.Worker.LockTTL
+		if lockTTL <= 0 {
+			lockTTL = defaultCloneLockTTL
 		}
-		return base, "", err
+		if err := o.acquireCloneLock(ctx, urlHash, owner, lockTTL); err != nil {
+			return "", "", err
+		}
+		defer func() {
+			_ = o.queue.ReleaseCloneLock(context.Background(), urlHash, owner)
+		}()
 	}
 
+	mirrorRepo, err := o.openOrCreateMirror(ctx, mirrorPath, cloneURL, auth)
+	if err != nil {
+		return "", "", err
+	}
+	if err := o.fetchMirror(ctx, mirrorRepo, auth); err != nil {
+		return "", "", err
+	}
+
+	hash, err := resolveTargetRef(mirrorRepo, repoCfg.Branch)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := o.checkoutScanWorkspace(ctx, mirrorPath, scanWorkspace, hash); err != nil {
+		return "", "", err
+	}
+	return scanWorkspace, hash.String(), nil
+}
+
+func (o *ScanOrchestrator) acquireCloneLock(ctx context.Context, urlHash, owner string, ttl time.Duration) error {
+	ticker := time.NewTicker(cloneLockRetryEvery)
+	defer ticker.Stop()
+
+	for {
+		acquired, err := o.queue.AcquireCloneLock(ctx, urlHash, owner, ttl)
+		if err != nil {
+			return fmt.Errorf("acquire clone lock: %w", err)
+		}
+		if acquired {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (o *ScanOrchestrator) openOrCreateMirror(ctx context.Context, mirrorPath, cloneURL string, auth transport.AuthMethod) (*git.Repository, error) {
+	if err := os.MkdirAll(filepath.Dir(mirrorPath), 0755); err != nil {
+		return nil, err
+	}
+
+	repo, err := git.PlainOpen(mirrorPath)
+	if err == nil {
+		return repo, nil
+	}
+	if !errors.Is(err, git.ErrRepositoryNotExists) {
+		return nil, err
+	}
+
+	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	return git.PlainCloneContext(cloneCtx, mirrorPath, true, &git.CloneOptions{
+		URL:        cloneURL,
+		Auth:       auth,
+		NoCheckout: true,
+	})
+}
+
+func (o *ScanOrchestrator) fetchMirror(ctx context.Context, repo *git.Repository, auth transport.AuthMethod) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	fetchErr := repo.FetchContext(fetchCtx, &git.FetchOptions{
+	err := repo.FetchContext(fetchCtx, &git.FetchOptions{
 		RemoteName: "origin",
 		Auth:       auth,
 		Tags:       git.NoTags,
 		Force:      true,
-		RefSpecs:   []gitcfg.RefSpec{"+refs/heads/*:refs/remotes/origin/*"},
+		RefSpecs:   []gitcfg.RefSpec{"+refs/heads/*:refs/heads/*"},
 	})
-	if fetchErr != nil && !errors.Is(fetchErr, git.NoErrAlreadyUpToDate) {
-		return base, "", fetchErr
+	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return err
 	}
+	return nil
+}
 
-	hash, err := resolveTargetRef(repo, repoCfg.Branch)
+func (o *ScanOrchestrator) checkoutScanWorkspace(ctx context.Context, mirrorPath, scanWorkspace string, hash plumbing.Hash) error {
+	if err := os.MkdirAll(filepath.Dir(scanWorkspace), 0755); err != nil {
+		return err
+	}
+	_ = os.RemoveAll(scanWorkspace)
+
+	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	repo, err := git.PlainCloneContext(cloneCtx, scanWorkspace, false, &git.CloneOptions{
+		URL:        mirrorPath,
+		NoCheckout: true,
+	})
 	if err != nil {
-		return base, "", err
+		return err
 	}
 
 	wt, err := repo.Worktree()
 	if err != nil {
-		return base, "", err
+		return err
 	}
-	if err := wt.Reset(&git.ResetOptions{Mode: git.HardReset, Commit: hash}); err != nil {
-		return base, "", err
-	}
-
-	return base, hash.String(), nil
-}
-
-func (o *ScanOrchestrator) cloneFresh(ctx context.Context, repoCfg *config.RepoConfig, base string, auth transport.AuthMethod) (string, string, error) {
-	cloneOpts := &git.CloneOptions{
-		URL:   repoCfg.URL,
-		Depth: 1,
-		Auth:  auth,
-	}
-	if repoCfg.Branch != "" {
-		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(repoCfg.Branch)
-		cloneOpts.SingleBranch = true
-	}
-	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	repo, err := git.PlainCloneContext(cloneCtx, base, false, cloneOpts)
-	if err != nil {
-		return base, "", err
-	}
-
-	head, err := repo.Head()
-	if err != nil {
-		return base, "", err
-	}
-	return base, head.Hash().String(), nil
+	return wt.Checkout(&git.CheckoutOptions{
+		Hash:  hash,
+		Force: true,
+	})
 }
 
 func resolveTargetRef(repo *git.Repository, branch string) (plumbing.Hash, error) {
 	if branch != "" {
-		refName := plumbing.NewRemoteReferenceName("origin", branch)
-		if ref, err := repo.Reference(refName, true); err == nil {
-			return ref.Hash(), nil
+		for _, refName := range []plumbing.ReferenceName{
+			plumbing.NewBranchReferenceName(branch),
+			plumbing.NewRemoteReferenceName("origin", branch),
+		} {
+			if ref, err := repo.Reference(refName, true); err == nil {
+				return ref.Hash(), nil
+			}
 		}
 	}
 
 	for _, name := range []plumbing.ReferenceName{
+		plumbing.HEAD,
+		plumbing.NewBranchReferenceName("main"),
+		plumbing.NewBranchReferenceName("master"),
 		plumbing.NewRemoteReferenceName("origin", "HEAD"),
 		plumbing.NewRemoteReferenceName("origin", "main"),
 		plumbing.NewRemoteReferenceName("origin", "master"),
@@ -307,13 +386,22 @@ func resolveTargetRef(repo *git.Repository, branch string) (plumbing.Hash, error
 	return head.Hash(), nil
 }
 
+func hashCloneURL(cloneURL string) string {
+	identity := strings.TrimSpace(cloneURL)
+	if canonical, ok := repos.CanonicalURL(identity); ok {
+		identity = canonical
+	}
+	sum := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(sum[:])
+}
+
 func (o *ScanOrchestrator) cleanupWorkspaces(repoName string) {
 	retention := o.cfg.Workspace.Retention
 	if retention <= 0 {
 		return
 	}
 
-	base := filepath.Join(o.cfg.DataDir, "workspaces", repoName)
+	base := filepath.Join(o.cfg.DataDir, "workspaces", "scans", repoName)
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		return
@@ -330,9 +418,6 @@ func (o *ScanOrchestrator) cleanupWorkspaces(repoName string) {
 			continue
 		}
 		id := entry.Name()
-		if id == "repo" {
-			continue
-		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
@@ -344,7 +429,7 @@ func (o *ScanOrchestrator) cleanupWorkspaces(repoName string) {
 		})
 	}
 
-	if len(items) <= retention-1 {
+	if len(items) <= retention {
 		return
 	}
 
@@ -352,7 +437,7 @@ func (o *ScanOrchestrator) cleanupWorkspaces(repoName string) {
 		return items[i].mod.After(items[j].mod)
 	})
 
-	toDelete := items[retention-1:]
+	toDelete := items[retention:]
 	for _, it := range toDelete {
 		scan, err := o.queue.GetScan(context.Background(), it.id)
 		if err == nil && scan != nil && scan.Status == queue.ScanStatusRunning {
