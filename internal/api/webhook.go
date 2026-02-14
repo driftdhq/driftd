@@ -106,6 +106,9 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		if !repoMatchesWebhookBranch(repoCfg, branch, payload.Repository.DefaultBranch) {
 			continue
 		}
+		if !repoPathMatchesWebhookChanges(repoCfg, changedFiles) {
+			continue
+		}
 		branchMatchedConfig = true
 
 		scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
@@ -228,6 +231,23 @@ func repoMatchesWebhookBranch(repoCfg *config.RepoConfig, payloadBranch, payload
 		return true
 	}
 	return payloadBranch == target
+}
+
+func repoPathMatchesWebhookChanges(repoCfg *config.RepoConfig, changedFiles []string) bool {
+	if repoCfg == nil {
+		return false
+	}
+	rootPath := filepath.ToSlash(strings.Trim(strings.TrimSpace(repoCfg.RootPath), "/"))
+	if rootPath == "" {
+		return true
+	}
+	for _, file := range changedFiles {
+		normalized := filepath.ToSlash(strings.Trim(strings.TrimSpace(file), "/"))
+		if normalized == rootPath || strings.HasPrefix(normalized, rootPath+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) validateWebhookRequest(w http.ResponseWriter, r *http.Request, body []byte) bool {

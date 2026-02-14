@@ -670,6 +670,123 @@ func TestWebhookUsesConfiguredBranchWhenSet(t *testing.T) {
 	}
 }
 
+func TestWebhookMonorepoPrefiltersByRootPath(t *testing.T) {
+	runner := &fakeRunner{}
+	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"aws/dev/envs/prod", "aws/staging/envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Webhook.Enabled = true
+		cfg.Webhook.GitHubSecret = "secret"
+		baseURL := cfg.Repos[0].URL
+		cancelInflight := true
+		cfg.Repos = []config.RepoConfig{
+			{
+				Name:                       "aws-dev",
+				URL:                        baseURL,
+				CloneURL:                   baseURL,
+				RootPath:                   "aws/dev",
+				CancelInflightOnNewTrigger: &cancelInflight,
+			},
+			{
+				Name:                       "aws-staging",
+				URL:                        baseURL,
+				CloneURL:                   baseURL,
+				RootPath:                   "aws/staging",
+				CancelInflightOnNewTrigger: &cancelInflight,
+			},
+		}
+	})
+	defer cleanup()
+
+	payload := gitHubPushPayload{
+		Ref: "refs/heads/main",
+		Repository: struct {
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			DefaultBranch string `json:"default_branch"`
+			CloneURL      string `json:"clone_url"`
+			SSHURL        string `json:"ssh_url"`
+			HTMLURL       string `json:"html_url"`
+		}{
+			Name:          "infra-monorepo",
+			DefaultBranch: "main",
+			CloneURL:      srv.cfg.GetRepo("aws-dev").URL,
+		},
+		Commits: []struct {
+			Added    []string `json:"added"`
+			Modified []string `json:"modified"`
+			Removed  []string `json:"removed"`
+		}{
+			{Modified: []string{"aws/dev/envs/prod/main.tf"}},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/webhooks/github", bytes.NewBuffer(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+computeTestHMAC(body, "secret"))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(sr.Scans) != 1 {
+		t.Fatalf("expected exactly one project scan, got %d", len(sr.Scans))
+	}
+	if sr.Scans[0].RepoName != "aws-dev" {
+		t.Fatalf("expected aws-dev scan, got %s", sr.Scans[0].RepoName)
+	}
+
+	if _, err := q.GetActiveScan(context.Background(), "aws-dev"); err != nil {
+		t.Fatalf("expected active scan for aws-dev: %v", err)
+	}
+	if _, err := q.GetActiveScan(context.Background(), "aws-staging"); err != queue.ErrScanNotFound {
+		t.Fatalf("expected no scan for aws-staging, got %v", err)
+	}
+	stagingStacks, err := q.ListRepoStackScans(context.Background(), "aws-staging", 10)
+	if err != nil {
+		t.Fatalf("list staging stacks: %v", err)
+	}
+	if len(stagingStacks) != 0 {
+		t.Fatalf("expected no staging stacks, got %d", len(stagingStacks))
+	}
+}
+
+func TestGetReposByURLMatchesSSHAndHTMLForms(t *testing.T) {
+	runner := &fakeRunner{}
+	srv, _, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Repos[0].Name = "github-repo"
+		cfg.Repos[0].URL = "https://github.com/example/infra.git"
+		cfg.Repos[0].CloneURL = cfg.Repos[0].URL
+	})
+	defer cleanup()
+
+	sshMatches, err := srv.getReposByURL("", "git@github.com:example/infra.git", "")
+	if err != nil {
+		t.Fatalf("ssh lookup failed: %v", err)
+	}
+	if len(sshMatches) != 1 || sshMatches[0].Name != "github-repo" {
+		t.Fatalf("expected github-repo for ssh lookup, got %#v", sshMatches)
+	}
+
+	htmlMatches, err := srv.getReposByURL("", "", "https://github.com/example/infra")
+	if err != nil {
+		t.Fatalf("html lookup failed: %v", err)
+	}
+	if len(htmlMatches) != 1 || htmlMatches[0].Name != "github-repo" {
+		t.Fatalf("expected github-repo for html lookup, got %#v", htmlMatches)
+	}
+}
+
 func TestSelectStacksForChanges(t *testing.T) {
 	stacks := []string{"envs/prod", "envs/dev"}
 	changes := []string{"envs/prod/main.tf"}

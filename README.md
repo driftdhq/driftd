@@ -39,7 +39,7 @@ that fits alongside tools like Atlantis or CI-based applies.
 ```
 
 1. **Trigger** — Cron schedule, API call, or GitHub webhook initiates a scan
-2. **Sync** — Server updates a repo workspace (clone or fetch/reset) and discovers stacks
+2. **Sync** — Server updates a project workspace snapshot (clone or fetch/reset) and discovers stacks
 3. **Enqueue** — One job per stack is added to the Redis queue
 4. **Process** — Workers dequeue jobs, run `terraform plan`, save results
 5. **Display** — Web UI shows drift status from stored plan outputs
@@ -75,14 +75,14 @@ flowchart TB
 |-----------|------|
 | **serve** | Web UI, REST API, scheduler. Single replica. |
 | **worker** | Processes stack scans. Scale horizontally based on workload. |
-| **Redis** | Job queue, scan state, repo locks. Ephemeral — can be wiped safely. |
-| **Storage** | Plan outputs and repo workspaces. Mount a PVC for persistence. |
+| **Redis** | Job queue, scan state, project locks. Ephemeral — can be wiped safely. |
+| **Storage** | Plan outputs and project workspaces. Mount a PVC for persistence. |
 
 ---
 
 ## Deployment
 
-**Prerequisites:** A Kubernetes cluster, a Redis instance (ElastiCache, Memorystore, or self-hosted), and git credentials for your repos.
+**Prerequisites:** A Kubernetes cluster, a Redis instance (ElastiCache, Memorystore, or self-hosted), and git credentials for your projects.
 
 ### Helm
 
@@ -137,12 +137,12 @@ redis:
 
 worker:
   concurrency: 5      # parallel stack scans per worker process
-  lock_ttl: 30m       # repo lock timeout
+  lock_ttl: 30m       # project scan lock timeout
   retry_once: true    # retry failed stack scans once
   scan_max_age: 6h    # max scan duration before forced failure
 
 workspace:
-  retention: 5            # workspace snapshots to keep per repo
+  retention: 5            # workspace snapshots to keep per project
   cleanup_after_plan: true # remove terraform/terragrunt artifacts from workspaces
 
 repos:
@@ -157,6 +157,27 @@ repos:
       type: https
       https_token_env: GIT_TOKEN
 ```
+
+### Monorepo Projects Example
+
+```yaml
+repos:
+  - name: infra-monorepo
+    url: https://github.com/myorg/infra.git
+    branch: main
+    projects:
+      - name: aws-dev
+        path: aws/dev
+        schedule: "0 */6 * * *"
+      - name: aws-staging
+        path: aws/staging
+      - name: aws-prod
+        path: aws/prod
+        ignore_paths:
+          - "**/modules/**"
+```
+
+When `projects` is set, each project is expanded into an independently scanned unit in the UI/API.
 
 <details>
 <summary><b>Git Authentication Options</b></summary>
@@ -279,12 +300,12 @@ If a stack has no version file and no default env var is set, driftd uses `terra
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Dashboard |
-| GET | `/repos/{repo}` | Repository detail |
+| GET | `/repos/{repo}` | Project detail |
 | GET | `/repos/{repo}/stacks/{stack...}` | Stack detail with plan output |
 | GET | `/api/health` | Health check |
 | GET | `/api/scans/{scanID}` | Scan status |
 | GET | `/api/stacks/{stackID...}` | Stack scan status |
-| POST | `/api/repos/{repo}/scan` | Trigger full repo scan |
+| POST | `/api/repos/{repo}/scan` | Trigger full project scan |
 | POST | `/api/repos/{repo}/stacks/{stack...}` | Trigger single stack scan |
 | POST | `/api/webhooks/github` | GitHub webhook endpoint |
 
@@ -362,7 +383,7 @@ Shared providers across stacks, cached binaries, reduced downloads.
 
 - **Repo locked**: A scan is still running. Check `/api/scans/{id}` and worker logs.
 - **Stacks stuck**: Confirm Redis connectivity and worker health.
-- **Missing stacks**: Ensure repo has `*.tf` or `terragrunt.hcl` in expected paths.
+- **Missing stacks**: Ensure the project path has `*.tf` or `terragrunt.hcl` in expected locations.
 - **Auth errors**: Validate SSH keys, tokens, or GitHub App configuration.
 
 ---

@@ -2,7 +2,7 @@
 
 {{define "content"}}
 <nav class="breadcrumb">
-    <a href="/">Repositories</a> / <span>Settings</span>
+    <a href="/">Projects</a> / <span>Settings</span>
 </nav>
 
 <div class="page-header">
@@ -11,7 +11,7 @@
 
 <div class="settings-tabs">
     <button class="tab active" data-tab="integrations">Integrations</button>
-    <button class="tab" data-tab="repos">Repositories</button>
+    <button class="tab" data-tab="repos">Projects</button>
     <button class="tab" data-tab="appearance">Appearance</button>
 </div>
 
@@ -40,14 +40,14 @@
 
 <section id="repos-tab" class="settings-section" style="display: none;">
     <div class="section-header">
-        <h2>Repositories</h2>
+        <h2>Projects</h2>
         {{if .DynamicReposEnabled}}
-        <button class="btn btn-scan" onclick="showAddRepoModal()">Add Repository</button>
+        <button class="btn btn-scan" onclick="showAddRepoModal()">Add Project</button>
         {{end}}
     </div>
 
     <div id="repos-list" class="repos-settings-list">
-        <p class="loading">Loading repositories...</p>
+        <p class="loading">Loading projects...</p>
     </div>
 </section>
 
@@ -156,12 +156,12 @@
     </div>
 </div>
 
-<!-- Add/Edit Repository Modal -->
+<!-- Add/Edit Project Modal -->
 <div id="repo-modal" class="modal" style="display: none;">
     <div class="modal-backdrop" onclick="closeModal()"></div>
     <div class="modal-content">
         <div class="modal-header">
-            <h3 id="modal-title">Add Repository</h3>
+            <h3 id="modal-title">Add Project</h3>
             <button class="modal-close" onclick="closeModal()">&times;</button>
         </div>
         <form id="repo-form" onsubmit="saveRepo(event)">
@@ -218,11 +218,11 @@
     <div class="modal-backdrop" onclick="closeDeleteModal()"></div>
     <div class="modal-content modal-small">
         <div class="modal-header">
-            <h3>Delete Repository</h3>
+            <h3>Delete Project</h3>
             <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
         </div>
         <p>Are you sure you want to delete <strong id="delete-repo-name"></strong>?</p>
-        <p class="text-muted">This will remove the repository configuration. Scan history will be preserved.</p>
+        <p class="text-muted">This will remove the project configuration. Scan history will be preserved.</p>
         <div class="modal-actions">
             <button type="button" class="btn" onclick="closeDeleteModal()">Cancel</button>
             <button type="button" class="btn btn-danger" onclick="confirmDelete()">Delete</button>
@@ -258,7 +258,7 @@ async function loadRepos() {
         renderRepos(repos);
     } catch (err) {
         document.getElementById("repos-list").innerHTML =
-            '<p class="error">Failed to load repositories</p>';
+            '<p class="error">Failed to load projects</p>';
     }
 }
 
@@ -283,7 +283,7 @@ async function loadIntegrations() {
 function renderRepos(repos) {
     const container = document.getElementById("repos-list");
     if (repos.length === 0) {
-        container.innerHTML = '<p class="empty-state">No repositories configured.</p>';
+        container.innerHTML = '<p class="empty-state">No projects configured.</p>';
         return;
     }
 
@@ -405,7 +405,7 @@ function populateIntegrationSelect(selectedId) {
 }
 
 function showAddRepoModal() {
-    document.getElementById("modal-title").textContent = "Add Repository";
+    document.getElementById("modal-title").textContent = "Add Project";
     document.getElementById("repo-form").reset();
     document.getElementById("repo-original-name").value = "";
     document.getElementById("repo-name").disabled = false;
@@ -426,7 +426,7 @@ async function editRepo(name) {
         const resp = await fetch(`/api/settings/repos/${encodeURIComponent(name)}`, {credentials: "same-origin"});
         const repo = await resp.json();
 
-        document.getElementById("modal-title").textContent = "Edit Repository";
+        document.getElementById("modal-title").textContent = "Edit Project";
         document.getElementById("repo-original-name").value = repo.name;
         document.getElementById("repo-name").value = repo.name;
         document.getElementById("repo-name").disabled = true;
@@ -439,7 +439,7 @@ async function editRepo(name) {
 
         document.getElementById("repo-modal").style.display = "flex";
     } catch (err) {
-        alert("Failed to load repository details");
+        alert("Failed to load project details");
     }
 }
 
@@ -519,14 +519,14 @@ async function saveRepo(e) {
 
         if (!resp.ok) {
             const err = await resp.json();
-            alert(err.error || "Failed to save repository");
+            alert(err.error || "Failed to save project");
             return;
         }
 
         closeModal();
         loadRepos();
     } catch (err) {
-        alert("Failed to save repository");
+        alert("Failed to save project");
     }
 }
 
@@ -596,9 +596,9 @@ function closeDeleteModal() {
     document.getElementById("delete-modal").style.display = "none";
     deleteRepoName = "";
     deleteIntegrationID = "";
-    document.querySelector("#delete-modal h3").textContent = "Delete Repository";
+    document.querySelector("#delete-modal h3").textContent = "Delete Project";
     document.querySelector("#delete-modal .text-muted").textContent =
-        "This will remove the repository configuration. Scan history will be preserved.";
+        "This will remove the project configuration. Scan history will be preserved.";
 }
 
 async function confirmDelete() {

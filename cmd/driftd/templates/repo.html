@@ -2,7 +2,7 @@
 
 {{define "content"}}
 <nav class="breadcrumb">
-    <a href="/">Repositories</a> / <span>{{.Name}}</span>
+    <a href="/">Projects</a> / <span>{{.Name}}</span>
 </nav>
 
 <div class="repo-header-section">
@@ -122,7 +122,7 @@
 {{else if .Config}}
 <p class="empty-state">No scans yet. Click "Scan All Stacks" to start.</p>
 {{else}}
-<p class="empty-state">Repository not found in configuration.</p>
+<p class="empty-state">Project not found in configuration.</p>
 {{end}}
 
 <script>
