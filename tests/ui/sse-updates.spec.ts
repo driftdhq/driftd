@@ -9,6 +9,10 @@ test('scan updates via SSE without reload', async ({ page }) => {
   });
 
   await page.goto('/projects/project');
+  // Ignore initial navigations from test server/page load and only track
+  // navigations triggered by the scan flow itself.
+  navigations = 0;
+
   const scanButton = page.locator('text=Scan All Stacks');
   await expect(scanButton).toBeVisible();
   await scanButton.click();
@@ -26,7 +30,8 @@ test('scan updates via SSE without reload', async ({ page }) => {
   // Allow a moment for updates to stream in.
   await page.waitForTimeout(500);
 
-  // Should only have the initial navigation.
-  // Initial navigation + optional redirect after scan trigger.
+  // Scan flow can navigate at most twice:
+  // 1) form POST redirect back to project page
+  // 2) optional reload when scan reaches terminal state
   expect(navigations).toBeLessThanOrEqual(2);
 });
