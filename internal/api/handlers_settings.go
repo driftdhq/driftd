@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,8 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/driftdhq/driftd/internal/gitauth"
 	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/go-chi/chi/v5"
+	git "github.com/go-git/go-git/v5"
+	gitcfg "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 // RepoRequest is the JSON request body for creating/updating a repository.
@@ -21,8 +27,8 @@ type RepoRequest struct {
 	Schedule                   *string  `json:"schedule,omitempty"`
 	CancelInflightOnNewTrigger *bool    `json:"cancel_inflight_on_new_trigger,omitempty"`
 
-	AuthType string `json:"auth_type"` // "https", "ssh", "github_app"
-	IntegrationID string `json:"integration_id,omitempty"`
+	AuthType      string  `json:"auth_type"` // "https", "ssh", "github_app"
+	IntegrationID *string `json:"integration_id,omitempty"`
 
 	GitHubAppID          int64  `json:"github_app_id,omitempty"`
 	GitHubInstallationID int64  `json:"github_installation_id,omitempty"`
@@ -252,7 +258,8 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url is required"})
 		return
 	}
-	if req.AuthType == "" && req.IntegrationID == "" {
+	integrationID := strings.TrimSpace(derefString(req.IntegrationID))
+	if req.AuthType == "" && integrationID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "integration_id is required"})
 		return
 	}
@@ -283,8 +290,8 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 
 	var creds *secrets.RepoCredentials
 
-	if req.IntegrationID != "" {
-		integration, err := s.getIntegration(req.IntegrationID)
+	if integrationID != "" {
+		integration, err := s.getIntegration(integrationID)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "integration_id not found",
@@ -402,11 +409,12 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 	if req.URL == "" {
 		req.URL = existing.URL
 	}
-	if req.AuthType == "" && req.IntegrationID == "" {
-		req.AuthType = existing.Git.Type
+	integrationID := existing.IntegrationID
+	if req.IntegrationID != nil {
+		integrationID = strings.TrimSpace(*req.IntegrationID)
 	}
-	if req.IntegrationID == "" {
-		req.IntegrationID = existing.IntegrationID
+	if req.AuthType == "" && integrationID == "" {
+		req.AuthType = existing.Git.Type
 	}
 
 	entry := &secrets.RepoEntry{
@@ -416,7 +424,7 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		IgnorePaths:                existing.IgnorePaths,
 		Schedule:                   existing.Schedule,
 		CancelInflightOnNewTrigger: existing.CancelInflightOnNewTrigger,
-		IntegrationID:              req.IntegrationID,
+		IntegrationID:              integrationID,
 		Git:                        secrets.RepoGitConfig{Type: req.AuthType},
 	}
 	if req.Branch != nil {
@@ -433,11 +441,11 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 	}
 
 	authChanged := req.AuthType != "" && req.AuthType != existing.Git.Type
-	integrationChanged := req.IntegrationID != "" && req.IntegrationID != existing.IntegrationID
+	integrationChanged := integrationID != existing.IntegrationID
 
 	var creds *secrets.RepoCredentials
-	if req.IntegrationID != "" {
-		if _, err := s.getIntegration(req.IntegrationID); err != nil {
+	if integrationID != "" {
+		if _, err := s.getIntegration(integrationID); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "integration_id not found",
 			})
@@ -489,7 +497,7 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 			entry.Git.GitHubApp.InstallationID = req.GitHubInstallationID
 		}
 	}
-	if (authChanged || integrationChanged) && req.IntegrationID == "" && creds == nil {
+	if (authChanged || integrationChanged) && integrationID == "" && creds == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "credentials are required when changing auth_type",
 		})
@@ -544,8 +552,72 @@ func (s *Server) handleDeleteSettingsRepo(w http.ResponseWriter, r *http.Request
 
 // handleTestRepoConnection tests the connection to a repository.
 func (s *Server) handleTestRepoConnection(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{
-		"error": "not implemented yet",
+	repoName := chi.URLParam(r, "repo")
+	if !isValidRepoName(repoName) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid repository name"})
+		return
+	}
+
+	repoCfg, err := s.getRepoConfig(repoName)
+	if err != nil {
+		if errors.Is(err, secrets.ErrRepoNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "repository not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": s.sanitizeErrorMessage(err.Error())})
+		return
+	}
+	if repoCfg == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "repository not found"})
+		return
+	}
+
+	testCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	auth, err := gitauth.AuthMethod(testCtx, repoCfg)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": s.sanitizeErrorMessage(err.Error())})
+		return
+	}
+
+	cloneURL := strings.TrimSpace(repoCfg.EffectiveCloneURL())
+	if cloneURL == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repository URL is empty"})
+		return
+	}
+
+	remote := git.NewRemote(memory.NewStorage(), &gitcfg.RemoteConfig{
+		Name: "origin",
+		URLs: []string{cloneURL},
+	})
+	refs, err := remote.ListContext(testCtx, &git.ListOptions{Auth: auth})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": s.sanitizeErrorMessage(err.Error())})
+		return
+	}
+
+	branch := strings.TrimSpace(repoCfg.Branch)
+	if branch != "" {
+		expectedRef := plumbing.NewBranchReferenceName(branch)
+		found := false
+		for _, ref := range refs {
+			if ref.Name() == expectedRef {
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("branch %q not found in remote", branch),
+			})
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"message": "connection successful",
 	})
 }
 

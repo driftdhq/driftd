@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -170,4 +171,108 @@ func initGitRepo(t *testing.T, dir string) *git.Repository {
 		t.Fatalf("commit: %v", err)
 	}
 	return repo
+}
+
+func TestCloneLockRenewalKeepsLockOwned(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	q, err := queue.New(mr.Addr(), "", 0, time.Minute)
+	if err != nil {
+		t.Fatalf("queue: %v", err)
+	}
+	defer q.Close()
+
+	cfg := &config.Config{
+		Worker: config.WorkerConfig{
+			RenewEvery: 40 * time.Millisecond,
+		},
+	}
+	orch := New(cfg, q)
+
+	const (
+		urlHash = "renew-lock"
+		ownerA  = "owner-a"
+		ownerB  = "owner-b"
+	)
+	lockTTL := 150 * time.Millisecond
+	acquired, err := q.AcquireCloneLock(context.Background(), urlHash, ownerA, lockTTL)
+	if err != nil {
+		t.Fatalf("acquire lock: %v", err)
+	}
+	if !acquired {
+		t.Fatalf("expected initial acquire to succeed")
+	}
+
+	lockCtx, cancel := context.WithCancel(context.Background())
+	stopRenewal := orch.startCloneLockRenewal(lockCtx, urlHash, ownerA, lockTTL, cancel)
+
+	time.Sleep(450 * time.Millisecond)
+	acquired, err = q.AcquireCloneLock(context.Background(), urlHash, ownerB, lockTTL)
+	if err != nil {
+		t.Fatalf("acquire competing lock: %v", err)
+	}
+	if acquired {
+		t.Fatalf("expected lock to still be held by renewal")
+	}
+
+	if err := stopRenewal(); err != nil {
+		t.Fatalf("stop renewal: %v", err)
+	}
+	if err := q.ReleaseCloneLock(context.Background(), urlHash, ownerA); err != nil {
+		t.Fatalf("release owner lock: %v", err)
+	}
+	acquired, err = q.AcquireCloneLock(context.Background(), urlHash, ownerB, lockTTL)
+	if err != nil {
+		t.Fatalf("acquire after release: %v", err)
+	}
+	if !acquired {
+		t.Fatalf("expected lock to be acquirable after release")
+	}
+}
+
+func TestCloneLockRenewalFailsWhenOwnerMismatch(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	q, err := queue.New(mr.Addr(), "", 0, time.Minute)
+	if err != nil {
+		t.Fatalf("queue: %v", err)
+	}
+	defer q.Close()
+
+	cfg := &config.Config{
+		Worker: config.WorkerConfig{
+			RenewEvery: 25 * time.Millisecond,
+		},
+	}
+	orch := New(cfg, q)
+
+	const urlHash = "renew-owner-mismatch"
+	lockTTL := 200 * time.Millisecond
+	acquired, err := q.AcquireCloneLock(context.Background(), urlHash, "owner-a", lockTTL)
+	if err != nil {
+		t.Fatalf("acquire lock: %v", err)
+	}
+	if !acquired {
+		t.Fatalf("expected initial acquire to succeed")
+	}
+
+	lockCtx, cancel := context.WithCancel(context.Background())
+	stopRenewal := orch.startCloneLockRenewal(lockCtx, urlHash, "owner-b", lockTTL, cancel)
+	time.Sleep(120 * time.Millisecond)
+
+	renewErr := stopRenewal()
+	if renewErr == nil {
+		t.Fatalf("expected owner-mismatch renewal error")
+	}
+	if !errors.Is(renewErr, queue.ErrCloneLockNotOwned) {
+		t.Fatalf("expected ErrCloneLockNotOwned, got %v", renewErr)
+	}
 }

@@ -365,3 +365,60 @@ func TestTriggerPriorityCancelsOnNewerManual(t *testing.T) {
 	}
 
 }
+
+func TestGetStackScanAndListRepoStackScans(t *testing.T) {
+	runner := &fakeRunner{}
+	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(sr.Stacks) != 1 {
+		t.Fatalf("expected one stack id, got %v", sr.Stacks)
+	}
+
+	stackResp, err := http.Get(ts.URL + "/api/stacks/" + sr.Stacks[0])
+	if err != nil {
+		t.Fatalf("get stack scan: %v", err)
+	}
+	defer stackResp.Body.Close()
+	if stackResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /api/stacks/*, got %d", stackResp.StatusCode)
+	}
+
+	var stack apiStackScan
+	if err := json.NewDecoder(stackResp.Body).Decode(&stack); err != nil {
+		t.Fatalf("decode stack scan: %v", err)
+	}
+	if stack.ID == "" || stack.ScanID != sr.Scan.ID {
+		t.Fatalf("unexpected stack scan payload: %+v", stack)
+	}
+
+	listResp, err := http.Get(ts.URL + "/api/repos/repo/stacks")
+	if err != nil {
+		t.Fatalf("list repo stack scans: %v", err)
+	}
+	defer listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /api/repos/{repo}/stacks, got %d", listResp.StatusCode)
+	}
+
+	var listed []apiStackScan
+	if err := json.NewDecoder(listResp.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listed) == 0 {
+		t.Fatalf("expected at least one stack scan in list response")
+	}
+}

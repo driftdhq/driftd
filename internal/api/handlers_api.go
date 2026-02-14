@@ -319,6 +319,11 @@ func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Emit an initial SSE comment so headers are flushed and clients can
+	// establish the stream before the first repository event is published.
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
 	sub := s.queue.Client().PSubscribe(r.Context(), "driftd:events:*")
 	defer sub.Close()
 

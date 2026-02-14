@@ -39,6 +39,7 @@ type ScanOrchestrator struct {
 const (
 	cloneLockRetryEvery = 250 * time.Millisecond
 	defaultCloneLockTTL = 5 * time.Minute
+	minCloneRenewEvery  = 5 * time.Second
 )
 
 func New(cfg *config.Config, q *queue.Queue) *ScanOrchestrator {
@@ -224,7 +225,7 @@ func (o *ScanOrchestrator) EnqueueStacks(ctx context.Context, scan *queue.Scan, 
 	return result, nil
 }
 
-func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (string, string, error) {
+func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (workspacePath, commitSHA string, err error) {
 	cloneURL := repoCfg.EffectiveCloneURL()
 	if strings.TrimSpace(cloneURL) == "" {
 		return "", "", fmt.Errorf("repo clone URL is empty")
@@ -237,6 +238,7 @@ func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.R
 	mirrorPath := filepath.Join(o.cfg.DataDir, "workspaces", "_shared", urlHash, "mirror.git")
 	scanWorkspace := filepath.Join(o.cfg.DataDir, "workspaces", "scans", repoCfg.Name, scanID, "repo")
 
+	var releaseCloneLock func() error
 	if o.queue != nil {
 		owner := scanID
 		lockTTL := o.cfg.Worker.LockTTL
@@ -246,8 +248,30 @@ func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.R
 		if err := o.acquireCloneLock(ctx, urlHash, owner, lockTTL); err != nil {
 			return "", "", err
 		}
+
+		lockCtx, cancelLockCtx := context.WithCancel(ctx)
+		ctx = lockCtx
+		stopRenewal := o.startCloneLockRenewal(lockCtx, urlHash, owner, lockTTL, cancelLockCtx)
+		releaseCloneLock = func() error {
+			defer cancelLockCtx()
+			if err := stopRenewal(); err != nil {
+				return err
+			}
+			if err := o.queue.ReleaseCloneLock(context.Background(), urlHash, owner); err != nil {
+				return fmt.Errorf("release clone lock: %w", err)
+			}
+			return nil
+		}
 		defer func() {
-			_ = o.queue.ReleaseCloneLock(context.Background(), urlHash, owner)
+			if releaseCloneLock == nil {
+				return
+			}
+			if releaseErr := releaseCloneLock(); releaseErr != nil {
+				// Preserve the first meaningful error for caller handling.
+				if err == nil {
+					err = releaseErr
+				}
+			}
 		}()
 	}
 
@@ -320,6 +344,7 @@ func (o *ScanOrchestrator) fetchMirror(ctx context.Context, repo *git.Repository
 		Auth:       auth,
 		Tags:       git.NoTags,
 		Force:      true,
+		Prune:      true,
 		RefSpecs:   []gitcfg.RefSpec{"+refs/heads/*:refs/heads/*"},
 	})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
@@ -352,6 +377,71 @@ func (o *ScanOrchestrator) checkoutScanWorkspace(ctx context.Context, mirrorPath
 		Hash:  hash,
 		Force: true,
 	})
+}
+
+func (o *ScanOrchestrator) cloneLockRenewEvery(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return minCloneRenewEvery
+	}
+	if o != nil && o.cfg != nil && o.cfg.Worker.RenewEvery > 0 && o.cfg.Worker.RenewEvery < ttl {
+		return o.cfg.Worker.RenewEvery
+	}
+	renewEvery := ttl / 3
+	if renewEvery < minCloneRenewEvery {
+		renewEvery = minCloneRenewEvery
+	}
+	maxRenewEvery := ttl / 2
+	if maxRenewEvery < minCloneRenewEvery {
+		maxRenewEvery = minCloneRenewEvery
+	}
+	if renewEvery > maxRenewEvery {
+		renewEvery = maxRenewEvery
+	}
+	return renewEvery
+}
+
+func (o *ScanOrchestrator) startCloneLockRenewal(ctx context.Context, urlHash, owner string, lockTTL time.Duration, cancel context.CancelFunc) func() error {
+	renewEvery := o.cloneLockRenewEvery(lockTTL)
+	errCh := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(renewEvery)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			if err := o.queue.RenewCloneLock(ctx, urlHash, owner, lockTTL); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
+				select {
+				case errCh <- fmt.Errorf("renew clone lock: %w", err):
+				default:
+				}
+				cancel()
+				return
+			}
+		}
+	}()
+
+	return func() error {
+		cancel()
+		wg.Wait()
+		select {
+		case err := <-errCh:
+			return err
+		default:
+			return nil
+		}
+	}
 }
 
 func resolveTargetRef(repo *git.Repository, branch string) (plumbing.Hash, error) {
