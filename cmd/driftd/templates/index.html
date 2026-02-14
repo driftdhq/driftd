@@ -38,10 +38,10 @@
     </div>
     {{range .ConfigRepos}}
     {{$project := index $.ProjectByName .Name}}
-    <div class="project-row project-row-link" data-project-name="{{.Name}}" data-href="/projects/{{.Name}}" role="link" tabindex="0" aria-label="View {{.Name}}">
+    <div class="project-row" data-project-name="{{.Name}}">
         <div class="project-cell name">
             <span class="status-indicator {{if $project.Drifted}}drifted{{else}}healthy{{end}}"></span>
-            <span class="project-name">{{.Name}}</span>
+            <a class="project-name" href="/projects/{{.Name}}">{{.Name}}</a>
         </div>
         <div class="project-cell status">
             {{if $project.Active}}
@@ -78,20 +78,6 @@
     (function () {
         if (!window.EventSource) return;
         const source = new EventSource("/api/events");
-
-        document.querySelectorAll(".project-row-link").forEach((row) => {
-            row.addEventListener("click", (event) => {
-                if (event.target.closest("a, button")) return;
-                const href = row.getAttribute("data-href");
-                if (href) window.location.assign(href);
-            });
-            row.addEventListener("keydown", (event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                const href = row.getAttribute("data-href");
-                if (href) window.location.assign(href);
-            });
-        });
 
         const getProjectRow = (projectName) =>
             document.querySelector(`.project-row[data-project-name="${CSS.escape(projectName)}"]`);
