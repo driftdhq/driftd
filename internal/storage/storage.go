@@ -149,19 +149,17 @@ func (s *Storage) GetResult(projectName, stackPath string) (*RunResult, error) {
 
 	// Prefer the new layout under <data_dir>/results, but support legacy reads
 	// from <data_dir>/<project>/<stack> for existing installations.
-	dir := s.stackDir(s.resultsDir(), projectName, stackPath)
+	stackRelDir := filepath.Join(projectName, safePath(stackPath))
+	statusRelPath := filepath.Join(stackRelDir, "status.json")
 
-	statusPath := filepath.Join(dir, "status.json")
-	statusData, err := os.ReadFile(statusPath)
+	baseDir := s.resultsDir()
+	statusData, err := readFileUnder(baseDir, statusRelPath)
 	if err != nil {
-		legacyDir := s.stackDir(s.dataDir, projectName, stackPath)
-		legacyStatus := filepath.Join(legacyDir, "status.json")
-		legacyData, legacyErr := os.ReadFile(legacyStatus)
+		legacyData, legacyErr := readFileUnder(s.dataDir, statusRelPath)
 		if legacyErr != nil {
 			return nil, err
 		}
-		dir = legacyDir
-		statusPath = legacyStatus
+		baseDir = s.dataDir
 		statusData = legacyData
 	}
 
@@ -170,8 +168,8 @@ func (s *Storage) GetResult(projectName, stackPath string) (*RunResult, error) {
 		return nil, err
 	}
 
-	planPath := filepath.Join(dir, "plan.txt")
-	planData, err := os.ReadFile(planPath)
+	planRelPath := filepath.Join(stackRelDir, "plan.txt")
+	planData, err := readFileUnder(baseDir, planRelPath)
 	if err == nil {
 		result.PlanOutput = string(planData)
 	}
@@ -234,8 +232,7 @@ func (s *Storage) ListStacks(projectName string) ([]StackStatus, error) {
 
 	// Load legacy first, then results/ overwrites.
 	for _, base := range []string{s.dataDir, s.resultsDir()} {
-		projectDir := filepath.Join(base, projectName)
-		entries, err := os.ReadDir(projectDir)
+		entries, err := readDirUnder(base, projectName)
 		if err != nil {
 			continue
 		}
@@ -306,4 +303,30 @@ func validateStackPath(stackPath string) error {
 		return ErrInvalidStackPath
 	}
 	return nil
+}
+
+func readFileUnder(baseDir, fileName string) ([]byte, error) {
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	return root.ReadFile(fileName)
+}
+
+func readDirUnder(baseDir, dirName string) ([]os.DirEntry, error) {
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	dir, err := root.Open(dirName)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+
+	return dir.ReadDir(-1)
 }

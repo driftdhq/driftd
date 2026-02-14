@@ -333,7 +333,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 		token := s.ensureCSRFToken(w, r)
 		ctx := context.WithValue(r.Context(), csrfContextKey, token)
 
-		if r.Method == http.MethodPost {
+		if r.Method == http.MethodPost && !s.shouldBypassCSRFCheck(r) {
 			if err := r.ParseForm(); err != nil {
 				http.Error(w, "Invalid form", http.StatusBadRequest)
 				return
@@ -367,21 +367,29 @@ func (s *Server) ensureCSRFToken(w http.ResponseWriter, r *http.Request) string 
 	}
 
 	token := generateToken(32)
-	secure := false
-	if r.TLS != nil {
-		secure = true
-	} else if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		secure = true
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     csrfCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 	return token
+}
+
+func (s *Server) shouldBypassCSRFCheck(r *http.Request) bool {
+	return s != nil && s.cfg != nil && s.cfg.InsecureDevMode && !isHTTPSRequest(r)
+}
+
+func isHTTPSRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func csrfTokenFromContext(ctx context.Context) string {
