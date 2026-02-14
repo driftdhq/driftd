@@ -558,3 +558,69 @@ func TestExtractChangedFilesDedupAndMaxFiles(t *testing.T) {
 		t.Fatalf("unexpected changed files: %v", got)
 	}
 }
+
+func TestWebhookDuplicateDeliveryIsIgnored(t *testing.T) {
+	runner := &fakeRunner{}
+	srv, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Webhook.Enabled = true
+		cfg.Webhook.GitHubSecret = "secret"
+	})
+	defer cleanup()
+
+	payload := gitHubPushPayload{
+		Ref: "refs/heads/main",
+		Repository: struct {
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			DefaultBranch string `json:"default_branch"`
+			CloneURL      string `json:"clone_url"`
+			SSHURL        string `json:"ssh_url"`
+			HTMLURL       string `json:"html_url"`
+		}{
+			Name:          "project",
+			DefaultBranch: "main",
+			CloneURL:      srv.cfg.GetProject("project").URL,
+		},
+		Commits: []struct {
+			Added    []string `json:"added"`
+			Modified []string `json:"modified"`
+			Removed  []string `json:"removed"`
+		}{
+			{Modified: []string{"envs/prod/main.tf"}},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	signature := "sha256=" + computeTestHMAC(body, "secret")
+
+	firstReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/webhooks/github", bytes.NewBuffer(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	firstReq.Header.Set("X-GitHub-Event", "push")
+	firstReq.Header.Set("X-Hub-Signature-256", signature)
+	firstReq.Header.Set("X-GitHub-Delivery", "delivery-1")
+	firstResp, err := http.DefaultClient.Do(firstReq)
+	if err != nil {
+		t.Fatalf("first request failed: %v", err)
+	}
+	firstResp.Body.Close()
+	if firstResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from first delivery, got %d", firstResp.StatusCode)
+	}
+
+	secondReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/webhooks/github", bytes.NewBuffer(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	secondReq.Header.Set("X-GitHub-Event", "push")
+	secondReq.Header.Set("X-Hub-Signature-256", signature)
+	secondReq.Header.Set("X-GitHub-Delivery", "delivery-1")
+	secondResp, err := http.DefaultClient.Do(secondReq)
+	if err != nil {
+		t.Fatalf("second request failed: %v", err)
+	}
+	secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 from duplicate delivery, got %d", secondResp.StatusCode)
+	}
+}

@@ -36,6 +36,8 @@ type Server struct {
 
 	rateLimitMu  sync.Mutex
 	rateLimiters map[string]*rateLimiterEntry
+	webhookMu    sync.Mutex
+	webhookSeen  map[string]time.Time
 
 	onProjectAdded   func(name, schedule string)
 	onProjectUpdated func(name, schedule string)
@@ -138,6 +140,7 @@ func New(cfg *config.Config, s storage.Store, q *queue.Queue, templatesFS, stati
 		tmplSettings: tmplSettings,
 		staticFS:     staticFS,
 		rateLimiters: make(map[string]*rateLimiterEntry),
+		webhookSeen:  make(map[string]time.Time),
 	}
 
 	for _, opt := range opts {
@@ -161,6 +164,7 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(s.securityHeadersMiddleware)
 
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
@@ -197,8 +201,8 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/stacks/*", s.handleGetStackScan)
 		r.Get("/scans/{scanID}", s.handleGetScan)
 		r.Get("/projects/{project}/stacks", s.handleListProjectStackScans)
-		r.With(s.rateLimitMiddleware).Post("/projects/{project}/scan", s.handleScanRepo)
-		r.With(s.rateLimitMiddleware).Post("/projects/{project}/stacks/*", s.handleScanStack)
+		r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Post("/projects/{project}/scan", s.handleScanRepo)
+		r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Post("/projects/{project}/stacks/*", s.handleScanStack)
 		if s.cfg.Webhook.Enabled {
 			r.Post("/webhooks/github", s.handleGitHubWebhook)
 		}
@@ -206,16 +210,16 @@ func (s *Server) Handler() http.Handler {
 		r.Route("/settings", func(r chi.Router) {
 			r.Use(s.settingsAuthMiddleware)
 			r.Get("/integrations", s.handleListSettingsIntegrations)
-			r.Post("/integrations", s.handleCreateSettingsIntegration)
+			r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Post("/integrations", s.handleCreateSettingsIntegration)
 			r.Get("/integrations/{integration}", s.handleGetSettingsIntegration)
-			r.Put("/integrations/{integration}", s.handleUpdateSettingsIntegration)
-			r.Delete("/integrations/{integration}", s.handleDeleteSettingsIntegration)
+			r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Put("/integrations/{integration}", s.handleUpdateSettingsIntegration)
+			r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Delete("/integrations/{integration}", s.handleDeleteSettingsIntegration)
 			r.Get("/projects", s.handleListSettingsRepos)
-			r.Post("/projects", s.handleCreateSettingsRepo)
+			r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Post("/projects", s.handleCreateSettingsRepo)
 			r.Get("/projects/{project}", s.handleGetSettingsRepo)
-			r.Put("/projects/{project}", s.handleUpdateSettingsRepo)
-			r.Delete("/projects/{project}", s.handleDeleteSettingsRepo)
-			r.Post("/projects/{project}/test", s.handleTestProjectConnection)
+			r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Put("/projects/{project}", s.handleUpdateSettingsRepo)
+			r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Delete("/projects/{project}", s.handleDeleteSettingsRepo)
+			r.With(s.rateLimitMiddleware, s.apiWriteAuthMiddleware).Post("/projects/{project}/test", s.handleTestProjectConnection)
 		})
 	})
 

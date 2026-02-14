@@ -77,6 +77,12 @@ func runServe(args []string) {
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
+	if err := validateServeSecurity(cfg); err != nil {
+		log.Fatalf("invalid security configuration: %v", err)
+	}
+	if err := validateEncryptionKeyPolicy(cfg); err != nil {
+		log.Fatalf("invalid encryption key configuration: %v", err)
+	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		log.Fatalf("failed to create data dir: %v", err)
@@ -186,6 +192,9 @@ func runWorker(args []string) {
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
+	if err := validateEncryptionKeyPolicy(cfg); err != nil {
+		log.Fatalf("invalid encryption key configuration: %v", err)
+	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		log.Fatalf("failed to create data dir: %v", err)
@@ -236,4 +245,36 @@ func runWorker(args []string) {
 	<-done
 	log.Println("Shutting down, waiting for in-flight stack scans...")
 	w.Stop()
+}
+
+func validateServeSecurity(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if cfg.InsecureDevMode {
+		return nil
+	}
+
+	uiAuthConfigured := cfg.UIAuth.Username != "" || cfg.UIAuth.Password != ""
+	apiAuthConfigured := cfg.APIAuth.Token != "" ||
+		cfg.APIAuth.WriteToken != "" ||
+		cfg.APIAuth.Username != "" ||
+		cfg.APIAuth.Password != ""
+	if !uiAuthConfigured && !apiAuthConfigured {
+		return fmt.Errorf("authentication is required (configure ui_auth or api_auth), or set insecure_dev_mode=true for local development")
+	}
+	return nil
+}
+
+func validateEncryptionKeyPolicy(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if cfg.InsecureDevMode {
+		return nil
+	}
+	if os.Getenv(secrets.EnvEncryptionKey) == "" {
+		return fmt.Errorf("%s must be set when insecure_dev_mode=false", secrets.EnvEncryptionKey)
+	}
+	return nil
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,12 +12,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/orchestrate"
 	"github.com/driftdhq/driftd/internal/queue"
 	"github.com/driftdhq/driftd/internal/secrets"
 )
+
+const webhookReplayWindow = 15 * time.Minute
 
 type gitHubPushPayload struct {
 	Ref        string `json:"ref"`
@@ -268,13 +272,21 @@ func (s *Server) validateWebhookRequest(w http.ResponseWriter, r *http.Request, 
 			http.Error(w, "Invalid signature", http.StatusUnauthorized)
 			return false
 		}
+		if !s.recordWebhookDelivery(r, body) {
+			w.WriteHeader(http.StatusAccepted)
+			return false
+		}
 		return true
 	}
 
 	if s.cfg.Webhook.Token != "" {
 		token := r.Header.Get(s.cfg.Webhook.TokenHeader)
-		if token == "" || token != s.cfg.Webhook.Token {
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.Webhook.Token)) != 1 {
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return false
+		}
+		if !s.recordWebhookDelivery(r, body) {
+			w.WriteHeader(http.StatusAccepted)
 			return false
 		}
 		return true
@@ -288,4 +300,37 @@ func computeHMACSHA256(payload, key []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write(payload)
 	return h.Sum(nil)
+}
+
+func (s *Server) recordWebhookDelivery(r *http.Request, body []byte) bool {
+	key := webhookReplayKey(r, body)
+	now := time.Now().UTC()
+
+	s.webhookMu.Lock()
+	defer s.webhookMu.Unlock()
+
+	cutoff := now.Add(-webhookReplayWindow)
+	for k, seenAt := range s.webhookSeen {
+		if seenAt.Before(cutoff) {
+			delete(s.webhookSeen, k)
+		}
+	}
+
+	if seenAt, ok := s.webhookSeen[key]; ok && now.Sub(seenAt) <= webhookReplayWindow {
+		return false
+	}
+
+	s.webhookSeen[key] = now
+	return true
+}
+
+func webhookReplayKey(r *http.Request, body []byte) string {
+	if delivery := strings.TrimSpace(r.Header.Get("X-GitHub-Delivery")); delivery != "" {
+		return "delivery:" + delivery
+	}
+	if sig := strings.TrimSpace(r.Header.Get("X-Hub-Signature-256")); sig != "" {
+		return "sig:" + sig
+	}
+	sum := sha256.Sum256(body)
+	return "body:" + hex.EncodeToString(sum[:])
 }

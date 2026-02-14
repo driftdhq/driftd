@@ -98,3 +98,105 @@ func TestRateLimitScan(t *testing.T) {
 		t.Fatalf("expected 429, got %d", resp2.StatusCode)
 	}
 }
+
+func TestAPIWriteTokenBlocksReadTokenOnMutations(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.APIAuth.Token = "read-token"
+		cfg.APIAuth.TokenHeader = "X-API-Token"
+		cfg.APIAuth.WriteToken = "write-token"
+		cfg.APIAuth.WriteTokenHeader = "X-API-Write-Token"
+	})
+	defer cleanup()
+
+	readReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/health", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	readReq.Header.Set("X-API-Token", "read-token")
+	readResp, err := http.DefaultClient.Do(readReq)
+	if err != nil {
+		t.Fatalf("read request failed: %v", err)
+	}
+	readResp.Body.Close()
+	if readResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for read auth, got %d", readResp.StatusCode)
+	}
+
+	writeReqWithReadToken, err := http.NewRequest(http.MethodPost, ts.URL+"/api/projects/project/scan", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	writeReqWithReadToken.Header.Set("Content-Type", "application/json")
+	writeReqWithReadToken.Header.Set("X-API-Token", "read-token")
+	writeRespWithReadToken, err := http.DefaultClient.Do(writeReqWithReadToken)
+	if err != nil {
+		t.Fatalf("write request with read token failed: %v", err)
+	}
+	writeRespWithReadToken.Body.Close()
+	if writeRespWithReadToken.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for write with read token, got %d", writeRespWithReadToken.StatusCode)
+	}
+
+	writeReqWithWriteToken, err := http.NewRequest(http.MethodPost, ts.URL+"/api/projects/project/scan", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	writeReqWithWriteToken.Header.Set("Content-Type", "application/json")
+	writeReqWithWriteToken.Header.Set("X-API-Write-Token", "write-token")
+	writeRespWithWriteToken, err := http.DefaultClient.Do(writeReqWithWriteToken)
+	if err != nil {
+		t.Fatalf("write request with write token failed: %v", err)
+	}
+	writeRespWithWriteToken.Body.Close()
+	if writeRespWithWriteToken.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for write with write token, got %d", writeRespWithWriteToken.StatusCode)
+	}
+}
+
+func TestRateLimitSettingsWrites(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.API.RateLimitPerMinute = 1
+	})
+	defer cleanup()
+
+	body := bytes.NewBufferString(`{"name":"p","url":"https://example.com/repo.git","auth_type":"https"}`)
+	resp, err := http.Post(ts.URL+"/api/settings/projects", "application/json", body)
+	if err != nil {
+		t.Fatalf("settings write failed: %v", err)
+	}
+	resp.Body.Close()
+
+	body2 := bytes.NewBufferString(`{"name":"p2","url":"https://example.com/repo.git","auth_type":"https"}`)
+	resp2, err := http.Post(ts.URL+"/api/settings/projects", "application/json", body2)
+	if err != nil {
+		t.Fatalf("settings write 2 failed: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 for second settings write, got %d", resp2.StatusCode)
+	}
+}
+
+func TestSecurityHeadersApplied(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, nil)
+	defer cleanup()
+
+	resp, err := http.Get(ts.URL + "/api/health")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("expected X-Content-Type-Options nosniff, got %q", got)
+	}
+	if got := resp.Header.Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("expected X-Frame-Options DENY, got %q", got)
+	}
+	if got := resp.Header.Get("Content-Security-Policy"); got == "" {
+		t.Fatalf("expected Content-Security-Policy header")
+	}
+}

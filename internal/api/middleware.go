@@ -23,7 +23,9 @@ const (
 func (s *Server) uiAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
-		if !ok || username != s.cfg.UIAuth.Username || password != s.cfg.UIAuth.Password {
+		if !ok ||
+			subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.UIAuth.Username)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.UIAuth.Password)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="driftd"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -33,7 +35,10 @@ func (s *Server) uiAuthMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) apiAuthEnabled() bool {
-	return s.cfg.APIAuth.Token != "" || s.cfg.APIAuth.Username != "" || s.cfg.APIAuth.Password != ""
+	return s.cfg.APIAuth.Token != "" ||
+		s.cfg.APIAuth.WriteToken != "" ||
+		s.cfg.APIAuth.Username != "" ||
+		s.cfg.APIAuth.Password != ""
 }
 
 func (s *Server) apiAuthMiddleware(next http.Handler) http.Handler {
@@ -50,15 +55,18 @@ func (s *Server) apiAuthMiddleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-
-		if s.cfg.APIAuth.Username != "" || s.cfg.APIAuth.Password != "" {
-			username, password, ok := r.BasicAuth()
-			if ok &&
-				subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.APIAuth.Username)) == 1 &&
-				subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.APIAuth.Password)) == 1 {
+		// Write token can also authenticate read requests for operational simplicity.
+		if s.cfg.APIAuth.WriteToken != "" {
+			writeToken := r.Header.Get(s.cfg.APIAuth.WriteTokenHeader)
+			if writeToken != "" && subtle.ConstantTimeCompare([]byte(writeToken), []byte(s.cfg.APIAuth.WriteToken)) == 1 {
 				next.ServeHTTP(w, r)
 				return
 			}
+		}
+
+		if s.apiBasicAuthorized(r) {
+			next.ServeHTTP(w, r)
+			return
 		}
 
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -73,10 +81,7 @@ func (s *Server) settingsAuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
-			username, password, ok := r.BasicAuth()
-			if ok &&
-				subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.UIAuth.Username)) == 1 &&
-				subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.UIAuth.Password)) == 1 {
+			if s.uiBasicAuthorized(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -87,6 +92,70 @@ func (s *Server) settingsAuthMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) apiWriteAuthEnabled() bool {
+	return s.cfg.APIAuth.WriteToken != ""
+}
+
+// apiWriteAuthMiddleware protects mutating API routes. If write_token is configured,
+// write requests require write token auth (or API basic auth).
+func (s *Server) apiWriteAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.apiWriteAuthEnabled() {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		writeToken := r.Header.Get(s.cfg.APIAuth.WriteTokenHeader)
+		if writeToken != "" && subtle.ConstantTimeCompare([]byte(writeToken), []byte(s.cfg.APIAuth.WriteToken)) == 1 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Allow API basic auth as an administrative override.
+		if s.apiBasicAuthorized(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	})
+}
+
+func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
+	const csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		w.Header().Set("Content-Security-Policy", csp)
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) apiBasicAuthorized(r *http.Request) bool {
+	if s.cfg.APIAuth.Username == "" && s.cfg.APIAuth.Password == "" {
+		return false
+	}
+	username, password, ok := r.BasicAuth()
+	return ok &&
+		subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.APIAuth.Username)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.APIAuth.Password)) == 1
+}
+
+func (s *Server) uiBasicAuthorized(r *http.Request) bool {
+	if s.cfg.UIAuth.Username == "" && s.cfg.UIAuth.Password == "" {
+		return false
+	}
+	username, password, ok := r.BasicAuth()
+	return ok &&
+		subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.UIAuth.Username)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.UIAuth.Password)) == 1
 }
 
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
@@ -203,12 +272,12 @@ func (s *Server) getRateLimiter(ip string) *rate.Limiter {
 		return entry.limiter
 	}
 
-	limit := rate.Limit(1)
-	burst := 5
+	ratePerMinute := 60
 	if s.cfg.API.RateLimitPerMinute > 0 {
-		limit = rate.Limit(float64(s.cfg.API.RateLimitPerMinute) / 60.0)
-		burst = s.cfg.API.RateLimitPerMinute
+		ratePerMinute = s.cfg.API.RateLimitPerMinute
 	}
+	limit := rate.Limit(float64(ratePerMinute) / 60.0)
+	burst := ratePerMinute
 	limiter := rate.NewLimiter(limit, burst)
 	s.rateLimiters[ip] = &rateLimiterEntry{limiter: limiter, lastSeen: time.Now()}
 

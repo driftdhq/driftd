@@ -14,16 +14,19 @@ import (
 )
 
 type Config struct {
-	DataDir    string          `yaml:"data_dir"`
-	ListenAddr string          `yaml:"listen_addr"`
-	Redis      RedisConfig     `yaml:"redis"`
-	Worker     WorkerConfig    `yaml:"worker"`
-	Workspace  WorkspaceConfig `yaml:"workspace"`
-	Projects   []ProjectConfig `yaml:"projects"`
-	Webhook    WebhookConfig   `yaml:"webhook"`
-	UIAuth     UIAuthConfig    `yaml:"ui_auth"`
-	APIAuth    APIAuthConfig   `yaml:"api_auth"`
-	API        APIConfig       `yaml:"api"`
+	DataDir    string `yaml:"data_dir"`
+	ListenAddr string `yaml:"listen_addr"`
+	// InsecureDevMode relaxes auth and secret-key requirements for local-only development.
+	// Never enable this in shared or production environments.
+	InsecureDevMode bool            `yaml:"insecure_dev_mode"`
+	Redis           RedisConfig     `yaml:"redis"`
+	Worker          WorkerConfig    `yaml:"worker"`
+	Workspace       WorkspaceConfig `yaml:"workspace"`
+	Projects        []ProjectConfig `yaml:"projects"`
+	Webhook         WebhookConfig   `yaml:"webhook"`
+	UIAuth          UIAuthConfig    `yaml:"ui_auth"`
+	APIAuth         APIAuthConfig   `yaml:"api_auth"`
+	API             APIConfig       `yaml:"api"`
 }
 
 type RedisConfig struct {
@@ -61,10 +64,12 @@ type UIAuthConfig struct {
 }
 
 type APIAuthConfig struct {
-	Username    string `yaml:"username"`
-	Password    string `yaml:"password"`
-	Token       string `yaml:"token"`
-	TokenHeader string `yaml:"token_header"`
+	Username         string `yaml:"username"`
+	Password         string `yaml:"password"`
+	Token            string `yaml:"token"`
+	TokenHeader      string `yaml:"token_header"`
+	WriteToken       string `yaml:"write_token"`
+	WriteTokenHeader string `yaml:"write_token_header"`
 }
 
 type APIConfig struct {
@@ -249,6 +254,9 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.APIAuth.TokenHeader == "" {
 		cfg.APIAuth.TokenHeader = "X-API-Token"
+	}
+	if cfg.APIAuth.WriteTokenHeader == "" {
+		cfg.APIAuth.WriteTokenHeader = "X-API-Write-Token"
 	}
 	if cfg.Webhook.MaxFiles <= 0 {
 		cfg.Webhook.MaxFiles = 300
