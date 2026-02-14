@@ -15,8 +15,8 @@ import (
 	"github.com/driftdhq/driftd/internal/api"
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/orchestrate"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/driftdhq/driftd/internal/storage"
@@ -39,11 +39,11 @@ func main() {
 		log.Fatalf("data dir: %v", err)
 	}
 
-	repoDir := filepath.Join(dataDir, "repo-source")
-	if err := os.MkdirAll(repoDir, 0755); err != nil {
-		log.Fatalf("repo dir: %v", err)
+	projectDir := filepath.Join(dataDir, "project-source")
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		log.Fatalf("project dir: %v", err)
 	}
-	initRepoWithStacks(repoDir, buildTestStacks())
+	initProjectWithStacks(projectDir, buildTestStacks())
 
 	cfg := &config.Config{
 		ListenAddr: fmt.Sprintf("127.0.0.1:%d", port),
@@ -58,10 +58,10 @@ func main() {
 			ScanMaxAge:  2 * time.Minute,
 			RenewEvery:  5 * time.Second,
 		},
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
-				Name: "repo",
-				URL:  "file://" + repoDir,
+				Name: "project",
+				URL:  "file://" + projectDir,
 			},
 		},
 	}
@@ -88,20 +88,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("encryptor: %v", err)
 	}
-	repoStore := secrets.NewRepoStore(cfg.DataDir, encryptor)
-	_ = repoStore.Load()
+	projectStore := secrets.NewProjectStore(cfg.DataDir, encryptor)
+	_ = projectStore.Load()
 	intStore := secrets.NewIntegrationStore(cfg.DataDir)
 	_ = intStore.Load()
 
-	repoProvider := repos.NewCombinedProvider(cfg, repoStore, intStore, cfg.DataDir)
+	projectProvider := projects.NewCombinedProvider(cfg, projectStore, intStore, cfg.DataDir)
 
 	orch := orchestrate.New(cfg, q)
 	defer orch.Stop()
 
 	srv, err := api.New(cfg, store, q, os.DirFS("cmd/driftd"), os.DirFS("cmd/driftd"),
-		api.WithRepoStore(repoStore),
+		api.WithProjectStore(projectStore),
 		api.WithIntegrationStore(intStore),
-		api.WithRepoProvider(repoProvider),
+		api.WithProjectProvider(projectProvider),
 		api.WithOrchestrator(orch),
 	)
 	if err != nil {
@@ -109,7 +109,7 @@ func main() {
 	}
 	defer srv.Stop()
 
-	w := worker.New(q, &uiRunner{}, cfg.Worker.Concurrency, cfg, repoProvider)
+	w := worker.New(q, &uiRunner{}, cfg.Worker.Concurrency, cfg, projectProvider)
 	w.Start()
 	defer w.Stop()
 
@@ -155,10 +155,10 @@ func buildTestStacks() []string {
 	return stacks
 }
 
-func initRepoWithStacks(dir string, stacks []string) *git.Repository {
-	repo, err := git.PlainInit(dir, false)
+func initProjectWithStacks(dir string, stacks []string) *git.Repository {
+	project, err := git.PlainInit(dir, false)
 	if err != nil {
-		log.Fatalf("init repo: %v", err)
+		log.Fatalf("init project: %v", err)
 	}
 	for _, stack := range stacks {
 		stackDir := filepath.Join(dir, stack)
@@ -169,7 +169,7 @@ func initRepoWithStacks(dir string, stacks []string) *git.Repository {
 			log.Fatalf("write stack: %v", err)
 		}
 	}
-	wt, err := repo.Worktree()
+	wt, err := project.Worktree()
 	if err != nil {
 		log.Fatalf("worktree: %v", err)
 	}
@@ -185,14 +185,14 @@ func initRepoWithStacks(dir string, stacks []string) *git.Repository {
 	}); err != nil {
 		log.Fatalf("commit: %v", err)
 	}
-	return repo
+	return project
 }
 
 func seedStorage(store *storage.Storage) {
 	now := time.Now()
 	for i := 1; i <= 60; i++ {
 		path := fmt.Sprintf("envs/dev/app-%03d", i)
-		store.SaveResult("repo", path, &storage.RunResult{
+		store.SaveResult("project", path, &storage.RunResult{
 			Drifted:   i%5 == 0,
 			Added:     1,
 			Changed:   0,
@@ -202,7 +202,7 @@ func seedStorage(store *storage.Storage) {
 	}
 	for i := 1; i <= 60; i++ {
 		path := fmt.Sprintf("envs/prod/app-%03d", i)
-		store.SaveResult("repo", path, &storage.RunResult{
+		store.SaveResult("project", path, &storage.RunResult{
 			Drifted:   i%7 == 0,
 			Added:     0,
 			Changed:   1,
@@ -210,14 +210,14 @@ func seedStorage(store *storage.Storage) {
 			RunAt:     now.Add(-time.Duration(i) * time.Minute),
 		})
 	}
-	store.SaveResult("repo", "envs/staging/region/us-east-1/app-001", &storage.RunResult{
+	store.SaveResult("project", "envs/staging/region/us-east-1/app-001", &storage.RunResult{
 		Drifted:   false,
 		Added:     0,
 		Changed:   0,
 		Destroyed: 0,
 		RunAt:     now.Add(-2 * time.Hour),
 	})
-	store.SaveResult("repo", "envs/staging/region/us-east-1/app-drift", &storage.RunResult{
+	store.SaveResult("project", "envs/staging/region/us-east-1/app-drift", &storage.RunResult{
 		Drifted:   true,
 		Added:     1,
 		Changed:   2,

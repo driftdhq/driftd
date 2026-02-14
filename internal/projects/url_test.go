@@ -1,4 +1,4 @@
-package repos
+package projects
 
 import "testing"
 
@@ -11,32 +11,32 @@ func TestCanonicalURL(t *testing.T) {
 	}{
 		{
 			name:  "https",
-			raw:   "https://github.com/org/repo.git",
-			want:  "github.com/org/repo",
+			raw:   "https://github.com/org/project.git",
+			want:  "github.com/org/project",
 			valid: true,
 		},
 		{
 			name:  "ssh_scp_style",
-			raw:   "git@github.com:org/repo.git",
-			want:  "github.com/org/repo",
+			raw:   "git@github.com:org/project.git",
+			want:  "github.com/org/project",
 			valid: true,
 		},
 		{
 			name:  "ssh_url_style",
-			raw:   "ssh://git@github.com/org/repo.git",
-			want:  "github.com/org/repo",
+			raw:   "ssh://git@github.com/org/project.git",
+			want:  "github.com/org/project",
 			valid: true,
 		},
 		{
 			name:  "html_url",
-			raw:   "https://github.com/org/repo",
-			want:  "github.com/org/repo",
+			raw:   "https://github.com/org/project",
+			want:  "github.com/org/project",
 			valid: true,
 		},
 		{
 			name:  "local_path",
-			raw:   "/tmp/repo",
-			want:  "local:/tmp/repo",
+			raw:   "/tmp/project",
+			want:  "local:/tmp/project",
 			valid: true,
 		},
 		{

@@ -23,7 +23,7 @@ func TestVersionLockReturnsSameInstance(t *testing.T) {
 
 func TestEnsureTerraformBinaryUsesTempSwitchDir(t *testing.T) {
 	tmp := t.TempDir()
-	workDir := filepath.Join(tmp, "repo")
+	workDir := filepath.Join(tmp, "project")
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		t.Fatalf("mkdir workdir: %v", err)
 	}

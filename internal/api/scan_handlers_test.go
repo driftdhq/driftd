@@ -12,7 +12,7 @@ import (
 	"github.com/driftdhq/driftd/internal/queue"
 )
 
-func TestScanRepoCompletesScan(t *testing.T) {
+func TestScanProjectCompletesScan(t *testing.T) {
 	runner := &fakeRunner{
 		drifted: map[string]bool{
 			"envs/prod": true,
@@ -23,7 +23,7 @@ func TestScanRepoCompletesScan(t *testing.T) {
 	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, true, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestScanRepoCompletesScan(t *testing.T) {
 	}
 
 	// Ensure a new scan can start after completion.
-	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp2, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request 2 failed: %v", err)
 	}
@@ -68,13 +68,13 @@ func TestScanRepoCompletesScan(t *testing.T) {
 	_ = q.Close()
 }
 
-func TestScanRepoConflict(t *testing.T) {
+func TestScanProjectConflict(t *testing.T) {
 	runner := &fakeRunner{}
 
 	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, false)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestScanRepoConflict(t *testing.T) {
 		t.Fatalf("expected scan in response")
 	}
 
-	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp2, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request 2 failed: %v", err)
 	}
@@ -100,15 +100,15 @@ func TestScanRepoConflict(t *testing.T) {
 		t.Fatalf("expected 409, got %d", resp2.StatusCode)
 	}
 
-	_ = q.FailScan(context.Background(), sr.Scan.ID, "repo", "test cleanup")
+	_ = q.FailScan(context.Background(), sr.Scan.ID, "project", "test cleanup")
 }
 
-func TestScanRepoInvalidJSON(t *testing.T) {
+func TestScanProjectInvalidJSON(t *testing.T) {
 	runner := &fakeRunner{}
 	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString("{bad json"))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString("{bad json"))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -118,12 +118,12 @@ func TestScanRepoInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestScanRepoDefaultsTriggerToManual(t *testing.T) {
+func TestScanProjectDefaultsTriggerToManual(t *testing.T) {
 	runner := &fakeRunner{}
 	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestCancelInflightOnNewTrigger(t *testing.T) {
 	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestCancelInflightOnNewTrigger(t *testing.T) {
 	firstScanID := sr.Scan.ID
 
 	// Second scan should cancel the first and succeed
-	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp2, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request 2 failed: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestScanVersionMapping(t *testing.T) {
 	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod", "envs/dev"}, false, versions, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -234,13 +234,13 @@ func TestScanVersionMapping(t *testing.T) {
 	}
 }
 
-func TestScanRepoNoStacksDiscovered(t *testing.T) {
+func TestScanProjectNoStacksDiscovered(t *testing.T) {
 	runner := &fakeRunner{}
 
 	ts, q, cleanup := newTestServer(t, runner, []string{}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestScanRepoNoStacksDiscovered(t *testing.T) {
 		if strings.HasPrefix(key, "driftd:scan:stack_scans:") || strings.HasPrefix(key, "driftd:scan:last:") {
 			continue
 		}
-		if key == "driftd:scan:repo:repo" {
+		if key == "driftd:scan:project:project" {
 			continue
 		}
 		scanKey = key
@@ -297,7 +297,7 @@ func TestScanSingleStack(t *testing.T) {
 	ts, _, cleanup := newTestServer(t, runner, []string{"dev"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/dev", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/stacks/dev", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan stack request failed: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestScanStackNotFound(t *testing.T) {
 	ts, _, cleanup := newTestServer(t, runner, []string{"envs/dev"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/envs/prod", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/stacks/envs/prod", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan stack request failed: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestScanStackDefaultsTriggerToManual(t *testing.T) {
 	ts, _, cleanup := newTestServer(t, runner, []string{"dev"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/dev", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/stacks/dev", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan stack request failed: %v", err)
 	}
@@ -400,14 +400,14 @@ func TestTriggerPriorityDoesNotCancelScheduledOverManual(t *testing.T) {
 	srv, _, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, nil)
 	defer cleanup()
 
-	repoCfg := srv.cfg.GetRepo("repo")
-	scan, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "manual", "", "")
+	projectCfg := srv.cfg.GetProject("project")
+	scan, _, err := srv.startScanWithCancel(context.Background(), projectCfg, "manual", "", "")
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	if _, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "scheduled", "", ""); err != queue.ErrRepoLocked {
-		t.Fatalf("expected repo locked, got %v", err)
+	if _, _, err := srv.startScanWithCancel(context.Background(), projectCfg, "scheduled", "", ""); err != queue.ErrProjectLocked {
+		t.Fatalf("expected project locked, got %v", err)
 	}
 
 	scanAfter, err := srv.queue.GetScan(context.Background(), scan.ID)
@@ -424,13 +424,13 @@ func TestTriggerPriorityCancelsOnNewerManual(t *testing.T) {
 	srv, _, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, nil)
 	defer cleanup()
 
-	repoCfg := srv.cfg.GetRepo("repo")
-	first, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "manual", "", "")
+	projectCfg := srv.cfg.GetProject("project")
+	first, _, err := srv.startScanWithCancel(context.Background(), projectCfg, "manual", "", "")
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	second, _, err := srv.startScanWithCancel(context.Background(), repoCfg, "webhook", "", "")
+	second, _, err := srv.startScanWithCancel(context.Background(), projectCfg, "webhook", "", "")
 	if err != nil {
 		t.Fatalf("start scan 2: %v", err)
 	}
@@ -448,12 +448,12 @@ func TestTriggerPriorityCancelsOnNewerManual(t *testing.T) {
 
 }
 
-func TestGetStackScanAndListRepoStackScans(t *testing.T) {
+func TestGetStackScanAndListProjectStackScans(t *testing.T) {
 	runner := &fakeRunner{}
 	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
@@ -487,13 +487,13 @@ func TestGetStackScanAndListRepoStackScans(t *testing.T) {
 		t.Fatalf("unexpected stack scan payload: %+v", stack)
 	}
 
-	listResp, err := http.Get(ts.URL + "/api/repos/repo/stacks")
+	listResp, err := http.Get(ts.URL + "/api/projects/project/stacks")
 	if err != nil {
-		t.Fatalf("list repo stack scans: %v", err)
+		t.Fatalf("list project stack scans: %v", err)
 	}
 	defer listResp.Body.Close()
 	if listResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 from /api/repos/{repo}/stacks, got %d", listResp.StatusCode)
+		t.Fatalf("expected 200 from /api/projects/{project}/stacks, got %d", listResp.StatusCode)
 	}
 
 	var listed []apiStackScan

@@ -22,7 +22,7 @@ type mockRunner struct {
 }
 
 type runCall struct {
-	repoName      string
+	projectName   string
 	stackPath     string
 	tfVersion     string
 	tgVersion     string
@@ -39,7 +39,7 @@ func newMockRunner() *mockRunner {
 func (m *mockRunner) Run(ctx context.Context, params *runner.RunParams) (*storage.RunResult, error) {
 	m.mu.Lock()
 	m.calls = append(m.calls, runCall{
-		repoName:      params.RepoName,
+		projectName:   params.ProjectName,
 		stackPath:     params.StackPath,
 		tfVersion:     params.TFVersion,
 		tgVersion:     params.TGVersion,
@@ -47,7 +47,7 @@ func (m *mockRunner) Run(ctx context.Context, params *runner.RunParams) (*storag
 	})
 	m.mu.Unlock()
 
-	key := params.RepoName + ":" + params.StackPath
+	key := params.ProjectName + ":" + params.StackPath
 	if err, ok := m.errors[key]; ok {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func TestWorkerStartStop(t *testing.T) {
 func TestWorkerProcessesStackScan(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
-	r.results["repo:envs/dev"] = &storage.RunResult{
+	r.results["project:envs/dev"] = &storage.RunResult{
 		Drifted:   true,
 		Added:     1,
 		Changed:   2,
@@ -110,9 +110,9 @@ func TestWorkerProcessesStackScan(t *testing.T) {
 
 	ctx := context.Background()
 	job := &queue.StackScan{
-		RepoName:  "repo",
-		RepoURL:   "https://github.com/org/repo.git",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "https://github.com/org/project.git",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -142,7 +142,7 @@ func TestWorkerProcessesStackScan(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 runner call, got %d", len(calls))
 	}
-	if calls[0].repoName != "repo" || calls[0].stackPath != "envs/dev" {
+	if calls[0].projectName != "project" || calls[0].stackPath != "envs/dev" {
 		t.Errorf("unexpected call: %+v", calls[0])
 	}
 }
@@ -150,7 +150,7 @@ func TestWorkerProcessesStackScan(t *testing.T) {
 func TestWorkerHandlesRunnerError(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()
-	r.results["repo:stack"] = &storage.RunResult{
+	r.results["project:stack"] = &storage.RunResult{
 		Error: "terraform init failed",
 	}
 
@@ -160,10 +160,10 @@ func TestWorkerHandlesRunnerError(t *testing.T) {
 
 	ctx := context.Background()
 	job := &queue.StackScan{
-		RepoName:   "repo",
-		RepoURL:    "https://github.com/org/repo.git",
-		StackPath:  "stack",
-		MaxRetries: 0,
+		ProjectName: "project",
+		ProjectURL:  "https://github.com/org/project.git",
+		StackPath:   "stack",
+		MaxRetries:  0,
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -203,7 +203,7 @@ func TestWorkerUsesScanVersions(t *testing.T) {
 
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -212,10 +212,10 @@ func TestWorkerUsesScanVersions(t *testing.T) {
 	}
 
 	job := &queue.StackScan{
-		ScanID:    scan.ID,
-		RepoName:  "repo",
-		RepoURL:   "https://github.com/org/repo.git",
-		StackPath: "stack",
+		ScanID:      scan.ID,
+		ProjectName: "project",
+		ProjectURL:  "https://github.com/org/project.git",
+		StackPath:   "stack",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -255,7 +255,7 @@ func TestWorkerUsesStackVersionOverride(t *testing.T) {
 
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -267,10 +267,10 @@ func TestWorkerUsesStackVersionOverride(t *testing.T) {
 	}
 
 	job := &queue.StackScan{
-		ScanID:    scan.ID,
-		RepoName:  "repo",
-		RepoURL:   "https://github.com/org/repo.git",
-		StackPath: "envs/dev",
+		ScanID:      scan.ID,
+		ProjectName: "project",
+		ProjectURL:  "https://github.com/org/project.git",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -310,20 +310,20 @@ func TestWorkerCancelsStackScanWhenScanCanceled(t *testing.T) {
 
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	if err := q.CancelScan(ctx, scan.ID, "repo", "test cancel"); err != nil {
+	if err := q.CancelScan(ctx, scan.ID, "project", "test cancel"); err != nil {
 		t.Fatalf("cancel scan: %v", err)
 	}
 
 	job := &queue.StackScan{
-		ScanID:    scan.ID,
-		RepoName:  "repo",
-		RepoURL:   "https://github.com/org/repo.git",
-		StackPath: "stack",
+		ScanID:      scan.ID,
+		ProjectName: "project",
+		ProjectURL:  "https://github.com/org/project.git",
+		StackPath:   "stack",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -365,19 +365,19 @@ func TestWorkerUsesWorkspacePath(t *testing.T) {
 
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
-	if err := q.SetScanWorkspace(ctx, scan.ID, "/data/workspaces/repo/123", "abc123"); err != nil {
+	if err := q.SetScanWorkspace(ctx, scan.ID, "/data/workspaces/project/123", "abc123"); err != nil {
 		t.Fatalf("set workspace: %v", err)
 	}
 
 	job := &queue.StackScan{
-		ScanID:    scan.ID,
-		RepoName:  "repo",
-		RepoURL:   "https://github.com/org/repo.git",
-		StackPath: "stack",
+		ScanID:      scan.ID,
+		ProjectName: "project",
+		ProjectURL:  "https://github.com/org/project.git",
+		StackPath:   "stack",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -399,8 +399,8 @@ func TestWorkerUsesWorkspacePath(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
-	if calls[0].workspacePath != "/data/workspaces/repo/123" {
-		t.Errorf("workspace path: got %q, want /data/workspaces/repo/123", calls[0].workspacePath)
+	if calls[0].workspacePath != "/data/workspaces/project/123" {
+		t.Errorf("workspace path: got %q, want /data/workspaces/project/123", calls[0].workspacePath)
 	}
 }
 
@@ -409,10 +409,10 @@ func TestWorkerWithConfig(t *testing.T) {
 	r := newMockRunner()
 
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
-				Name: "repo",
-				URL:  "https://github.com/org/repo.git",
+				Name: "project",
+				URL:  "https://github.com/org/project.git",
 			},
 		},
 	}
@@ -423,9 +423,9 @@ func TestWorkerWithConfig(t *testing.T) {
 
 	ctx := context.Background()
 	job := &queue.StackScan{
-		RepoName:  "repo",
-		RepoURL:   "https://github.com/org/repo.git",
-		StackPath: "stack",
+		ProjectName: "project",
+		ProjectURL:  "https://github.com/org/project.git",
+		StackPath:   "stack",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -464,9 +464,9 @@ func TestWorkerConcurrency(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		job := &queue.StackScan{
-			RepoName:  "repo",
-			RepoURL:   "https://github.com/org/repo.git",
-			StackPath: fmt.Sprintf("stack-%d", i),
+			ProjectName: "project",
+			ProjectURL:  "https://github.com/org/project.git",
+			StackPath:   fmt.Sprintf("stack-%d", i),
 		}
 		if err := q.Enqueue(ctx, job); err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)

@@ -90,7 +90,7 @@ config:
     renew_every: 10s
   workspace:
     retention: 5
-  repos: []
+  projects: []
 
 # Redis subchart configuration
 redis:

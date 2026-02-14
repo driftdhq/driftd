@@ -11,13 +11,13 @@ import (
 	"github.com/driftdhq/driftd/internal/queue"
 )
 
-func TestRepoEventsStreamEmitsSnapshotAndUpdate(t *testing.T) {
+func TestProjectEventsStreamEmitsSnapshotAndUpdate(t *testing.T) {
 	runner := &fakeRunner{}
 	ts, q, cleanup := newTestServer(t, runner, []string{"envs/dev"}, false, nil, true)
 	defer cleanup()
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/repos/repo/events", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/projects/project/events", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -35,12 +35,12 @@ func TestRepoEventsStreamEmitsSnapshotAndUpdate(t *testing.T) {
 
 	time.Sleep(150 * time.Millisecond)
 	now := time.Now()
-	if err := q.PublishScanEvent(context.Background(), "repo", queue.ScanEvent{
-		RepoName:  "repo",
-		ScanID:    "scan-1",
-		Status:    queue.ScanStatusRunning,
-		StartedAt: &now,
-		Total:     1,
+	if err := q.PublishScanEvent(context.Background(), "project", queue.ScanEvent{
+		ProjectName: "project",
+		ScanID:      "scan-1",
+		Status:      queue.ScanStatusRunning,
+		StartedAt:   &now,
+		Total:       1,
 	}); err != nil {
 		t.Fatalf("publish scan event: %v", err)
 	}
@@ -70,12 +70,12 @@ func TestGlobalEventsStreamEmitsUpdate(t *testing.T) {
 	reader := bufio.NewReader(resp.Body)
 	time.Sleep(150 * time.Millisecond)
 	now := time.Now()
-	if err := q.PublishStackEvent(context.Background(), "repo", queue.StackEvent{
-		RepoName:  "repo",
-		ScanID:    "scan-1",
-		StackPath: "envs/dev",
-		Status:    queue.StatusRunning,
-		RunAt:     &now,
+	if err := q.PublishStackEvent(context.Background(), "project", queue.StackEvent{
+		ProjectName: "project",
+		ScanID:      "scan-1",
+		StackPath:   "envs/dev",
+		Status:      queue.StatusRunning,
+		RunAt:       &now,
 	}); err != nil {
 		t.Fatalf("publish stack event: %v", err)
 	}

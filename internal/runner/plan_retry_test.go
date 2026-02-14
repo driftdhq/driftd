@@ -14,9 +14,9 @@ func TestRunPlan_RetriesOnProviderChecksumMismatchWithIsolatedCache(t *testing.T
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		t.Fatalf("mkdir workDir: %v", err)
 	}
-	repoRoot := filepath.Join(tmp, "repo")
-	if err := os.MkdirAll(repoRoot, 0755); err != nil {
-		t.Fatalf("mkdir repoRoot: %v", err)
+	projectRoot := filepath.Join(tmp, "project")
+	if err := os.MkdirAll(projectRoot, 0755); err != nil {
+		t.Fatalf("mkdir projectRoot: %v", err)
 	}
 
 	sharedCache := filepath.Join(tmp, "shared-plugin-cache")
@@ -65,7 +65,7 @@ exit 0
 
 	t.Setenv("TF_PLUGIN_CACHE_DIR", sharedCache)
 
-	out, err := runPlan(context.Background(), workDir, "terraform", tfBin, "", repoRoot, "envs/dev/app", "run-1")
+	out, err := runPlan(context.Background(), workDir, "terraform", tfBin, "", projectRoot, "envs/dev/app", "run-1")
 	if err != nil {
 		t.Fatalf("runPlan error: %v\noutput:\n%s", err, out)
 	}

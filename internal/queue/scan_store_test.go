@@ -21,17 +21,17 @@ func TestScanLifecycle(t *testing.T) {
 		q := newTestQueue(t)
 		ctx := context.Background()
 
-		scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+		scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 		if err != nil {
 			t.Fatalf("start scan: %v", err)
 		}
 
 		job := &StackScan{
-			ScanID:     scan.ID,
-			RepoName:   "repo",
-			RepoURL:    "file:///repo",
-			StackPath:  "envs/dev",
-			MaxRetries: 0,
+			ScanID:      scan.ID,
+			ProjectName: "project",
+			ProjectURL:  "file:///project",
+			StackPath:   "envs/dev",
+			MaxRetries:  0,
 		}
 		if err := q.Enqueue(ctx, job); err != nil {
 			t.Fatalf("enqueue: %v", err)
@@ -52,17 +52,17 @@ func TestScanLifecycle(t *testing.T) {
 		q := newTestQueue(t)
 		ctx := context.Background()
 
-		scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+		scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 		if err != nil {
 			t.Fatalf("start scan: %v", err)
 		}
 
 		job := &StackScan{
-			ScanID:     scan.ID,
-			RepoName:   "repo",
-			RepoURL:    "file:///repo",
-			StackPath:  "envs/dev",
-			MaxRetries: 0,
+			ScanID:      scan.ID,
+			ProjectName: "project",
+			ProjectURL:  "file:///project",
+			StackPath:   "envs/dev",
+			MaxRetries:  0,
 		}
 		if err := q.Enqueue(ctx, job); err != nil {
 			t.Fatalf("enqueue: %v", err)
@@ -84,14 +84,14 @@ func TestMaybeFinishScan(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 2)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 2)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
 	jobs := []*StackScan{
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0},
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/prod", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/prod", MaxRetries: 0},
 	}
 	for _, job := range jobs {
 		if err := q.Enqueue(ctx, job); err != nil {
@@ -124,7 +124,7 @@ func TestScanCounterAccuracy(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 2)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 2)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -134,8 +134,8 @@ func TestScanCounterAccuracy(t *testing.T) {
 	}
 
 	jobs := []*StackScan{
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0},
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/prod", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/prod", MaxRetries: 0},
 	}
 	for _, job := range jobs {
 		if err := q.Enqueue(ctx, job); err != nil {
@@ -176,12 +176,12 @@ func TestCancelScan(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	if err := q.CancelScan(ctx, scan.ID, "repo", "user canceled"); err != nil {
+	if err := q.CancelScan(ctx, scan.ID, "project", "user canceled"); err != nil {
 		t.Fatalf("cancel scan: %v", err)
 	}
 
@@ -193,16 +193,16 @@ func TestCancelScan(t *testing.T) {
 		t.Fatalf("expected cancel reason, got %q", canceled.Error)
 	}
 
-	if _, err := q.GetActiveScan(ctx, "repo"); err != ErrScanNotFound {
+	if _, err := q.GetActiveScan(ctx, "project"); err != ErrScanNotFound {
 		t.Fatalf("expected no active scan, got %v", err)
 	}
 
-	locked, err := q.IsRepoLocked(ctx, "repo")
+	locked, err := q.IsProjectLocked(ctx, "project")
 	if err != nil {
 		t.Fatalf("is locked: %v", err)
 	}
 	if locked {
-		t.Fatalf("expected repo unlocked")
+		t.Fatalf("expected project unlocked")
 	}
 }
 
@@ -210,12 +210,12 @@ func TestGetLastScan(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	job := &StackScan{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0}
+	job := &StackScan{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestGetLastScan(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
-	last, err := q.GetLastScan(ctx, "repo")
+	last, err := q.GetLastScan(ctx, "project")
 	if err != nil {
 		t.Fatalf("get last: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestZeroStackScanAutoFinishesAsFailed(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -257,9 +257,9 @@ func TestZeroStackScanAutoFinishesAsFailed(t *testing.T) {
 	if final.EndedAt.IsZero() {
 		t.Fatal("expected ended_at to be set")
 	}
-	locked, _ := q.IsRepoLocked(ctx, "repo")
+	locked, _ := q.IsProjectLocked(ctx, "project")
 	if locked {
-		t.Fatal("expected repo unlocked after zero-stack scan")
+		t.Fatal("expected project unlocked after zero-stack scan")
 	}
 }
 
@@ -267,28 +267,28 @@ func TestFailScanDoesNotDeleteOtherScansLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scanA, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	scanA, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan A: %v", err)
 	}
 
-	if err := q.client.Del(ctx, keyLockPrefix+"repo").Err(); err != nil {
+	if err := q.client.Del(ctx, keyLockPrefix+"project").Err(); err != nil {
 		t.Fatalf("simulate lock expiry: %v", err)
 	}
-	if err := q.client.Del(ctx, keyScanRepo+"repo").Err(); err != nil {
+	if err := q.client.Del(ctx, keyScanRepo+"project").Err(); err != nil {
 		t.Fatalf("cleanup active scan pointer: %v", err)
 	}
 
-	scanB, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	scanB, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan B: %v", err)
 	}
 
-	if err := q.FailScan(ctx, scanA.ID, "repo", "timed out"); err != nil {
+	if err := q.FailScan(ctx, scanA.ID, "project", "timed out"); err != nil {
 		t.Fatalf("fail scan A: %v", err)
 	}
 
-	lockVal, err := q.client.Get(ctx, keyLockPrefix+"repo").Result()
+	lockVal, err := q.client.Get(ctx, keyLockPrefix+"project").Result()
 	if err != nil {
 		t.Fatalf("get lock after fail: %v", err)
 	}
@@ -301,24 +301,24 @@ func TestCancelScanDoesNotDeleteOtherScansLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scanA, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	scanA, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan A: %v", err)
 	}
 
-	q.client.Del(ctx, keyLockPrefix+"repo")
-	q.client.Del(ctx, keyScanRepo+"repo")
+	q.client.Del(ctx, keyLockPrefix+"project")
+	q.client.Del(ctx, keyScanRepo+"project")
 
-	scanB, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	scanB, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan B: %v", err)
 	}
 
-	if err := q.CancelScan(ctx, scanA.ID, "repo", "stale"); err != nil {
+	if err := q.CancelScan(ctx, scanA.ID, "project", "stale"); err != nil {
 		t.Fatalf("cancel scan A: %v", err)
 	}
 
-	lockVal, err := q.client.Get(ctx, keyLockPrefix+"repo").Result()
+	lockVal, err := q.client.Get(ctx, keyLockPrefix+"project").Result()
 	if err != nil {
 		t.Fatalf("get lock after cancel: %v", err)
 	}
@@ -331,20 +331,20 @@ func TestReleaseOwnedLockOnlyReleasesOwnLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	q.client.Set(ctx, keyLockPrefix+"repo", "scan-1", time.Minute)
+	q.client.Set(ctx, keyLockPrefix+"project", "scan-1", time.Minute)
 
-	if err := q.releaseOwnedLock(ctx, "repo", "scan-2"); err != nil {
+	if err := q.releaseOwnedLock(ctx, "project", "scan-2"); err != nil {
 		t.Fatalf("releaseOwnedLock: %v", err)
 	}
-	locked, _ := q.IsRepoLocked(ctx, "repo")
+	locked, _ := q.IsProjectLocked(ctx, "project")
 	if !locked {
 		t.Fatal("expected lock to still be held after wrong-owner release")
 	}
 
-	if err := q.releaseOwnedLock(ctx, "repo", "scan-1"); err != nil {
+	if err := q.releaseOwnedLock(ctx, "project", "scan-1"); err != nil {
 		t.Fatalf("releaseOwnedLock: %v", err)
 	}
-	locked, _ = q.IsRepoLocked(ctx, "repo")
+	locked, _ = q.IsProjectLocked(ctx, "project")
 	if locked {
 		t.Fatal("expected lock to be released after correct-owner release")
 	}
@@ -354,7 +354,7 @@ func TestReleaseOwnedLockNoopWhenNoLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	if err := q.releaseOwnedLock(ctx, "repo", "scan-1"); err != nil {
+	if err := q.releaseOwnedLock(ctx, "project", "scan-1"); err != nil {
 		t.Fatalf("releaseOwnedLock on missing lock: %v", err)
 	}
 }
@@ -363,7 +363,7 @@ func TestMarkScanEnqueueFailed(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 2)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 2)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestMarkScanEnqueueFailed(t *testing.T) {
 		t.Fatalf("expected running, got %s", state.Status)
 	}
 
-	job := &StackScan{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0}
+	job := &StackScan{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestMarkScanEnqueueFailedAutoFinishes(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -419,11 +419,11 @@ func TestMarkScanEnqueueFailedAutoFinishes(t *testing.T) {
 		t.Fatal("expected ended_at to be set")
 	}
 
-	locked, _ := q.IsRepoLocked(ctx, "repo")
+	locked, _ := q.IsProjectLocked(ctx, "project")
 	if locked {
-		t.Fatal("expected repo unlocked after auto-finish")
+		t.Fatal("expected project unlocked after auto-finish")
 	}
-	last, err := q.GetLastScan(ctx, "repo")
+	last, err := q.GetLastScan(ctx, "project")
 	if err != nil {
 		t.Fatalf("get last scan: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestCounterFloorAtZero(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 2)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 2)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -459,12 +459,12 @@ func TestAutoFinishSetsEndedAt(t *testing.T) {
 	ctx := context.Background()
 	before := time.Now().Unix()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	job := &StackScan{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0}
+	job := &StackScan{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -485,17 +485,17 @@ func TestAutoFinishReleasesLockAndSetsLast(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	locked, _ := q.IsRepoLocked(ctx, "repo")
+	locked, _ := q.IsProjectLocked(ctx, "project")
 	if !locked {
-		t.Fatal("expected repo locked after start")
+		t.Fatal("expected project locked after start")
 	}
 
-	job := &StackScan{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0}
+	job := &StackScan{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -504,16 +504,16 @@ func TestAutoFinishReleasesLockAndSetsLast(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
-	locked, _ = q.IsRepoLocked(ctx, "repo")
+	locked, _ = q.IsProjectLocked(ctx, "project")
 	if locked {
-		t.Fatal("expected repo unlocked after auto-finish")
+		t.Fatal("expected project unlocked after auto-finish")
 	}
 
-	if _, err := q.GetActiveScan(ctx, "repo"); err != ErrScanNotFound {
+	if _, err := q.GetActiveScan(ctx, "project"); err != ErrScanNotFound {
 		t.Fatalf("expected no active scan, got %v", err)
 	}
 
-	last, err := q.GetLastScan(ctx, "repo")
+	last, err := q.GetLastScan(ctx, "project")
 	if err != nil {
 		t.Fatalf("get last: %v", err)
 	}
@@ -526,20 +526,20 @@ func TestAutoFinishDoesNotDeleteOtherScansLock(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scanA, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scanA, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan A: %v", err)
 	}
 
-	job := &StackScan{ScanID: scanA.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0}
+	job := &StackScan{ScanID: scanA.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 	deq := dequeueStackScan(t, q)
 
-	q.client.Del(ctx, keyLockPrefix+"repo")
-	q.client.Del(ctx, keyScanRepo+"repo")
-	scanB, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	q.client.Del(ctx, keyLockPrefix+"project")
+	q.client.Del(ctx, keyScanRepo+"project")
+	scanB, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan B: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestAutoFinishDoesNotDeleteOtherScansLock(t *testing.T) {
 		t.Fatalf("expected scan A completed, got %s", finalA.Status)
 	}
 
-	lockVal, err := q.client.Get(ctx, keyLockPrefix+"repo").Result()
+	lockVal, err := q.client.Get(ctx, keyLockPrefix+"project").Result()
 	if err != nil {
 		t.Fatalf("get lock: %v", err)
 	}
@@ -566,15 +566,15 @@ func TestDriftedCounterOnCompletion(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 3)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 3)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
 	jobs := []*StackScan{
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0},
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/staging", MaxRetries: 0},
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/prod", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/staging", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/prod", MaxRetries: 0},
 	}
 	for _, j := range jobs {
 		if err := q.Enqueue(ctx, j); err != nil {
@@ -606,12 +606,12 @@ func TestRetryCounterTransitions(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 1)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	job := &StackScan{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 1}
+	job := &StackScan{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 1}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -649,14 +649,14 @@ func TestAllStacksFailAutoFinishesAsFailed(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 2)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 2)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
 	jobs := []*StackScan{
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/dev", MaxRetries: 0},
-		{ScanID: scan.ID, RepoName: "repo", RepoURL: "file:///repo", StackPath: "envs/prod", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/dev", MaxRetries: 0},
+		{ScanID: scan.ID, ProjectName: "project", ProjectURL: "file:///project", StackPath: "envs/prod", MaxRetries: 0},
 	}
 	for _, j := range jobs {
 		if err := q.Enqueue(ctx, j); err != nil {
@@ -684,7 +684,7 @@ func TestSetScanTotal(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 10)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 10)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -711,14 +711,14 @@ func TestRenewScanLockStopsOnContextCancel(t *testing.T) {
 	q := newTestQueue(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	scan, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	scan, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
 	done := make(chan struct{})
 	go func() {
-		q.RenewScanLock(ctx, scan.ID, "repo", time.Hour, 0)
+		q.RenewScanLock(ctx, scan.ID, "project", time.Hour, 0)
 		close(done)
 	}()
 
@@ -737,7 +737,7 @@ func TestRenewScanLockLuaScriptRenewsCorrectOwner(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	lockKey := keyLockPrefix + "repo"
+	lockKey := keyLockPrefix + "project"
 	q.client.Set(ctx, lockKey, "scan-1", time.Minute)
 
 	// Lua script should renew when owner matches
@@ -767,7 +767,7 @@ func TestRenewScanLockLuaScriptNoopWhenExpired(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	lockKey := keyLockPrefix + "repo"
+	lockKey := keyLockPrefix + "project"
 	// No lock set — simulates expired lock
 
 	renewed, err := renewLockScript.Run(ctx, q.client,
@@ -785,12 +785,12 @@ func TestCancelAndStartScan(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	old, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	old, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	newScan, err := q.CancelAndStartScan(ctx, old.ID, "repo", "superseded", "manual", "", "", 0)
+	newScan, err := q.CancelAndStartScan(ctx, old.ID, "project", "superseded", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("cancel and start: %v", err)
 	}
@@ -806,7 +806,7 @@ func TestCancelAndStartScan(t *testing.T) {
 		t.Fatalf("expected old scan canceled, got %s", oldState.Status)
 	}
 
-	current, err := q.GetActiveScan(ctx, "repo")
+	current, err := q.GetActiveScan(ctx, "project")
 	if err != nil {
 		t.Fatalf("get active scan: %v", err)
 	}
@@ -819,18 +819,18 @@ func TestCancelAndStartScanRejectsWrongOwner(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	old, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	old, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
 	// Simulate lock stolen by another scan
-	if err := q.client.Set(ctx, keyLockPrefix+"repo", "other", time.Minute).Err(); err != nil {
+	if err := q.client.Set(ctx, keyLockPrefix+"project", "other", time.Minute).Err(); err != nil {
 		t.Fatalf("set lock: %v", err)
 	}
 
-	_, err = q.CancelAndStartScan(ctx, old.ID, "repo", "superseded", "manual", "", "", 0)
-	if err != ErrRepoLocked {
-		t.Fatalf("expected ErrRepoLocked, got %v", err)
+	_, err = q.CancelAndStartScan(ctx, old.ID, "project", "superseded", "manual", "", "", 0)
+	if err != ErrProjectLocked {
+		t.Fatalf("expected ErrProjectLocked, got %v", err)
 	}
 }

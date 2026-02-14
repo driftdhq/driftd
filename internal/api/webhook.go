@@ -81,18 +81,18 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	if len(candidates) == 0 && isValidRepoName(payload.Repository.Name) {
-		repoCfg, lookupErr := s.getRepoConfig(payload.Repository.Name)
-		if lookupErr == nil && repoCfg != nil {
-			candidates = append(candidates, repoCfg)
-		} else if lookupErr != nil && lookupErr != secrets.ErrRepoNotFound {
+	if len(candidates) == 0 && isValidProjectName(payload.Repository.Name) {
+		projectCfg, lookupErr := s.getProjectConfig(payload.Repository.Name)
+		if lookupErr == nil && projectCfg != nil {
+			candidates = append(candidates, projectCfg)
+		} else if lookupErr != nil && lookupErr != secrets.ErrProjectNotFound {
 			http.Error(w, s.sanitizeErrorMessage(lookupErr.Error()), http.StatusInternalServerError)
 			return
 		}
 	}
 	if len(candidates) == 0 {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(scanResponse{Error: "Repository not configured"})
+		json.NewEncoder(w).Encode(scanResponse{Error: "Project not configured"})
 		return
 	}
 
@@ -102,18 +102,18 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		stackIDs            []string
 		branchMatchedConfig bool
 	)
-	for _, repoCfg := range candidates {
-		if !repoMatchesWebhookBranch(repoCfg, branch, payload.Repository.DefaultBranch) {
+	for _, projectCfg := range candidates {
+		if !projectMatchesWebhookBranch(projectCfg, branch, payload.Repository.DefaultBranch) {
 			continue
 		}
-		if !repoPathMatchesWebhookChanges(repoCfg, changedFiles) {
+		if !projectPathMatchesWebhookChanges(projectCfg, changedFiles) {
 			continue
 		}
 		branchMatchedConfig = true
 
-		scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+		scan, stacks, err := s.startScanWithCancel(r.Context(), projectCfg, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
 		if err != nil {
-			if err == queue.ErrRepoLocked {
+			if err == queue.ErrProjectLocked {
 				continue
 			}
 			http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
@@ -122,11 +122,11 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 
 		targetStacks := selectStacksForChanges(stacks, changedFiles)
 		if len(targetStacks) == 0 {
-			_ = s.queue.FailScan(r.Context(), scan.ID, repoCfg.Name, "no matching stacks for webhook changes")
+			_ = s.queue.FailScan(r.Context(), scan.ID, projectCfg.Name, "no matching stacks for webhook changes")
 			continue
 		}
 
-		enqResult, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, targetStacks, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
+		enqResult, err := s.orchestrator.EnqueueStacks(r.Context(), scan, projectCfg, targetStacks, trigger, payload.HeadCommit.ID, payload.Pusher.Name)
 		if err != nil && err != orchestrate.ErrNoStacksEnqueued {
 			http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 			return
@@ -219,11 +219,11 @@ func isInfraFile(path string) bool {
 	return false
 }
 
-func repoMatchesWebhookBranch(repoCfg *config.RepoConfig, payloadBranch, payloadDefaultBranch string) bool {
-	if repoCfg == nil {
+func projectMatchesWebhookBranch(projectCfg *config.ProjectConfig, payloadBranch, payloadDefaultBranch string) bool {
+	if projectCfg == nil {
 		return false
 	}
-	target := repoCfg.Branch
+	target := projectCfg.Branch
 	if target == "" {
 		target = payloadDefaultBranch
 	}
@@ -233,11 +233,11 @@ func repoMatchesWebhookBranch(repoCfg *config.RepoConfig, payloadBranch, payload
 	return payloadBranch == target
 }
 
-func repoPathMatchesWebhookChanges(repoCfg *config.RepoConfig, changedFiles []string) bool {
-	if repoCfg == nil {
+func projectPathMatchesWebhookChanges(projectCfg *config.ProjectConfig, changedFiles []string) bool {
+	if projectCfg == nil {
 		return false
 	}
-	rootPath := filepath.ToSlash(strings.Trim(strings.TrimSpace(repoCfg.RootPath), "/"))
+	rootPath := filepath.ToSlash(strings.Trim(strings.TrimSpace(projectCfg.RootPath), "/"))
 	if rootPath == "" {
 		return true
 	}

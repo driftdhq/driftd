@@ -14,16 +14,16 @@ func TestRecoverStaleScans(t *testing.T) {
 	ctx := context.Background()
 
 	scan := &Scan{
-		ID:        "scan-1",
-		RepoName:  "repo",
-		Status:    ScanStatusRunning,
-		CreatedAt: time.Now().Add(-2 * time.Hour),
-		StartedAt: time.Now().Add(-2 * time.Hour),
+		ID:          "scan-1",
+		ProjectName: "project",
+		Status:      ScanStatusRunning,
+		CreatedAt:   time.Now().Add(-2 * time.Hour),
+		StartedAt:   time.Now().Add(-2 * time.Hour),
 	}
 
 	if err := q.client.HSet(ctx, keyScanPrefix+scan.ID, map[string]any{
 		"id":         scan.ID,
-		"repo":       scan.RepoName,
+		"project":    scan.ProjectName,
 		"status":     scan.Status,
 		"created_at": scan.CreatedAt.Unix(),
 		"started_at": scan.StartedAt.Unix(),
@@ -63,12 +63,12 @@ func TestRecoverStaleScans(t *testing.T) {
 	}
 }
 
-func setupScanHash(t *testing.T, q *Queue, scanID, repo, status string, startedAt time.Time) {
+func setupScanHash(t *testing.T, q *Queue, scanID, project, status string, startedAt time.Time) {
 	t.Helper()
 	ctx := context.Background()
 	if err := q.client.HSet(ctx, keyScanPrefix+scanID, map[string]any{
 		"id":         scanID,
-		"repo":       repo,
+		"project":    project,
 		"status":     status,
 		"created_at": startedAt.Unix(),
 		"started_at": startedAt.Unix(),
@@ -84,7 +84,7 @@ func TestRebuildRunningScansIndex(t *testing.T) {
 		ctx := context.Background()
 		startedAt := time.Now().Add(-30 * time.Minute)
 
-		setupScanHash(t, q, "scan-1", "repo", ScanStatusRunning, startedAt)
+		setupScanHash(t, q, "scan-1", "project", ScanStatusRunning, startedAt)
 
 		rebuilt, err := q.RebuildRunningScansIndex(ctx)
 		if err != nil {
@@ -108,8 +108,8 @@ func TestRebuildRunningScansIndex(t *testing.T) {
 		ctx := context.Background()
 		startedAt := time.Now().Add(-30 * time.Minute)
 
-		setupScanHash(t, q, "scan-completed", "repo", ScanStatusCompleted, startedAt)
-		setupScanHash(t, q, "scan-failed", "repo", ScanStatusFailed, startedAt)
+		setupScanHash(t, q, "scan-completed", "project", ScanStatusCompleted, startedAt)
+		setupScanHash(t, q, "scan-failed", "project", ScanStatusFailed, startedAt)
 
 		rebuilt, err := q.RebuildRunningScansIndex(ctx)
 		if err != nil {
@@ -133,7 +133,7 @@ func TestRebuildRunningScansIndex(t *testing.T) {
 		ctx := context.Background()
 		startedAt := time.Now().Add(-30 * time.Minute)
 
-		setupScanHash(t, q, "scan-1", "repo", ScanStatusRunning, startedAt)
+		setupScanHash(t, q, "scan-1", "project", ScanStatusRunning, startedAt)
 
 		// Pre-populate the ZSET with a different score
 		q.client.ZAdd(ctx, keyRunningScans, redis.Z{
@@ -167,7 +167,7 @@ func TestRebuildRunningScansIndex(t *testing.T) {
 		// Manually set started_at to "0"
 		q.client.HSet(ctx, keyScanPrefix+"scan-zero", map[string]any{
 			"id":         "scan-zero",
-			"repo":       "repo",
+			"project":    "project",
 			"status":     ScanStatusRunning,
 			"started_at": strconv.FormatInt(0, 10),
 		})

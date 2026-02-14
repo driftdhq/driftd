@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/driftdhq/driftd/internal/storage"
 )
@@ -24,14 +24,14 @@ type Worker struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	cfg         *config.Config
-	provider    repos.Provider
+	provider    projects.Provider
 }
 
 type Runner interface {
 	Run(ctx context.Context, params *runner.RunParams) (*storage.RunResult, error)
 }
 
-func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config, provider repos.Provider) *Worker {
+func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config, provider projects.Provider) *Worker {
 	hostname, _ := os.Hostname()
 	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 

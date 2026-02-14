@@ -21,11 +21,11 @@ func TestSaveAndGetResult(t *testing.T) {
 		RunAt:      time.Now().Truncate(time.Second),
 	}
 
-	if err := s.SaveResult("repo", "envs/prod", result); err != nil {
+	if err := s.SaveResult("project", "envs/prod", result); err != nil {
 		t.Fatalf("save result: %v", err)
 	}
 
-	got, err := s.GetResult("repo", "envs/prod")
+	got, err := s.GetResult("project", "envs/prod")
 	if err != nil {
 		t.Fatalf("get result: %v", err)
 	}
@@ -73,11 +73,11 @@ func TestSaveResultWithError(t *testing.T) {
 		RunAt:   time.Now(),
 	}
 
-	if err := s.SaveResult("repo", "envs/dev", result); err != nil {
+	if err := s.SaveResult("project", "envs/dev", result); err != nil {
 		t.Fatalf("save result: %v", err)
 	}
 
-	got, err := s.GetResult("repo", "envs/dev")
+	got, err := s.GetResult("project", "envs/dev")
 	if err != nil {
 		t.Fatalf("get result: %v", err)
 	}
@@ -91,24 +91,24 @@ func TestListReposEmpty(t *testing.T) {
 	dir := t.TempDir()
 	s := New(dir)
 
-	repos, err := s.ListRepos()
+	projects, err := s.ListRepos()
 	if err != nil {
-		t.Fatalf("list repos: %v", err)
+		t.Fatalf("list projects: %v", err)
 	}
-	if len(repos) != 0 {
-		t.Errorf("expected empty repos, got %d", len(repos))
+	if len(projects) != 0 {
+		t.Errorf("expected empty projects, got %d", len(projects))
 	}
 }
 
 func TestListReposNonexistentDir(t *testing.T) {
 	s := New("/nonexistent/path")
 
-	repos, err := s.ListRepos()
+	projects, err := s.ListRepos()
 	if err != nil {
-		t.Fatalf("list repos: %v", err)
+		t.Fatalf("list projects: %v", err)
 	}
-	if repos != nil {
-		t.Errorf("expected nil repos, got %v", repos)
+	if projects != nil {
+		t.Errorf("expected nil projects, got %v", projects)
 	}
 }
 
@@ -121,21 +121,21 @@ func TestListRepos(t *testing.T) {
 	s.SaveResult("repo1", "envs/prod", &RunResult{Drifted: false, RunAt: time.Now()})
 	s.SaveResult("repo2", "stack", &RunResult{Drifted: false, RunAt: time.Now()})
 
-	repos, err := s.ListRepos()
+	projects, err := s.ListRepos()
 	if err != nil {
-		t.Fatalf("list repos: %v", err)
+		t.Fatalf("list projects: %v", err)
 	}
 
-	if len(repos) != 2 {
-		t.Fatalf("expected 2 repos, got %d", len(repos))
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
 	}
 
-	repoMap := make(map[string]RepoStatus)
-	for _, r := range repos {
-		repoMap[r.Name] = r
+	projectMap := make(map[string]ProjectStatus)
+	for _, r := range projects {
+		projectMap[r.Name] = r
 	}
 
-	if repo1, ok := repoMap["repo1"]; !ok {
+	if repo1, ok := projectMap["repo1"]; !ok {
 		t.Error("missing repo1")
 	} else {
 		if !repo1.Drifted {
@@ -146,7 +146,7 @@ func TestListRepos(t *testing.T) {
 		}
 	}
 
-	if repo2, ok := repoMap["repo2"]; !ok {
+	if repo2, ok := projectMap["repo2"]; !ok {
 		t.Error("missing repo2")
 	} else {
 		if repo2.Drifted {
@@ -176,14 +176,14 @@ func TestListStacks(t *testing.T) {
 	s := New(dir)
 
 	now := time.Now().Truncate(time.Second)
-	s.SaveResult("repo", "envs/dev", &RunResult{
+	s.SaveResult("project", "envs/dev", &RunResult{
 		Drifted:   true,
 		Added:     1,
 		Changed:   0,
 		Destroyed: 0,
 		RunAt:     now,
 	})
-	s.SaveResult("repo", "envs/prod", &RunResult{
+	s.SaveResult("project", "envs/prod", &RunResult{
 		Drifted:   false,
 		Added:     0,
 		Changed:   0,
@@ -191,7 +191,7 @@ func TestListStacks(t *testing.T) {
 		RunAt:     now,
 	})
 
-	stacks, err := s.ListStacks("repo")
+	stacks, err := s.ListStacks("project")
 	if err != nil {
 		t.Fatalf("list stacks: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestOverwriteResult(t *testing.T) {
 		PlanOutput: "initial plan",
 		RunAt:      time.Now(),
 	}
-	if err := s.SaveResult("repo", "stack", result1); err != nil {
+	if err := s.SaveResult("project", "stack", result1); err != nil {
 		t.Fatalf("save result 1: %v", err)
 	}
 
@@ -277,11 +277,11 @@ func TestOverwriteResult(t *testing.T) {
 		PlanOutput: "updated plan",
 		RunAt:      time.Now(),
 	}
-	if err := s.SaveResult("repo", "stack", result2); err != nil {
+	if err := s.SaveResult("project", "stack", result2); err != nil {
 		t.Fatalf("save result 2: %v", err)
 	}
 
-	got, err := s.GetResult("repo", "stack")
+	got, err := s.GetResult("project", "stack")
 	if err != nil {
 		t.Fatalf("get result: %v", err)
 	}
@@ -306,11 +306,11 @@ func TestSaveResultDoesNotLeaveTempFiles(t *testing.T) {
 		PlanOutput: "plan output",
 		RunAt:      time.Now(),
 	}
-	if err := s.SaveResult("repo", "stack", result); err != nil {
+	if err := s.SaveResult("project", "stack", result); err != nil {
 		t.Fatalf("save result: %v", err)
 	}
 
-	stackDir := s.stackDir(s.resultsDir(), "repo", "stack")
+	stackDir := s.stackDir(s.resultsDir(), "project", "stack")
 	entries, err := os.ReadDir(stackDir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -333,18 +333,18 @@ func TestGetResultMissingPlanFile(t *testing.T) {
 		PlanOutput: "the plan",
 		RunAt:      time.Now(),
 	}
-	if err := s.SaveResult("repo", "stack", result); err != nil {
+	if err := s.SaveResult("project", "stack", result); err != nil {
 		t.Fatalf("save result: %v", err)
 	}
 
 	// Delete the plan file
-	planPath := filepath.Join(s.stackDir(s.resultsDir(), "repo", "stack"), "plan.txt")
+	planPath := filepath.Join(s.stackDir(s.resultsDir(), "project", "stack"), "plan.txt")
 	if err := os.Remove(planPath); err != nil {
 		t.Fatalf("remove plan: %v", err)
 	}
 
 	// Should still be able to get result (without plan)
-	got, err := s.GetResult("repo", "stack")
+	got, err := s.GetResult("project", "stack")
 	if err != nil {
 		t.Fatalf("get result: %v", err)
 	}
@@ -361,23 +361,23 @@ func TestListReposIgnoresFiles(t *testing.T) {
 	dir := t.TempDir()
 	s := New(dir)
 
-	// Create a repo with results
-	s.SaveResult("repo", "stack", &RunResult{RunAt: time.Now()})
+	// Create a project with results
+	s.SaveResult("project", "stack", &RunResult{RunAt: time.Now()})
 
 	// Create a file at the data dir level (should be ignored)
 	if err := os.WriteFile(filepath.Join(dir, "some-file.txt"), []byte("data"), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
-	repos, err := s.ListRepos()
+	projects, err := s.ListRepos()
 	if err != nil {
-		t.Fatalf("list repos: %v", err)
+		t.Fatalf("list projects: %v", err)
 	}
 
-	if len(repos) != 1 {
-		t.Errorf("expected 1 repo, got %d", len(repos))
+	if len(projects) != 1 {
+		t.Errorf("expected 1 project, got %d", len(projects))
 	}
-	if repos[0].Name != "repo" {
-		t.Errorf("expected repo name 'repo', got %q", repos[0].Name)
+	if projects[0].Name != "project" {
+		t.Errorf("expected project name 'project', got %q", projects[0].Name)
 	}
 }

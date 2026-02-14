@@ -29,9 +29,9 @@ func TestWebhookIgnoresNonInfraFiles(t *testing.T) {
 			SSHURL        string `json:"ssh_url"`
 			HTMLURL       string `json:"html_url"`
 		}{
-			Name:          "repo",
+			Name:          "project",
 			DefaultBranch: "main",
-			CloneURL:      srv.cfg.GetRepo("repo").URL,
+			CloneURL:      srv.cfg.GetProject("project").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -57,7 +57,7 @@ func TestWebhookIgnoresNonInfraFiles(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
-	if _, err := q.GetActiveScan(context.Background(), "repo"); err != queue.ErrScanNotFound {
+	if _, err := q.GetActiveScan(context.Background(), "project"); err != queue.ErrScanNotFound {
 		t.Fatalf("expected no active scan")
 	}
 }
@@ -80,9 +80,9 @@ func TestWebhookIgnoresUnmatchedInfraFiles(t *testing.T) {
 			SSHURL        string `json:"ssh_url"`
 			HTMLURL       string `json:"html_url"`
 		}{
-			Name:          "repo",
+			Name:          "project",
 			DefaultBranch: "main",
-			CloneURL:      srv.cfg.GetRepo("repo").URL,
+			CloneURL:      srv.cfg.GetProject("project").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -108,10 +108,10 @@ func TestWebhookIgnoresUnmatchedInfraFiles(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
-	if _, err := q.GetActiveScan(context.Background(), "repo"); err != queue.ErrScanNotFound {
+	if _, err := q.GetActiveScan(context.Background(), "project"); err != queue.ErrScanNotFound {
 		t.Fatalf("expected no active scan")
 	}
-	stacks, err := q.ListRepoStackScans(context.Background(), "repo", 10)
+	stacks, err := q.ListProjectStackScans(context.Background(), "project", 10)
 	if err != nil {
 		t.Fatalf("list stacks: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestWebhookMatchesByCloneURLWhenNameDiffers(t *testing.T) {
 	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
 		cfg.Webhook.Enabled = true
 		cfg.Webhook.GitHubSecret = "secret"
-		cfg.Repos[0].Name = "configured-repo"
+		cfg.Projects[0].Name = "configured-project"
 	})
 	defer cleanup()
 
@@ -139,9 +139,9 @@ func TestWebhookMatchesByCloneURLWhenNameDiffers(t *testing.T) {
 			SSHURL        string `json:"ssh_url"`
 			HTMLURL       string `json:"html_url"`
 		}{
-			Name:          "payload-repo",
+			Name:          "payload-project",
 			DefaultBranch: "main",
-			CloneURL:      srv.cfg.GetRepo("configured-repo").URL,
+			CloneURL:      srv.cfg.GetProject("configured-project").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -175,8 +175,8 @@ func TestWebhookMatchesByCloneURLWhenNameDiffers(t *testing.T) {
 	if len(sr.Scans) != 1 {
 		t.Fatalf("expected exactly one scan, got %d", len(sr.Scans))
 	}
-	if _, err := q.GetActiveScan(context.Background(), "configured-repo"); err != nil {
-		t.Fatalf("expected active scan for configured-repo: %v", err)
+	if _, err := q.GetActiveScan(context.Background(), "configured-project"); err != nil {
+		t.Fatalf("expected active scan for configured-project: %v", err)
 	}
 }
 
@@ -185,7 +185,7 @@ func TestWebhookUsesConfiguredBranchWhenSet(t *testing.T) {
 	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
 		cfg.Webhook.Enabled = true
 		cfg.Webhook.GitHubSecret = "secret"
-		cfg.Repos[0].Branch = "release"
+		cfg.Projects[0].Branch = "release"
 	})
 	defer cleanup()
 
@@ -199,9 +199,9 @@ func TestWebhookUsesConfiguredBranchWhenSet(t *testing.T) {
 			SSHURL        string `json:"ssh_url"`
 			HTMLURL       string `json:"html_url"`
 		}{
-			Name:          "repo",
+			Name:          "project",
 			DefaultBranch: "main",
-			CloneURL:      srv.cfg.GetRepo("repo").URL,
+			CloneURL:      srv.cfg.GetProject("project").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -227,19 +227,19 @@ func TestWebhookUsesConfiguredBranchWhenSet(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	if _, err := q.GetActiveScan(context.Background(), "repo"); err != nil {
-		t.Fatalf("expected active scan for branch-matched repo: %v", err)
+	if _, err := q.GetActiveScan(context.Background(), "project"); err != nil {
+		t.Fatalf("expected active scan for branch-matched project: %v", err)
 	}
 }
 
-func TestWebhookMonorepoPrefiltersByRootPath(t *testing.T) {
+func TestWebhookMonoprojectPrefiltersByRootPath(t *testing.T) {
 	runner := &fakeRunner{}
 	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"aws/dev/envs/prod", "aws/staging/envs/prod"}, false, nil, true, func(cfg *config.Config) {
 		cfg.Webhook.Enabled = true
 		cfg.Webhook.GitHubSecret = "secret"
-		baseURL := cfg.Repos[0].URL
+		baseURL := cfg.Projects[0].URL
 		cancelInflight := true
-		cfg.Repos = []config.RepoConfig{
+		cfg.Projects = []config.ProjectConfig{
 			{
 				Name:                       "aws-dev",
 				URL:                        baseURL,
@@ -270,7 +270,7 @@ func TestWebhookMonorepoPrefiltersByRootPath(t *testing.T) {
 		}{
 			Name:          "infra-monorepo",
 			DefaultBranch: "main",
-			CloneURL:      srv.cfg.GetRepo("aws-dev").URL,
+			CloneURL:      srv.cfg.GetProject("aws-dev").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -304,8 +304,8 @@ func TestWebhookMonorepoPrefiltersByRootPath(t *testing.T) {
 	if len(sr.Scans) != 1 {
 		t.Fatalf("expected exactly one project scan, got %d", len(sr.Scans))
 	}
-	if sr.Scans[0].RepoName != "aws-dev" {
-		t.Fatalf("expected aws-dev scan, got %s", sr.Scans[0].RepoName)
+	if sr.Scans[0].ProjectName != "aws-dev" {
+		t.Fatalf("expected aws-dev scan, got %s", sr.Scans[0].ProjectName)
 	}
 
 	if _, err := q.GetActiveScan(context.Background(), "aws-dev"); err != nil {
@@ -314,7 +314,7 @@ func TestWebhookMonorepoPrefiltersByRootPath(t *testing.T) {
 	if _, err := q.GetActiveScan(context.Background(), "aws-staging"); err != queue.ErrScanNotFound {
 		t.Fatalf("expected no scan for aws-staging, got %v", err)
 	}
-	stagingStacks, err := q.ListRepoStackScans(context.Background(), "aws-staging", 10)
+	stagingStacks, err := q.ListProjectStackScans(context.Background(), "aws-staging", 10)
 	if err != nil {
 		t.Fatalf("list staging stacks: %v", err)
 	}
@@ -326,9 +326,9 @@ func TestWebhookMonorepoPrefiltersByRootPath(t *testing.T) {
 func TestGetReposByURLMatchesSSHAndHTMLForms(t *testing.T) {
 	runner := &fakeRunner{}
 	srv, _, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
-		cfg.Repos[0].Name = "github-repo"
-		cfg.Repos[0].URL = "https://github.com/example/infra.git"
-		cfg.Repos[0].CloneURL = cfg.Repos[0].URL
+		cfg.Projects[0].Name = "github-project"
+		cfg.Projects[0].URL = "https://github.com/example/infra.git"
+		cfg.Projects[0].CloneURL = cfg.Projects[0].URL
 	})
 	defer cleanup()
 
@@ -336,16 +336,16 @@ func TestGetReposByURLMatchesSSHAndHTMLForms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ssh lookup failed: %v", err)
 	}
-	if len(sshMatches) != 1 || sshMatches[0].Name != "github-repo" {
-		t.Fatalf("expected github-repo for ssh lookup, got %#v", sshMatches)
+	if len(sshMatches) != 1 || sshMatches[0].Name != "github-project" {
+		t.Fatalf("expected github-project for ssh lookup, got %#v", sshMatches)
 	}
 
 	htmlMatches, err := srv.getReposByURL("", "", "https://github.com/example/infra")
 	if err != nil {
 		t.Fatalf("html lookup failed: %v", err)
 	}
-	if len(htmlMatches) != 1 || htmlMatches[0].Name != "github-repo" {
-		t.Fatalf("expected github-repo for html lookup, got %#v", htmlMatches)
+	if len(htmlMatches) != 1 || htmlMatches[0].Name != "github-project" {
+		t.Fatalf("expected github-project for html lookup, got %#v", htmlMatches)
 	}
 }
 
@@ -395,7 +395,7 @@ func TestWebhookBranchMismatchReturnsAcceptedWithoutScan(t *testing.T) {
 	srv, ts, q, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
 		cfg.Webhook.Enabled = true
 		cfg.Webhook.GitHubSecret = "secret"
-		cfg.Repos[0].Branch = "release"
+		cfg.Projects[0].Branch = "release"
 	})
 	defer cleanup()
 
@@ -409,9 +409,9 @@ func TestWebhookBranchMismatchReturnsAcceptedWithoutScan(t *testing.T) {
 			SSHURL        string `json:"ssh_url"`
 			HTMLURL       string `json:"html_url"`
 		}{
-			Name:          "repo",
+			Name:          "project",
 			DefaultBranch: "main",
-			CloneURL:      srv.cfg.GetRepo("repo").URL,
+			CloneURL:      srv.cfg.GetProject("project").URL,
 		},
 		Commits: []struct {
 			Added    []string `json:"added"`
@@ -437,43 +437,43 @@ func TestWebhookBranchMismatchReturnsAcceptedWithoutScan(t *testing.T) {
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
-	if _, err := q.GetActiveScan(context.Background(), "repo"); err != queue.ErrScanNotFound {
+	if _, err := q.GetActiveScan(context.Background(), "project"); err != queue.ErrScanNotFound {
 		t.Fatalf("expected no active scan on branch mismatch")
 	}
 }
 
-func TestRepoMatchesWebhookBranch(t *testing.T) {
+func TestProjectMatchesWebhookBranch(t *testing.T) {
 	tests := []struct {
 		name                 string
-		repoBranch           string
+		projectBranch        string
 		payloadBranch        string
 		payloadDefaultBranch string
 		want                 bool
 	}{
 		{
 			name:                 "uses configured branch",
-			repoBranch:           "release",
+			projectBranch:        "release",
 			payloadBranch:        "release",
 			payloadDefaultBranch: "main",
 			want:                 true,
 		},
 		{
 			name:                 "configured branch mismatch",
-			repoBranch:           "release",
+			projectBranch:        "release",
 			payloadBranch:        "main",
 			payloadDefaultBranch: "main",
 			want:                 false,
 		},
 		{
 			name:                 "falls back to payload default branch",
-			repoBranch:           "",
+			projectBranch:        "",
 			payloadBranch:        "main",
 			payloadDefaultBranch: "main",
 			want:                 true,
 		},
 		{
 			name:                 "no configured or default branch accepts",
-			repoBranch:           "",
+			projectBranch:        "",
 			payloadBranch:        "feature/foo",
 			payloadDefaultBranch: "",
 			want:                 true,
@@ -482,15 +482,15 @@ func TestRepoMatchesWebhookBranch(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			repoCfg := &config.RepoConfig{Branch: tc.repoBranch}
-			if got := repoMatchesWebhookBranch(repoCfg, tc.payloadBranch, tc.payloadDefaultBranch); got != tc.want {
-				t.Fatalf("repoMatchesWebhookBranch() = %v, want %v", got, tc.want)
+			projectCfg := &config.ProjectConfig{Branch: tc.projectBranch}
+			if got := projectMatchesWebhookBranch(projectCfg, tc.payloadBranch, tc.payloadDefaultBranch); got != tc.want {
+				t.Fatalf("projectMatchesWebhookBranch() = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestRepoPathMatchesWebhookChanges(t *testing.T) {
+func TestProjectPathMatchesWebhookChanges(t *testing.T) {
 	tests := []struct {
 		name         string
 		rootPath     string
@@ -525,9 +525,9 @@ func TestRepoPathMatchesWebhookChanges(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			repoCfg := &config.RepoConfig{RootPath: tc.rootPath}
-			if got := repoPathMatchesWebhookChanges(repoCfg, tc.changedFiles); got != tc.want {
-				t.Fatalf("repoPathMatchesWebhookChanges() = %v, want %v", got, tc.want)
+			projectCfg := &config.ProjectConfig{RootPath: tc.rootPath}
+			if got := projectPathMatchesWebhookChanges(projectCfg, tc.changedFiles); got != tc.want {
+				t.Fatalf("projectPathMatchesWebhookChanges() = %v, want %v", got, tc.want)
 			}
 		})
 	}

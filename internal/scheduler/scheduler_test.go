@@ -7,8 +7,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/orchestrate"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 )
 
 func newTestOrchestrator(cfg *config.Config, q *queue.Queue) *orchestrate.ScanOrchestrator {
@@ -36,15 +36,15 @@ func newTestQueue(t *testing.T) *queue.Queue {
 func TestNewScheduler(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
-				Name: "test-repo",
-				URL:  "https://github.com/org/repo.git",
+				Name: "test-project",
+				URL:  "https://github.com/org/project.git",
 			},
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if s == nil {
 		t.Fatal("expected non-nil scheduler")
 	}
@@ -56,16 +56,16 @@ func TestNewScheduler(t *testing.T) {
 func TestSchedulerStartStop(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
-				Name: "test-repo",
-				URL:  "https://github.com/org/repo.git",
+				Name: "test-project",
+				URL:  "https://github.com/org/project.git",
 				// No schedule - should be skipped
 			},
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -80,21 +80,21 @@ func TestSchedulerStartStop(t *testing.T) {
 func TestSchedulerStartWithSchedule(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
-				Name:     "scheduled-repo",
-				URL:      "https://github.com/org/repo.git",
+				Name:     "scheduled-project",
+				URL:      "https://github.com/org/project.git",
 				Schedule: "0 */6 * * *", // Every 6 hours
 			},
 			{
-				Name: "unscheduled-repo",
+				Name: "unscheduled-project",
 				URL:  "https://github.com/org/other.git",
 				// No schedule
 			},
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -103,14 +103,14 @@ func TestSchedulerStartWithSchedule(t *testing.T) {
 	// Verify cron entries were registered
 	entries := s.cron.Entries()
 	if len(entries) != 1 {
-		t.Errorf("expected 1 cron entry (for scheduled-repo), got %d", len(entries))
+		t.Errorf("expected 1 cron entry (for scheduled-project), got %d", len(entries))
 	}
 }
 
 func TestSchedulerStartWithMultipleSchedules(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
 				Name:     "repo1",
 				URL:      "https://github.com/org/repo1.git",
@@ -129,7 +129,7 @@ func TestSchedulerStartWithMultipleSchedules(t *testing.T) {
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestSchedulerStartWithMultipleSchedules(t *testing.T) {
 func TestSchedulerCallbacks(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
 				Name: "repo1",
 				URL:  "https://github.com/org/repo1.git",
@@ -152,20 +152,20 @@ func TestSchedulerCallbacks(t *testing.T) {
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 
-	s.OnRepoAdded("repo1", "0 * * * *")
+	s.OnProjectAdded("repo1", "0 * * * *")
 	if len(s.entries) != 1 {
 		t.Fatalf("expected 1 schedule entry, got %d", len(s.entries))
 	}
 
-	s.OnRepoUpdated("repo1", "")
+	s.OnProjectUpdated("repo1", "")
 	if len(s.entries) != 0 {
 		t.Fatalf("expected 0 schedule entries after removal, got %d", len(s.entries))
 	}
 
-	s.OnRepoAdded("repo1", "0 * * * *")
-	s.OnRepoDeleted("repo1")
+	s.OnProjectAdded("repo1", "0 * * * *")
+	s.OnProjectDeleted("repo1")
 	if len(s.entries) != 0 {
 		t.Fatalf("expected 0 schedule entries after delete, got %d", len(s.entries))
 	}
@@ -174,16 +174,16 @@ func TestSchedulerCallbacks(t *testing.T) {
 func TestSchedulerStartInvalidSchedule(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
 				Name:     "bad-schedule",
-				URL:      "https://github.com/org/repo.git",
+				URL:      "https://github.com/org/project.git",
 				Schedule: "invalid cron expression",
 			},
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	err := s.Start()
 	if err == nil {
 		s.Stop()
@@ -194,34 +194,34 @@ func TestSchedulerStartInvalidSchedule(t *testing.T) {
 func TestSchedulerNoRepos(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{},
+		Projects: []config.ProjectConfig{},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
-		t.Fatalf("start with no repos: %v", err)
+		t.Fatalf("start with no projects: %v", err)
 	}
 	defer s.Stop()
 
 	entries := s.cron.Entries()
 	if len(entries) != 0 {
-		t.Errorf("expected 0 cron entries for empty repos, got %d", len(entries))
+		t.Errorf("expected 0 cron entries for empty projects, got %d", len(entries))
 	}
 }
 
 func TestSchedulerStopIsIdempotent(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
-				Name:     "repo",
-				URL:      "https://github.com/org/repo.git",
+				Name:     "project",
+				URL:      "https://github.com/org/project.git",
 				Schedule: "0 * * * *",
 			},
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestSchedulerStopIsIdempotent(t *testing.T) {
 func TestSchedulerEmptyScheduleSkipped(t *testing.T) {
 	q := newTestQueue(t)
 	cfg := &config.Config{
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
 				Name:     "repo1",
 				URL:      "https://github.com/org/repo1.git",
@@ -249,7 +249,7 @@ func TestSchedulerEmptyScheduleSkipped(t *testing.T) {
 		},
 	}
 
-	s := New(cfg, repos.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
+	s := New(cfg, projects.NewCombinedProvider(cfg, nil, nil, cfg.DataDir), newTestOrchestrator(cfg, q))
 	if err := s.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -262,8 +262,8 @@ func TestSchedulerEmptyScheduleSkipped(t *testing.T) {
 }
 
 func TestScheduledScanJitterDeterministicAndBounded(t *testing.T) {
-	first := scheduledScanJitter("repo-a")
-	second := scheduledScanJitter("repo-a")
+	first := scheduledScanJitter("project-a")
+	second := scheduledScanJitter("project-a")
 
 	if first != second {
 		t.Fatalf("expected deterministic jitter, got %s and %s", first, second)
@@ -272,24 +272,24 @@ func TestScheduledScanJitterDeterministicAndBounded(t *testing.T) {
 		t.Fatalf("jitter out of range: %s", first)
 	}
 	if got := scheduledScanJitter(""); got != 0 {
-		t.Fatalf("expected no jitter for empty repo name, got %s", got)
+		t.Fatalf("expected no jitter for empty project name, got %s", got)
 	}
 }
 
 func TestScheduledScanJitterVariesAcrossRepos(t *testing.T) {
-	repos := []string{
-		"repo-a",
-		"repo-b",
-		"repo-c",
-		"repo-d",
-		"repo-e",
-		"repo-f",
+	projects := []string{
+		"project-a",
+		"project-b",
+		"project-c",
+		"project-d",
+		"project-e",
+		"project-f",
 	}
-	seen := make(map[time.Duration]struct{}, len(repos))
-	for _, repoName := range repos {
-		seen[scheduledScanJitter(repoName)] = struct{}{}
+	seen := make(map[time.Duration]struct{}, len(projects))
+	for _, projectName := range projects {
+		seen[scheduledScanJitter(projectName)] = struct{}{}
 	}
 	if len(seen) < 2 {
-		t.Fatalf("expected at least two distinct jitter buckets across repos, got %d", len(seen))
+		t.Fatalf("expected at least two distinct jitter buckets across projects, got %d", len(seen))
 	}
 }

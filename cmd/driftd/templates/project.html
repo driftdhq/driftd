@@ -5,10 +5,10 @@
     <a href="/">Projects</a> / <span>{{.Name}}</span>
 </nav>
 
-<div class="repo-header-section">
+<div class="project-header-section">
     <h1>{{.Name}}</h1>
     {{if .Config}}
-    <form method="POST" action="/repos/{{.Name}}/scan" class="scan-form">
+    <form method="POST" action="/projects/{{.Name}}/scan" class="scan-form">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <button type="submit" class="btn btn-scan" {{if .ActiveScan}}disabled{{end}}>Scan All Stacks</button>
     </form>
@@ -52,7 +52,7 @@
 
 {{if .Stacks}}
 <section class="stacks">
-    <form method="GET" action="/repos/{{.Name}}" class="stack-controls">
+    <form method="GET" action="/projects/{{.Name}}" class="stack-controls">
         <label class="stack-control">
             Sort
             <select name="sort">
@@ -90,7 +90,7 @@
             {{range .Stacks}}
             <div class="stack-row stack-file" data-stack-path="{{.Path}}">
                 <div class="stack-cell stack-name">
-                    <a href="/repos/{{$.Name}}/stacks/{{.Path}}" class="stack-link">{{.Path}}</a>
+                    <a href="/projects/{{$.Name}}/stacks/{{.Path}}" class="stack-link">{{.Path}}</a>
                 </div>
                 <div class="stack-cell status">
                     {{if .Error}}<span class="badge badge-error">Error</span>
@@ -99,7 +99,7 @@
                 </div>
                 <div class="stack-cell run">{{timeAgo .RunAt}}</div>
                 <div class="stack-cell actions">
-                    <form method="POST" action="/repos/{{$.Name}}/stacks/{{.Path}}" class="inline-form">
+                    <form method="POST" action="/projects/{{$.Name}}/stacks/{{.Path}}" class="inline-form">
                         <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                         <button type="submit" class="btn btn-small">Scan</button>
                     </form>
@@ -128,8 +128,8 @@
 <script>
     (function () {
         if (!window.EventSource) return;
-        const repoName = "{{.Name}}";
-        const source = new EventSource(`/api/repos/${encodeURIComponent(repoName)}/events`);
+        const projectName = "{{.Name}}";
+        const source = new EventSource(`/api/projects/${encodeURIComponent(projectName)}/events`);
 
         const formatStatus = (status, drifted, error) => {
             if (error) return '<span class="badge badge-error">Error</span>';

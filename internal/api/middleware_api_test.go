@@ -83,13 +83,13 @@ func TestRateLimitScan(t *testing.T) {
 	})
 	defer cleanup()
 
-	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request failed: %v", err)
 	}
 	resp.Body.Close()
 
-	resp2, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	resp2, err := http.Post(ts.URL+"/api/projects/project/scan", "application/json", bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatalf("scan request 2 failed: %v", err)
 	}

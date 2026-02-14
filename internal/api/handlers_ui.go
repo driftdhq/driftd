@@ -20,10 +20,10 @@ import (
 )
 
 type indexData struct {
-	Repos         []repoStatusData
-	ConfigRepos   []config.RepoConfig
-	RepoByName    map[string]repoStatusData
-	ConfigByName  map[string]config.RepoConfig
+	Projects      []projectStatusData
+	ConfigRepos   []config.ProjectConfig
+	ProjectByName map[string]projectStatusData
+	ConfigByName  map[string]config.ProjectConfig
 	TotalStacks   int
 	HealthyStacks int
 	HealthyPct    int
@@ -32,7 +32,7 @@ type indexData struct {
 	ActiveScans   int
 }
 
-type repoStatusData struct {
+type projectStatusData struct {
 	Name          string
 	Drifted       bool
 	Stacks        int
@@ -46,20 +46,20 @@ type repoStatusData struct {
 	Progress      string
 }
 
-type repoPageData struct {
+type projectPageData struct {
 	Name       string
 	Stacks     []storage.StackStatus
-	Config     *config.RepoConfig
+	Config     *config.ProjectConfig
 	Locked     bool
 	ActiveScan *queue.Scan
 	LastScan   *queue.Scan
 	CSRFToken  string
-	Pagination repoPagination
+	Pagination projectPagination
 	Sort       string
 	Order      string
 }
 
-type repoPagination struct {
+type projectPagination struct {
 	Page       int
 	PerPage    int
 	Total      int
@@ -69,23 +69,23 @@ type repoPagination struct {
 }
 
 type stackPageData struct {
-	RepoName  string
-	RepoURL   string
-	Path      string
-	Result    *storage.RunResult
-	Scan      *queue.Scan
-	CSRFToken string
-	PlanHTML  template.HTML
+	ProjectName string
+	ProjectURL  string
+	Path        string
+	Result      *storage.RunResult
+	Scan        *queue.Scan
+	CSRFToken   string
+	PlanHTML    template.HTML
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	repos, _ := s.storage.ListRepos()
+	projects, _ := s.storage.ListRepos()
 
-	var repoData []repoStatusData
-	for _, repo := range repos {
-		locked, _ := s.queue.IsRepoLocked(r.Context(), repo.Name)
+	var projectData []projectStatusData
+	for _, project := range projects {
+		locked, _ := s.queue.IsProjectLocked(r.Context(), project.Name)
 		errorStacks := 0
-		if stacks, err := s.storage.ListStacks(repo.Name); err == nil {
+		if stacks, err := s.storage.ListStacks(project.Name); err == nil {
 			for _, stack := range stacks {
 				if stack.Error != "" {
 					errorStacks++
@@ -93,9 +93,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var lastScan *queue.Scan
-		if activeScan, err := s.queue.GetActiveScan(r.Context(), repo.Name); err == nil {
+		if activeScan, err := s.queue.GetActiveScan(r.Context(), project.Name); err == nil {
 			lastScan = activeScan
-		} else if lastScanFound, err := s.queue.GetLastScan(r.Context(), repo.Name); err == nil {
+		} else if lastScanFound, err := s.queue.GetLastScan(r.Context(), project.Name); err == nil {
 			lastScan = lastScanFound
 		}
 
@@ -113,15 +113,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 				lastRun = lastScan.EndedAt
 			}
 		}
-		healthyStacks := repo.Stacks - repo.DriftedStacks - errorStacks
+		healthyStacks := project.Stacks - project.DriftedStacks - errorStacks
 		if healthyStacks < 0 {
 			healthyStacks = 0
 		}
-		repoData = append(repoData, repoStatusData{
-			Name:          repo.Name,
-			Drifted:       repo.Drifted,
-			Stacks:        repo.Stacks,
-			DriftedStacks: repo.DriftedStacks,
+		projectData = append(projectData, projectStatusData{
+			Name:          project.Name,
+			Drifted:       project.Drifted,
+			Stacks:        project.Stacks,
+			DriftedStacks: project.DriftedStacks,
 			ErrorStacks:   errorStacks,
 			HealthyStacks: healthyStacks,
 			Locked:        locked,
@@ -136,11 +136,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	driftedStacks := 0
 	errorStacks := 0
 	activeScans := 0
-	for _, repo := range repoData {
-		totalStacks += repo.Stacks
-		driftedStacks += repo.DriftedStacks
-		errorStacks += repo.ErrorStacks
-		if repo.Active {
+	for _, project := range projectData {
+		totalStacks += project.Stacks
+		driftedStacks += project.DriftedStacks
+		errorStacks += project.ErrorStacks
+		if project.Active {
 			activeScans++
 		}
 	}
@@ -155,10 +155,10 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	configRepos := s.listConfiguredRepos()
 	data := indexData{
-		Repos:         repoData,
+		Projects:      projectData,
 		ConfigRepos:   configRepos,
-		RepoByName:    map[string]repoStatusData{},
-		ConfigByName:  map[string]config.RepoConfig{},
+		ProjectByName: map[string]projectStatusData{},
+		ConfigByName:  map[string]config.ProjectConfig{},
 		TotalStacks:   totalStacks,
 		HealthyStacks: healthyStacks,
 		HealthyPct:    healthyPct,
@@ -166,11 +166,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		ErrorStacks:   errorStacks,
 		ActiveScans:   activeScans,
 	}
-	for _, repo := range repoData {
-		data.RepoByName[repo.Name] = repo
+	for _, project := range projectData {
+		data.ProjectByName[project.Name] = project
 	}
-	for _, repo := range configRepos {
-		data.ConfigByName[repo.Name] = repo
+	for _, project := range configRepos {
+		data.ConfigByName[project.Name] = project
 	}
 
 	if err := s.tmplIndex.ExecuteTemplate(w, "layout", data); err != nil {
@@ -179,27 +179,27 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	if !isValidRepoName(repoName) {
-		http.Error(w, "Invalid repository name", http.StatusBadRequest)
+	projectName := chi.URLParam(r, "project")
+	if !isValidProjectName(projectName) {
+		http.Error(w, "Invalid project name", http.StatusBadRequest)
 		return
 	}
 
-	stacks, _ := s.storage.ListStacks(repoName)
+	stacks, _ := s.storage.ListStacks(projectName)
 	stacks = filterParentStackStatuses(stacks)
-	page, perPage, sortBy, sortOrder := parseRepoListParams(r)
+	page, perPage, sortBy, sortOrder := parseProjectListParams(r)
 	stacks = sortStacks(stacks, sortBy, sortOrder)
-	pageStacks, pagination := paginateStacks(stacks, page, perPage, "/repos/"+repoName, sortBy, sortOrder)
+	pageStacks, pagination := paginateStacks(stacks, page, perPage, "/projects/"+projectName, sortBy, sortOrder)
 	csrfToken := csrfTokenFromContext(r.Context())
-	repoCfg, _ := s.getRepoConfig(repoName)
-	locked, _ := s.queue.IsRepoLocked(r.Context(), repoName)
-	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
-	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
+	projectCfg, _ := s.getProjectConfig(projectName)
+	locked, _ := s.queue.IsProjectLocked(r.Context(), projectName)
+	activeScan, _ := s.queue.GetActiveScan(r.Context(), projectName)
+	lastScan, _ := s.queue.GetLastScan(r.Context(), projectName)
 
-	data := repoPageData{
-		Name:       repoName,
+	data := projectPageData{
+		Name:       projectName,
 		Stacks:     pageStacks,
-		Config:     repoCfg,
+		Config:     projectCfg,
 		Locked:     locked,
 		ActiveScan: activeScan,
 		LastScan:   lastScan,
@@ -214,7 +214,7 @@ func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func parseRepoListParams(r *http.Request) (page, perPage int, sortBy, sortOrder string) {
+func parseProjectListParams(r *http.Request) (page, perPage int, sortBy, sortOrder string) {
 	q := r.URL.Query()
 	page = clampInt(parseInt(q.Get("page"), 1), 1, 10_000)
 	perPage = clampInt(parseInt(q.Get("per"), 50), 10, 200)
@@ -298,7 +298,7 @@ func statusRank(stack storage.StackStatus) int {
 	return 2
 }
 
-func paginateStacks(stacks []storage.StackStatus, page, perPage int, basePath, sortBy, sortOrder string) ([]storage.StackStatus, repoPagination) {
+func paginateStacks(stacks []storage.StackStatus, page, perPage int, basePath, sortBy, sortOrder string) ([]storage.StackStatus, projectPagination) {
 	total := len(stacks)
 	totalPages := total / perPage
 	if total%perPage != 0 {
@@ -320,22 +320,22 @@ func paginateStacks(stacks []storage.StackStatus, page, perPage int, basePath, s
 		end = total
 	}
 
-	pagination := repoPagination{
+	pagination := projectPagination{
 		Page:       page,
 		PerPage:    perPage,
 		Total:      total,
 		TotalPages: totalPages,
 	}
 	if page > 1 {
-		pagination.PrevURL = buildRepoListURL(basePath, page-1, perPage, sortBy, sortOrder)
+		pagination.PrevURL = buildProjectListURL(basePath, page-1, perPage, sortBy, sortOrder)
 	}
 	if page < totalPages {
-		pagination.NextURL = buildRepoListURL(basePath, page+1, perPage, sortBy, sortOrder)
+		pagination.NextURL = buildProjectListURL(basePath, page+1, perPage, sortBy, sortOrder)
 	}
 	return stacks[start:end], pagination
 }
 
-func buildRepoListURL(basePath string, page, perPage int, sortBy, sortOrder string) string {
+func buildProjectListURL(basePath string, page, perPage int, sortBy, sortOrder string) string {
 	params := url.Values{}
 	params.Set("page", strconv.Itoa(page))
 	params.Set("per", strconv.Itoa(perPage))
@@ -345,25 +345,25 @@ func buildRepoListURL(basePath string, page, perPage int, sortBy, sortOrder stri
 }
 
 func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
+	projectName := chi.URLParam(r, "project")
 	stackPath := chi.URLParam(r, "*")
-	if !isValidRepoName(repoName) || !pathutil.IsSafeStackPath(stackPath) {
+	if !isValidProjectName(projectName) || !pathutil.IsSafeStackPath(stackPath) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	repoCfg, err := s.getRepoConfig(repoName)
-	if err != nil || repoCfg == nil {
-		http.Error(w, "Repository not configured", http.StatusNotFound)
+	projectCfg, err := s.getProjectConfig(projectName)
+	if err != nil || projectCfg == nil {
+		http.Error(w, "Project not configured", http.StatusNotFound)
 		return
 	}
 
 	trigger := "manual"
 
-	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, "", "")
+	scan, stacks, err := s.startScanWithCancel(r.Context(), projectCfg, trigger, "", "")
 	if err != nil {
-		if err == queue.ErrRepoLocked {
-			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+		if err == queue.ErrProjectLocked {
+			http.Redirect(w, r, "/projects/"+projectName, http.StatusSeeOther)
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
@@ -371,20 +371,20 @@ func (s *Server) handleScanStackUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !containsStack(stackPath, stacks) {
-		_ = s.queue.FailScan(r.Context(), scan.ID, repoName, "stack not found")
+		_ = s.queue.FailScan(r.Context(), scan.ID, projectName, "stack not found")
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-	if _, err := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, trigger, "", ""); err != nil {
+	if _, err := s.orchestrator.EnqueueStacks(r.Context(), scan, projectCfg, []string{stackPath}, trigger, "", ""); err != nil {
 		if err == orchestrate.ErrNoStacksEnqueued {
-			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+			http.Redirect(w, r, "/projects/"+projectName, http.StatusSeeOther)
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+	http.Redirect(w, r, "/projects/"+projectName, http.StatusSeeOther)
 }
 
 func filterParentStackStatuses(stacks []storage.StackStatus) []storage.StackStatus {
@@ -415,32 +415,32 @@ func filterParentStackStatuses(stacks []storage.StackStatus) []storage.StackStat
 }
 
 func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
+	projectName := chi.URLParam(r, "project")
 	stackPath := chi.URLParam(r, "*")
-	if !isValidRepoName(repoName) || !pathutil.IsSafeStackPath(stackPath) {
+	if !isValidProjectName(projectName) || !pathutil.IsSafeStackPath(stackPath) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	repoCfg, _ := s.getRepoConfig(repoName)
-	result, err := s.storage.GetResult(repoName, stackPath)
+	projectCfg, _ := s.getProjectConfig(projectName)
+	result, err := s.storage.GetResult(projectName, stackPath)
 	if err != nil {
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
-	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
+	lastScan, _ := s.queue.GetLastScan(r.Context(), projectName)
 
 	data := stackPageData{
-		RepoName:  repoName,
-		RepoURL:   "",
-		Path:      stackPath,
-		Result:    result,
-		Scan:      lastScan,
-		CSRFToken: csrfTokenFromContext(r.Context()),
-		PlanHTML:  formatPlanOutput(result.PlanOutput),
+		ProjectName: projectName,
+		ProjectURL:  "",
+		Path:        stackPath,
+		Result:      result,
+		Scan:        lastScan,
+		CSRFToken:   csrfTokenFromContext(r.Context()),
+		PlanHTML:    formatPlanOutput(result.PlanOutput),
 	}
-	if repoCfg != nil {
-		data.RepoURL = repoCfg.URL
+	if projectCfg != nil {
+		data.ProjectURL = projectCfg.URL
 	}
 
 	if err := s.tmplDrift.ExecuteTemplate(w, "layout", data); err != nil {
@@ -457,7 +457,7 @@ type settingsData struct {
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	data := settingsData{
 		CSRFToken:                  csrfTokenFromContext(r.Context()),
-		DynamicReposEnabled:        s.repoStore != nil,
+		DynamicReposEnabled:        s.projectStore != nil,
 		DynamicIntegrationsEnabled: s.intStore != nil,
 	}
 

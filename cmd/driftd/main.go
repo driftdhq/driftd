@@ -15,8 +15,8 @@ import (
 	"github.com/driftdhq/driftd/internal/api"
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/orchestrate"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/driftdhq/driftd/internal/scheduler"
 	"github.com/driftdhq/driftd/internal/secrets"
@@ -91,7 +91,7 @@ func runServe(args []string) {
 	}
 	defer q.Close()
 
-	// Initialize encryption and repo store
+	// Initialize encryption and project store
 	keyStore := secrets.NewKeyStore(cfg.DataDir)
 	encKey, err := keyStore.LoadOrGenerate()
 	if err != nil {
@@ -101,16 +101,16 @@ func runServe(args []string) {
 	if err != nil {
 		log.Fatalf("failed to create encryptor: %v", err)
 	}
-	repoStore := secrets.NewRepoStore(cfg.DataDir, encryptor)
-	if err := repoStore.Load(); err != nil {
-		log.Fatalf("failed to load repo store: %v", err)
+	projectStore := secrets.NewProjectStore(cfg.DataDir, encryptor)
+	if err := projectStore.Load(); err != nil {
+		log.Fatalf("failed to load project store: %v", err)
 	}
 	intStore := secrets.NewIntegrationStore(cfg.DataDir)
 	if err := intStore.Load(); err != nil {
 		log.Fatalf("failed to load integration store: %v", err)
 	}
 
-	repoProvider := repos.NewCombinedProvider(cfg, repoStore, intStore, cfg.DataDir)
+	projectProvider := projects.NewCombinedProvider(cfg, projectStore, intStore, cfg.DataDir)
 
 	if err := runner.EnsureDefaultBinaries(context.Background()); err != nil {
 		log.Fatalf("failed to install default terraform/terragrunt: %v", err)
@@ -127,7 +127,7 @@ func runServe(args []string) {
 	defer orch.Stop()
 
 	// Start scheduler
-	sched := scheduler.New(cfg, repoProvider, orch)
+	sched := scheduler.New(cfg, projectProvider, orch)
 	if err := sched.Start(); err != nil {
 		log.Fatalf("failed to start scheduler: %v", err)
 	}
@@ -139,11 +139,11 @@ func runServe(args []string) {
 		q,
 		templatesFS,
 		staticFS,
-		api.WithRepoStore(repoStore),
+		api.WithProjectStore(projectStore),
 		api.WithIntegrationStore(intStore),
-		api.WithRepoProvider(repoProvider),
+		api.WithProjectProvider(projectProvider),
 		api.WithOrchestrator(orch),
-		api.WithSchedulerCallbacks(sched.OnRepoAdded, sched.OnRepoUpdated, sched.OnRepoDeleted),
+		api.WithSchedulerCallbacks(sched.OnProjectAdded, sched.OnProjectUpdated, sched.OnProjectDeleted),
 	)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
@@ -201,7 +201,7 @@ func runWorker(args []string) {
 	}
 	defer q.Close()
 
-	// Initialize encryption and repo store for dynamic repos
+	// Initialize encryption and project store for dynamic projects
 	keyStore := secrets.NewKeyStore(cfg.DataDir)
 	encKey, err := keyStore.LoadOrGenerate()
 	if err != nil {
@@ -211,22 +211,22 @@ func runWorker(args []string) {
 	if err != nil {
 		log.Fatalf("failed to create encryptor: %v", err)
 	}
-	repoStore := secrets.NewRepoStore(cfg.DataDir, encryptor)
-	if err := repoStore.Load(); err != nil {
-		log.Fatalf("failed to load repo store: %v", err)
+	projectStore := secrets.NewProjectStore(cfg.DataDir, encryptor)
+	if err := projectStore.Load(); err != nil {
+		log.Fatalf("failed to load project store: %v", err)
 	}
 	intStore := secrets.NewIntegrationStore(cfg.DataDir)
 	if err := intStore.Load(); err != nil {
 		log.Fatalf("failed to load integration store: %v", err)
 	}
-	repoProvider := repos.NewCombinedProvider(cfg, repoStore, intStore, cfg.DataDir)
+	projectProvider := projects.NewCombinedProvider(cfg, projectStore, intStore, cfg.DataDir)
 
 	if err := runner.EnsureDefaultBinaries(context.Background()); err != nil {
 		log.Fatalf("failed to install default terraform/terragrunt: %v", err)
 	}
 
 	// Start worker
-	w := worker.New(q, run, cfg.Worker.Concurrency, cfg, repoProvider)
+	w := worker.New(q, run, cfg.Worker.Concurrency, cfg, projectProvider)
 	w.Start()
 
 	// Handle shutdown

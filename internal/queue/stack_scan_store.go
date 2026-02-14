@@ -26,12 +26,12 @@ func (q *Queue) GetStackScan(ctx context.Context, stackScanID string) (*StackSca
 	return &stackScan, nil
 }
 
-func (q *Queue) ListRepoStackScans(ctx context.Context, repoName string, limit int) ([]*StackScan, error) {
+func (q *Queue) ListProjectStackScans(ctx context.Context, projectName string, limit int) ([]*StackScan, error) {
 	stop := int64(-1)
 	if limit > 0 {
 		stop = int64(limit - 1)
 	}
-	stackScanIDs, err := q.client.ZRevRange(ctx, keyRepoStackScansOrdered+repoName, 0, stop).Result()
+	stackScanIDs, err := q.client.ZRevRange(ctx, keyProjectStackScansOrdered+projectName, 0, stop).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
@@ -78,10 +78,10 @@ func (q *Queue) saveStackScan(ctx context.Context, stackScan *StackScan) error {
 }
 
 func (q *Queue) removeStackScanRefs(ctx context.Context, stackScan *StackScan) error {
-	if err := q.client.SRem(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID).Err(); err != nil {
+	if err := q.client.SRem(ctx, keyProjectStackScans+stackScan.ProjectName, stackScan.ID).Err(); err != nil {
 		return err
 	}
-	return q.client.ZRem(ctx, keyRepoStackScansOrdered+stackScan.RepoName, stackScan.ID).Err()
+	return q.client.ZRem(ctx, keyProjectStackScansOrdered+stackScan.ProjectName, stackScan.ID).Err()
 }
 
 // ClearInflightForScan removes inflight markers for all stack scans belonging to a scan.
@@ -95,6 +95,6 @@ func (q *Queue) ClearInflightForScan(ctx context.Context, scanID string) {
 		if err != nil {
 			continue
 		}
-		q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
+		q.client.Del(ctx, inflightKey(stackScan.ProjectName, stackScan.StackPath))
 	}
 }

@@ -8,13 +8,13 @@ import (
 	"github.com/driftdhq/driftd/internal/config"
 )
 
-// RepoConfigFromEntry converts a dynamic RepoEntry and credentials into a RepoConfig.
-func RepoConfigFromEntry(entry *RepoEntry, creds *RepoCredentials, integration *IntegrationEntry, dataDir string) (*config.RepoConfig, error) {
+// ProjectConfigFromEntry converts a dynamic ProjectEntry and credentials into a ProjectConfig.
+func ProjectConfigFromEntry(entry *ProjectEntry, creds *ProjectCredentials, integration *IntegrationEntry, dataDir string) (*config.ProjectConfig, error) {
 	if entry == nil {
-		return nil, fmt.Errorf("repo entry required")
+		return nil, fmt.Errorf("project entry required")
 	}
 
-	cfg := &config.RepoConfig{
+	cfg := &config.ProjectConfig{
 		Name:        entry.Name,
 		URL:         entry.URL,
 		CloneURL:    entry.URL,
@@ -77,8 +77,8 @@ func RepoConfigFromEntry(entry *RepoEntry, creds *RepoCredentials, integration *
 	return cfg, nil
 }
 
-func writeSSHCredentials(repoName, dataDir string, creds *RepoCredentials) (string, string, error) {
-	baseDir := filepath.Join(dataDir, "repo-creds", repoName)
+func writeSSHCredentials(projectName, dataDir string, creds *ProjectCredentials) (string, string, error) {
+	baseDir := filepath.Join(dataDir, "project-creds", projectName)
 	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return "", "", fmt.Errorf("failed to create credentials dir: %w", err)
 	}
@@ -100,7 +100,7 @@ func writeSSHCredentials(repoName, dataDir string, creds *RepoCredentials) (stri
 	return keyPath, knownHostsPath, nil
 }
 
-func gitConfigFromIntegration(entry *RepoEntry, integration *IntegrationEntry, dataDir string) (*config.GitAuthConfig, error) {
+func gitConfigFromIntegration(entry *ProjectEntry, integration *IntegrationEntry, dataDir string) (*config.GitAuthConfig, error) {
 	if integration == nil {
 		return nil, fmt.Errorf("integration required")
 	}

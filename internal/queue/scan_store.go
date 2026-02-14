@@ -33,7 +33,7 @@ return 0
 // the lock for a new scan. This prevents the race where another process
 // grabs the lock between cancel and start.
 //
-// KEYS: [1] lock key, [2] old scan hash, [3] scan:repo key, [4] scan:last key, [5] running scans zset
+// KEYS: [1] lock key, [2] old scan hash, [3] scan:project key, [4] scan:last key, [5] running scans zset
 // ARGV: [1] old scan ID, [2] new scan ID, [3] lock TTL ms, [4] ended_at, [5] cancel reason, [6] scan retention seconds
 //
 // Returns 1 if successful, 0 if lock not owned by old scan.
@@ -68,16 +68,16 @@ return 1
 `)
 
 type Scan struct {
-	ID        string    `json:"id"`
-	RepoName  string    `json:"repo_name"`
-	Trigger   string    `json:"trigger,omitempty"`
-	Commit    string    `json:"commit,omitempty"`
-	Actor     string    `json:"actor,omitempty"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	StartedAt time.Time `json:"started_at"`
-	EndedAt   time.Time `json:"ended_at,omitempty"`
-	Error     string    `json:"error,omitempty"`
+	ID          string    `json:"id"`
+	ProjectName string    `json:"project_name"`
+	Trigger     string    `json:"trigger,omitempty"`
+	Commit      string    `json:"commit,omitempty"`
+	Actor       string    `json:"actor,omitempty"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	StartedAt   time.Time `json:"started_at"`
+	EndedAt     time.Time `json:"ended_at,omitempty"`
+	Error       string    `json:"error,omitempty"`
 
 	TerraformVersion  string            `json:"terraform_version,omitempty"`
 	TerragruntVersion string            `json:"terragrunt_version,omitempty"`
@@ -95,41 +95,41 @@ type Scan struct {
 	Errored   int `json:"errored"`
 }
 
-func (q *Queue) StartScan(ctx context.Context, repoName, trigger, commit, actor string, total int) (*Scan, error) {
+func (q *Queue) StartScan(ctx context.Context, projectName, trigger, commit, actor string, total int) (*Scan, error) {
 	if total < 0 {
 		total = 0
 	}
 
-	scanID := fmt.Sprintf("%s:%d", repoName, time.Now().UnixNano())
-	lockKey := keyLockPrefix + repoName
+	scanID := fmt.Sprintf("%s:%d", projectName, time.Now().UnixNano())
+	lockKey := keyLockPrefix + projectName
 
 	acquired, err := q.client.SetNX(ctx, lockKey, scanID, q.lockTTL).Result()
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire repo lock for %s: %w", repoName, err)
+		return nil, fmt.Errorf("failed to acquire project lock for %s: %w", projectName, err)
 	}
 	if !acquired {
-		return nil, ErrRepoLocked
+		return nil, ErrProjectLocked
 	}
 
 	now := time.Now()
 	scan := &Scan{
-		ID:        scanID,
-		RepoName:  repoName,
-		Trigger:   trigger,
-		Commit:    commit,
-		Actor:     actor,
-		Status:    ScanStatusRunning,
-		CreatedAt: now,
-		StartedAt: now,
-		Total:     total,
-		Queued:    total,
+		ID:          scanID,
+		ProjectName: projectName,
+		Trigger:     trigger,
+		Commit:      commit,
+		Actor:       actor,
+		Status:      ScanStatusRunning,
+		CreatedAt:   now,
+		StartedAt:   now,
+		Total:       total,
+		Queued:      total,
 	}
 
 	scanKey := keyScanPrefix + scanID
 	pipe := q.client.Pipeline()
 	pipe.HSet(ctx, scanKey, map[string]any{
 		"id":         scan.ID,
-		"repo":       scan.RepoName,
+		"project":    scan.ProjectName,
 		"trigger":    scan.Trigger,
 		"commit":     scan.Commit,
 		"actor":      scan.Actor,
@@ -153,14 +153,14 @@ func (q *Queue) StartScan(ctx context.Context, repoName, trigger, commit, actor 
 		"commit_sha": "",
 	})
 	pipe.Expire(ctx, scanKey, scanRetention)
-	pipe.Set(ctx, keyScanRepo+repoName, scanID, scanRetention)
+	pipe.Set(ctx, keyScanRepo+projectName, scanID, scanRetention)
 	pipe.ZAdd(ctx, keyRunningScans, redis.Z{
 		Score:  float64(scan.StartedAt.Unix()),
 		Member: scan.ID,
 	})
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		q.releaseOwnedLock(ctx, repoName, scanID)
+		q.releaseOwnedLock(ctx, projectName, scanID)
 		return nil, fmt.Errorf("failed to create scan: %w", err)
 	}
 
@@ -170,21 +170,21 @@ func (q *Queue) StartScan(ctx context.Context, repoName, trigger, commit, actor 
 // CancelAndStartScan atomically cancels an existing scan and starts a new one.
 // This prevents the race condition where another caller could acquire the lock
 // between a separate CancelScan + StartScan.
-func (q *Queue) CancelAndStartScan(ctx context.Context, oldScanID, repoName, cancelReason, trigger, commit, actor string, total int) (*Scan, error) {
+func (q *Queue) CancelAndStartScan(ctx context.Context, oldScanID, projectName, cancelReason, trigger, commit, actor string, total int) (*Scan, error) {
 	if total < 0 {
 		total = 0
 	}
 
-	newScanID := fmt.Sprintf("%s:%d", repoName, time.Now().UnixNano())
+	newScanID := fmt.Sprintf("%s:%d", projectName, time.Now().UnixNano())
 	endedAt := time.Now().Unix()
 	retentionSeconds := int(scanRetention.Seconds())
 
 	result, err := cancelAndAcquireScript.Run(ctx, q.client,
 		[]string{
-			keyLockPrefix + repoName,
+			keyLockPrefix + projectName,
 			keyScanPrefix + oldScanID,
-			keyScanRepo + repoName,
-			keyScanLast + repoName,
+			keyScanRepo + projectName,
+			keyScanLast + projectName,
 			keyRunningScans,
 		},
 		oldScanID,
@@ -198,38 +198,38 @@ func (q *Queue) CancelAndStartScan(ctx context.Context, oldScanID, repoName, can
 		return nil, fmt.Errorf("cancel-and-acquire failed: %w", err)
 	}
 	if result == 0 {
-		return nil, ErrRepoLocked
+		return nil, ErrProjectLocked
 	}
 
 	// Publish cancel event for old scan
 	endedAtTime := time.Unix(endedAt, 0)
-	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
-		RepoName: repoName,
-		ScanID:   oldScanID,
-		Status:   ScanStatusCanceled,
-		EndedAt:  &endedAtTime,
+	_ = q.PublishScanEvent(ctx, projectName, ScanEvent{
+		ProjectName: projectName,
+		ScanID:      oldScanID,
+		Status:      ScanStatusCanceled,
+		EndedAt:     &endedAtTime,
 	})
 
 	// Create the new scan hash
 	now := time.Now()
 	scan := &Scan{
-		ID:        newScanID,
-		RepoName:  repoName,
-		Trigger:   trigger,
-		Commit:    commit,
-		Actor:     actor,
-		Status:    ScanStatusRunning,
-		CreatedAt: now,
-		StartedAt: now,
-		Total:     total,
-		Queued:    total,
+		ID:          newScanID,
+		ProjectName: projectName,
+		Trigger:     trigger,
+		Commit:      commit,
+		Actor:       actor,
+		Status:      ScanStatusRunning,
+		CreatedAt:   now,
+		StartedAt:   now,
+		Total:       total,
+		Queued:      total,
 	}
 
 	scanKey := keyScanPrefix + newScanID
 	pipe := q.client.Pipeline()
 	pipe.HSet(ctx, scanKey, map[string]any{
 		"id":         scan.ID,
-		"repo":       scan.RepoName,
+		"project":    scan.ProjectName,
 		"trigger":    scan.Trigger,
 		"commit":     scan.Commit,
 		"actor":      scan.Actor,
@@ -259,14 +259,14 @@ func (q *Queue) CancelAndStartScan(ctx context.Context, oldScanID, repoName, can
 	})
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		q.releaseOwnedLock(ctx, repoName, newScanID)
+		q.releaseOwnedLock(ctx, projectName, newScanID)
 		return nil, fmt.Errorf("failed to create scan after cancel: %w", err)
 	}
 
 	return scan, nil
 }
 
-func (q *Queue) RenewScanLock(ctx context.Context, scanID, repoName string, maxAge, renewEvery time.Duration) {
+func (q *Queue) RenewScanLock(ctx context.Context, scanID, projectName string, maxAge, renewEvery time.Duration) {
 	start := time.Now()
 	if maxAge <= 0 {
 		maxAge = 6 * time.Hour
@@ -292,7 +292,7 @@ func (q *Queue) RenewScanLock(ctx context.Context, scanID, repoName string, maxA
 		}
 
 		if time.Since(start) > maxAge {
-			_ = q.FailScan(context.Background(), scanID, repoName, "scan exceeded maximum duration")
+			_ = q.FailScan(context.Background(), scanID, projectName, "scan exceeded maximum duration")
 			return
 		}
 
@@ -308,7 +308,7 @@ func (q *Queue) RenewScanLock(ctx context.Context, scanID, repoName string, maxA
 		}
 
 		renewed, err := renewLockScript.Run(ctx, q.client,
-			[]string{keyLockPrefix + repoName},
+			[]string{keyLockPrefix + projectName},
 			scanID, q.lockTTL.Milliseconds(),
 		).Int64()
 		if err != nil {
@@ -371,7 +371,7 @@ func (q *Queue) SetScanWorkspace(ctx context.Context, scanID, workspacePath, com
 	return err
 }
 
-func (q *Queue) FailScan(ctx context.Context, scanID, repoName, errMsg string) error {
+func (q *Queue) FailScan(ctx context.Context, scanID, projectName, errMsg string) error {
 	scanKey := keyScanPrefix + scanID
 	endedAt := time.Now()
 
@@ -381,24 +381,24 @@ func (q *Queue) FailScan(ctx context.Context, scanID, repoName, errMsg string) e
 		"ended_at": endedAt.Unix(),
 		"error":    errMsg,
 	})
-	pipe.Del(ctx, keyScanRepo+repoName)
+	pipe.Del(ctx, keyScanRepo+projectName)
 	pipe.ZRem(ctx, keyRunningScans, scanID)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return err
 	}
-	if err := q.releaseOwnedLock(ctx, repoName, scanID); err != nil {
+	if err := q.releaseOwnedLock(ctx, projectName, scanID); err != nil {
 		return err
 	}
-	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
-		RepoName: repoName,
-		ScanID:   scanID,
-		Status:   ScanStatusFailed,
-		EndedAt:  &endedAt,
+	_ = q.PublishScanEvent(ctx, projectName, ScanEvent{
+		ProjectName: projectName,
+		ScanID:      scanID,
+		Status:      ScanStatusFailed,
+		EndedAt:     &endedAt,
 	})
 	return nil
 }
 
-func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string) error {
+func (q *Queue) CancelScan(ctx context.Context, scanID, projectName, reason string) error {
 	if reason == "" {
 		reason = "canceled"
 	}
@@ -411,26 +411,26 @@ func (q *Queue) CancelScan(ctx context.Context, scanID, repoName, reason string)
 		"ended_at": endedAt.Unix(),
 		"error":    reason,
 	})
-	pipe.Del(ctx, keyScanRepo+repoName)
-	pipe.Set(ctx, keyScanLast+repoName, scanID, scanRetention)
+	pipe.Del(ctx, keyScanRepo+projectName)
+	pipe.Set(ctx, keyScanLast+projectName, scanID, scanRetention)
 	pipe.ZRem(ctx, keyRunningScans, scanID)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return err
 	}
-	if err := q.releaseOwnedLock(ctx, repoName, scanID); err != nil {
+	if err := q.releaseOwnedLock(ctx, projectName, scanID); err != nil {
 		return err
 	}
-	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
-		RepoName: repoName,
-		ScanID:   scanID,
-		Status:   ScanStatusCanceled,
-		EndedAt:  &endedAt,
+	_ = q.PublishScanEvent(ctx, projectName, ScanEvent{
+		ProjectName: projectName,
+		ScanID:      scanID,
+		Status:      ScanStatusCanceled,
+		EndedAt:     &endedAt,
 	})
 	return nil
 }
 
-func (q *Queue) GetActiveScan(ctx context.Context, repoName string) (*Scan, error) {
-	scanID, err := q.client.Get(ctx, keyScanRepo+repoName).Result()
+func (q *Queue) GetActiveScan(ctx context.Context, projectName string) (*Scan, error) {
+	scanID, err := q.client.Get(ctx, keyScanRepo+projectName).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, ErrScanNotFound
@@ -440,8 +440,8 @@ func (q *Queue) GetActiveScan(ctx context.Context, repoName string) (*Scan, erro
 	return q.GetScan(ctx, scanID)
 }
 
-func (q *Queue) GetLastScan(ctx context.Context, repoName string) (*Scan, error) {
-	scanID, err := q.client.Get(ctx, keyScanLast+repoName).Result()
+func (q *Queue) GetLastScan(ctx context.Context, projectName string) (*Scan, error) {
+	scanID, err := q.client.Get(ctx, keyScanLast+projectName).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, ErrScanNotFound
@@ -467,7 +467,7 @@ func scanFromHash(values map[string]string) (*Scan, error) {
 
 	scan := &Scan{
 		ID:                values["id"],
-		RepoName:          values["repo"],
+		ProjectName:       values["project"],
 		Trigger:           values["trigger"],
 		Commit:            values["commit"],
 		Actor:             values["actor"],

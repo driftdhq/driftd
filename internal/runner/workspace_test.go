@@ -10,13 +10,13 @@ import (
 	"github.com/driftdhq/driftd/internal/storage"
 )
 
-func TestPrepareRepoRoot_SharedWorkspace(t *testing.T) {
+func TestPrepareProjectRoot_SharedWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	os.MkdirAll(filepath.Join(workspace, "envs/prod"), 0755)
 	os.WriteFile(filepath.Join(workspace, "envs/prod/main.tf"), []byte("# prod"), 0644)
 
 	r := &Runner{}
-	root, cleanup, err := r.prepareRepoRoot(context.Background(), "", workspace, nil)
+	root, cleanup, err := r.prepareProjectRoot(context.Background(), "", workspace, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,23 +37,23 @@ func TestPrepareRepoRoot_SharedWorkspace(t *testing.T) {
 	}
 }
 
-func TestPrepareRepoRoot_NoWorkspace_ClonesFresh(t *testing.T) {
-	// Without a workspace or valid repo URL, the clone should fail.
+func TestPrepareProjectRoot_NoWorkspace_ClonesFresh(t *testing.T) {
+	// Without a workspace or valid project URL, the clone should fail.
 	// This verifies the clone path is taken (not the shared workspace path).
 	r := &Runner{}
-	_, cleanup, err := r.prepareRepoRoot(context.Background(), "file:///nonexistent", "", nil)
+	_, cleanup, err := r.prepareProjectRoot(context.Background(), "file:///nonexistent", "", nil)
 	if err == nil {
 		if cleanup != nil {
 			cleanup()
 		}
-		t.Fatal("expected error for invalid repo URL")
+		t.Fatal("expected error for invalid project URL")
 	}
 	if cleanup != nil {
 		t.Fatal("expected nil cleanup on error")
 	}
 }
 
-func TestPrepareRepoRoot_SharedWorkspace_NoTempDirCreated(t *testing.T) {
+func TestPrepareProjectRoot_SharedWorkspace_NoTempDirCreated(t *testing.T) {
 	workspace := t.TempDir()
 	os.WriteFile(filepath.Join(workspace, "main.tf"), []byte("# root"), 0644)
 
@@ -68,7 +68,7 @@ func TestPrepareRepoRoot_SharedWorkspace_NoTempDirCreated(t *testing.T) {
 		}
 	}
 
-	root, cleanup, err := r.prepareRepoRoot(context.Background(), "", workspace, nil)
+	root, cleanup, err := r.prepareProjectRoot(context.Background(), "", workspace, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestRunWithSharedWorkspace_UsesDirectly(t *testing.T) {
 
 	// Run will fail at planStack (no real terraform binary) but that's fine —
 	// we're testing that it reaches the stack path directly without copying.
-	result, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: "envs/prod", WorkspacePath: workspace})
+	result, _ := r.Run(context.Background(), &RunParams{ProjectName: "test-project", StackPath: "envs/prod", WorkspacePath: workspace})
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -139,7 +139,7 @@ func TestRunWithSharedWorkspace_ConcurrentStacks(t *testing.T) {
 		wg.Add(1)
 		go func(idx int, sp string) {
 			defer wg.Done()
-			res, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: sp, WorkspacePath: workspace})
+			res, _ := r.Run(context.Background(), &RunParams{ProjectName: "test-project", StackPath: sp, WorkspacePath: workspace})
 			results[idx] = res
 		}(i, stack)
 	}
@@ -170,7 +170,7 @@ func TestRunWithSharedWorkspace_InvalidStackPath(t *testing.T) {
 	store := storage.New(t.TempDir())
 	r := New(store)
 
-	result, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: "nonexistent/stack", WorkspacePath: workspace})
+	result, _ := r.Run(context.Background(), &RunParams{ProjectName: "test-project", StackPath: "nonexistent/stack", WorkspacePath: workspace})
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -184,7 +184,7 @@ func TestRunWithSharedWorkspace_UnsafeStackPath(t *testing.T) {
 	store := storage.New(t.TempDir())
 	r := New(store)
 
-	result, _ := r.Run(context.Background(), &RunParams{RepoName: "test-repo", StackPath: "../etc/passwd", WorkspacePath: workspace})
+	result, _ := r.Run(context.Background(), &RunParams{ProjectName: "test-project", StackPath: "../etc/passwd", WorkspacePath: workspace})
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}

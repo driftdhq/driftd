@@ -18,8 +18,8 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
-// RepoRequest is the JSON request body for creating/updating a repository.
-type RepoRequest struct {
+// ProjectRequest is the JSON request body for creating/updating a project.
+type ProjectRequest struct {
 	Name                       string   `json:"name"`
 	URL                        string   `json:"url"`
 	Branch                     *string  `json:"branch,omitempty"`
@@ -41,8 +41,8 @@ type RepoRequest struct {
 	HTTPSToken    string `json:"https_token,omitempty"`
 }
 
-// RepoResponse is the JSON response for a repository.
-type RepoResponse struct {
+// ProjectResponse is the JSON response for a project.
+type ProjectResponse struct {
 	Name                       string   `json:"name"`
 	URL                        string   `json:"url"`
 	Branch                     string   `json:"branch,omitempty"`
@@ -111,140 +111,140 @@ type IntegrationResponse struct {
 
 // handleListSettingsRepos returns all configured repositories.
 func (s *Server) handleListSettingsRepos(w http.ResponseWriter, r *http.Request) {
-	repos := make([]RepoResponse, 0)
+	projects := make([]ProjectResponse, 0)
 
-	for _, repo := range s.cfg.Repos {
-		resp := RepoResponse{
-			Name:                       repo.Name,
-			URL:                        repo.URL,
-			Branch:                     repo.Branch,
-			IgnorePaths:                repo.IgnorePaths,
-			Schedule:                   repo.Schedule,
-			CancelInflightOnNewTrigger: repo.CancelInflightEnabled(),
+	for _, project := range s.cfg.Projects {
+		resp := ProjectResponse{
+			Name:                       project.Name,
+			URL:                        project.URL,
+			Branch:                     project.Branch,
+			IgnorePaths:                project.IgnorePaths,
+			Schedule:                   project.Schedule,
+			CancelInflightOnNewTrigger: project.CancelInflightEnabled(),
 			Source:                     "config",
 		}
-		if repo.Git != nil {
-			resp.AuthType = repo.Git.Type
-			if repo.Git.GitHubApp != nil {
-				resp.GitHubAppID = repo.Git.GitHubApp.AppID
-				resp.GitHubInstallationID = repo.Git.GitHubApp.InstallationID
+		if project.Git != nil {
+			resp.AuthType = project.Git.Type
+			if project.Git.GitHubApp != nil {
+				resp.GitHubAppID = project.Git.GitHubApp.AppID
+				resp.GitHubInstallationID = project.Git.GitHubApp.InstallationID
 			}
-			resp.IntegrationType = repo.Git.Type
+			resp.IntegrationType = project.Git.Type
 		}
-		repos = append(repos, resp)
+		projects = append(projects, resp)
 	}
 
-	if s.repoStore != nil {
-		dynamicRepos := s.repoStore.List()
-		for _, repo := range dynamicRepos {
-			if s.cfg.GetRepo(repo.Name) != nil {
+	if s.projectStore != nil {
+		dynamicRepos := s.projectStore.List()
+		for _, project := range dynamicRepos {
+			if s.cfg.GetProject(project.Name) != nil {
 				continue
 			}
 
-			resp := RepoResponse{
-				Name:                       repo.Name,
-				URL:                        repo.URL,
-				Branch:                     repo.Branch,
-				IgnorePaths:                repo.IgnorePaths,
-				Schedule:                   repo.Schedule,
-				CancelInflightOnNewTrigger: repo.CancelInflightOnNewTrigger,
-				AuthType:                   repo.Git.Type,
-				IntegrationID:              repo.IntegrationID,
+			resp := ProjectResponse{
+				Name:                       project.Name,
+				URL:                        project.URL,
+				Branch:                     project.Branch,
+				IgnorePaths:                project.IgnorePaths,
+				Schedule:                   project.Schedule,
+				CancelInflightOnNewTrigger: project.CancelInflightOnNewTrigger,
+				AuthType:                   project.Git.Type,
+				IntegrationID:              project.IntegrationID,
 				Source:                     "dynamic",
-				CreatedAt:                  repo.CreatedAt.Format("2006-01-02T15:04:05Z"),
-				UpdatedAt:                  repo.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+				CreatedAt:                  project.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				UpdatedAt:                  project.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 			}
-			if repo.Git.GitHubApp != nil {
-				resp.GitHubAppID = repo.Git.GitHubApp.AppID
-				resp.GitHubInstallationID = repo.Git.GitHubApp.InstallationID
+			if project.Git.GitHubApp != nil {
+				resp.GitHubAppID = project.Git.GitHubApp.AppID
+				resp.GitHubInstallationID = project.Git.GitHubApp.InstallationID
 			}
-			if repo.IntegrationID != "" {
-				if name, typ, ok := s.lookupIntegrationMeta(repo.IntegrationID); ok {
+			if project.IntegrationID != "" {
+				if name, typ, ok := s.lookupIntegrationMeta(project.IntegrationID); ok {
 					resp.IntegrationName = name
 					resp.IntegrationType = typ
 				}
-			} else if repo.Git.Type != "" {
-				resp.IntegrationType = repo.Git.Type
+			} else if project.Git.Type != "" {
+				resp.IntegrationType = project.Git.Type
 			}
-			repos = append(repos, resp)
+			projects = append(projects, resp)
 		}
 	}
 
-	writeJSON(w, http.StatusOK, repos)
+	writeJSON(w, http.StatusOK, projects)
 }
 
-// handleGetSettingsRepo returns a single repository by name.
+// handleGetSettingsRepo returns a single project by name.
 func (s *Server) handleGetSettingsRepo(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
+	projectName := chi.URLParam(r, "project")
 
-	if repo := s.cfg.GetRepo(repoName); repo != nil {
-		resp := RepoResponse{
-			Name:                       repo.Name,
-			URL:                        repo.URL,
-			Branch:                     repo.Branch,
-			IgnorePaths:                repo.IgnorePaths,
-			Schedule:                   repo.Schedule,
-			CancelInflightOnNewTrigger: repo.CancelInflightEnabled(),
+	if project := s.cfg.GetProject(projectName); project != nil {
+		resp := ProjectResponse{
+			Name:                       project.Name,
+			URL:                        project.URL,
+			Branch:                     project.Branch,
+			IgnorePaths:                project.IgnorePaths,
+			Schedule:                   project.Schedule,
+			CancelInflightOnNewTrigger: project.CancelInflightEnabled(),
 			Source:                     "config",
 		}
-		if repo.Git != nil {
-			resp.AuthType = repo.Git.Type
-			if repo.Git.GitHubApp != nil {
-				resp.GitHubAppID = repo.Git.GitHubApp.AppID
-				resp.GitHubInstallationID = repo.Git.GitHubApp.InstallationID
+		if project.Git != nil {
+			resp.AuthType = project.Git.Type
+			if project.Git.GitHubApp != nil {
+				resp.GitHubAppID = project.Git.GitHubApp.AppID
+				resp.GitHubInstallationID = project.Git.GitHubApp.InstallationID
 			}
-			resp.IntegrationType = repo.Git.Type
+			resp.IntegrationType = project.Git.Type
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 
-	if s.repoStore != nil {
-		repo, err := s.repoStore.Get(repoName)
+	if s.projectStore != nil {
+		project, err := s.projectStore.Get(projectName)
 		if err == nil {
-			resp := RepoResponse{
-				Name:                       repo.Name,
-				URL:                        repo.URL,
-				Branch:                     repo.Branch,
-				IgnorePaths:                repo.IgnorePaths,
-				Schedule:                   repo.Schedule,
-				CancelInflightOnNewTrigger: repo.CancelInflightOnNewTrigger,
-				AuthType:                   repo.Git.Type,
-				IntegrationID:              repo.IntegrationID,
+			resp := ProjectResponse{
+				Name:                       project.Name,
+				URL:                        project.URL,
+				Branch:                     project.Branch,
+				IgnorePaths:                project.IgnorePaths,
+				Schedule:                   project.Schedule,
+				CancelInflightOnNewTrigger: project.CancelInflightOnNewTrigger,
+				AuthType:                   project.Git.Type,
+				IntegrationID:              project.IntegrationID,
 				Source:                     "dynamic",
-				CreatedAt:                  repo.CreatedAt.Format("2006-01-02T15:04:05Z"),
-				UpdatedAt:                  repo.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+				CreatedAt:                  project.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				UpdatedAt:                  project.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 			}
-			if repo.Git.GitHubApp != nil {
-				resp.GitHubAppID = repo.Git.GitHubApp.AppID
-				resp.GitHubInstallationID = repo.Git.GitHubApp.InstallationID
+			if project.Git.GitHubApp != nil {
+				resp.GitHubAppID = project.Git.GitHubApp.AppID
+				resp.GitHubInstallationID = project.Git.GitHubApp.InstallationID
 			}
-			if repo.IntegrationID != "" {
-				if name, typ, ok := s.lookupIntegrationMeta(repo.IntegrationID); ok {
+			if project.IntegrationID != "" {
+				if name, typ, ok := s.lookupIntegrationMeta(project.IntegrationID); ok {
 					resp.IntegrationName = name
 					resp.IntegrationType = typ
 				}
-			} else if repo.Git.Type != "" {
-				resp.IntegrationType = repo.Git.Type
+			} else if project.Git.Type != "" {
+				resp.IntegrationType = project.Git.Type
 			}
 			writeJSON(w, http.StatusOK, resp)
 			return
 		}
 	}
 
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "repository not found"})
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 }
 
-// handleCreateSettingsRepo creates a new repository configuration.
+// handleCreateSettingsRepo creates a new project configuration.
 func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request) {
-	if s.repoStore == nil {
+	if s.projectStore == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "dynamic repository management not enabled",
+			"error": "dynamic project management not enabled",
 		})
 		return
 	}
 
-	var req RepoRequest
+	var req ProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
@@ -264,31 +264,31 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if !isValidRepoName(req.Name) {
+	if !isValidProjectName(req.Name) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "name must contain only alphanumeric characters, hyphens, and underscores",
 		})
 		return
 	}
 
-	if s.cfg.GetRepo(req.Name) != nil {
+	if s.cfg.GetProject(req.Name) != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "repository name conflicts with static configuration",
+			"error": "project name conflicts with static configuration",
 		})
 		return
 	}
 
-	entry := &secrets.RepoEntry{
+	entry := &secrets.ProjectEntry{
 		Name:                       req.Name,
 		URL:                        req.URL,
 		Branch:                     derefString(req.Branch),
 		IgnorePaths:                req.IgnorePaths,
 		Schedule:                   derefString(req.Schedule),
 		CancelInflightOnNewTrigger: derefBool(req.CancelInflightOnNewTrigger, true),
-		Git:                        secrets.RepoGitConfig{},
+		Git:                        secrets.ProjectGitConfig{},
 	}
 
-	var creds *secrets.RepoCredentials
+	var creds *secrets.ProjectCredentials
 
 	if integrationID != "" {
 		integration, err := s.getIntegration(integrationID)
@@ -300,7 +300,7 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		}
 		entry.IntegrationID = integration.ID
 	} else {
-		creds = &secrets.RepoCredentials{}
+		creds = &secrets.ProjectCredentials{}
 		entry.Git.Type = req.AuthType
 		switch req.AuthType {
 		case "github_app":
@@ -316,7 +316,7 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 				})
 				return
 			}
-			entry.Git.GitHubApp = &secrets.RepoGitHubApp{
+			entry.Git.GitHubApp = &secrets.ProjectGitHubApp{
 				AppID:          req.GitHubAppID,
 				InstallationID: req.GitHubInstallationID,
 			}
@@ -352,51 +352,51 @@ func (s *Server) handleCreateSettingsRepo(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	if err := s.repoStore.Add(entry, creds); err != nil {
-		if errors.Is(err, secrets.ErrRepoAlreadyExists) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "repository already exists"})
+	if err := s.projectStore.Add(entry, creds); err != nil {
+		if errors.Is(err, secrets.ErrProjectAlreadyExists) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "project already exists"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if entry.Schedule != "" && s.onRepoAdded != nil {
-		s.onRepoAdded(req.Name, entry.Schedule)
+	if entry.Schedule != "" && s.onProjectAdded != nil {
+		s.onProjectAdded(req.Name, entry.Schedule)
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "created"})
 }
 
-// handleUpdateSettingsRepo updates an existing repository configuration.
+// handleUpdateSettingsRepo updates an existing project configuration.
 func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
+	projectName := chi.URLParam(r, "project")
 
-	if s.cfg.GetRepo(repoName) != nil {
+	if s.cfg.GetProject(projectName) != nil {
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "cannot modify repository defined in static configuration",
+			"error": "cannot modify project defined in static configuration",
 		})
 		return
 	}
 
-	if s.repoStore == nil {
+	if s.projectStore == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "dynamic repository management not enabled",
+			"error": "dynamic project management not enabled",
 		})
 		return
 	}
 
-	existing, err := s.repoStore.Get(repoName)
+	existing, err := s.projectStore.Get(projectName)
 	if err != nil {
-		if errors.Is(err, secrets.ErrRepoNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "repository not found"})
+		if errors.Is(err, secrets.ErrProjectNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	var req RepoRequest
+	var req ProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
@@ -417,7 +417,7 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		req.AuthType = existing.Git.Type
 	}
 
-	entry := &secrets.RepoEntry{
+	entry := &secrets.ProjectEntry{
 		Name:                       existing.Name,
 		URL:                        req.URL,
 		Branch:                     existing.Branch,
@@ -425,7 +425,7 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		Schedule:                   existing.Schedule,
 		CancelInflightOnNewTrigger: existing.CancelInflightOnNewTrigger,
 		IntegrationID:              integrationID,
-		Git:                        secrets.RepoGitConfig{Type: req.AuthType},
+		Git:                        secrets.ProjectGitConfig{Type: req.AuthType},
 	}
 	if req.Branch != nil {
 		entry.Branch = *req.Branch
@@ -443,7 +443,7 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 	authChanged := req.AuthType != "" && req.AuthType != existing.Git.Type
 	integrationChanged := integrationID != existing.IntegrationID
 
-	var creds *secrets.RepoCredentials
+	var creds *secrets.ProjectCredentials
 	if integrationID != "" {
 		if _, err := s.getIntegration(integrationID); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -451,11 +451,11 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 			})
 			return
 		}
-		entry.Git = secrets.RepoGitConfig{}
+		entry.Git = secrets.ProjectGitConfig{}
 		authChanged = false
-		creds = &secrets.RepoCredentials{}
+		creds = &secrets.ProjectCredentials{}
 	} else if req.GitHubPrivateKey != "" || req.SSHPrivateKey != "" || req.HTTPSToken != "" {
-		creds = &secrets.RepoCredentials{}
+		creds = &secrets.ProjectCredentials{}
 		switch req.AuthType {
 		case "github_app":
 			if req.GitHubAppID == 0 || req.GitHubInstallationID == 0 {
@@ -464,7 +464,7 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 				})
 				return
 			}
-			entry.Git.GitHubApp = &secrets.RepoGitHubApp{
+			entry.Git.GitHubApp = &secrets.ProjectGitHubApp{
 				AppID:          req.GitHubAppID,
 				InstallationID: req.GitHubInstallationID,
 			}
@@ -486,13 +486,13 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		entry.Git.GitHubApp = existing.Git.GitHubApp
 		if req.GitHubAppID != 0 {
 			if entry.Git.GitHubApp == nil {
-				entry.Git.GitHubApp = &secrets.RepoGitHubApp{}
+				entry.Git.GitHubApp = &secrets.ProjectGitHubApp{}
 			}
 			entry.Git.GitHubApp.AppID = req.GitHubAppID
 		}
 		if req.GitHubInstallationID != 0 {
 			if entry.Git.GitHubApp == nil {
-				entry.Git.GitHubApp = &secrets.RepoGitHubApp{}
+				entry.Git.GitHubApp = &secrets.ProjectGitHubApp{}
 			}
 			entry.Git.GitHubApp.InstallationID = req.GitHubInstallationID
 		}
@@ -504,86 +504,86 @@ func (s *Server) handleUpdateSettingsRepo(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.repoStore.Update(repoName, entry, creds); err != nil {
+	if err := s.projectStore.Update(projectName, entry, creds); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if s.onRepoUpdated != nil {
-		s.onRepoUpdated(entry.Name, entry.Schedule)
+	if s.onProjectUpdated != nil {
+		s.onProjectUpdated(entry.Name, entry.Schedule)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-// handleDeleteSettingsRepo deletes a repository configuration.
+// handleDeleteSettingsRepo deletes a project configuration.
 func (s *Server) handleDeleteSettingsRepo(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
+	projectName := chi.URLParam(r, "project")
 
-	if s.cfg.GetRepo(repoName) != nil {
+	if s.cfg.GetProject(projectName) != nil {
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "cannot delete repository defined in static configuration",
+			"error": "cannot delete project defined in static configuration",
 		})
 		return
 	}
 
-	if s.repoStore == nil {
+	if s.projectStore == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "dynamic repository management not enabled",
+			"error": "dynamic project management not enabled",
 		})
 		return
 	}
 
-	if err := s.repoStore.Delete(repoName); err != nil {
-		if errors.Is(err, secrets.ErrRepoNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "repository not found"})
+	if err := s.projectStore.Delete(projectName); err != nil {
+		if errors.Is(err, secrets.ErrProjectNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if s.onRepoDeleted != nil {
-		s.onRepoDeleted(repoName)
+	if s.onProjectDeleted != nil {
+		s.onProjectDeleted(projectName)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// handleTestRepoConnection tests the connection to a repository.
-func (s *Server) handleTestRepoConnection(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	if !isValidRepoName(repoName) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid repository name"})
+// handleTestProjectConnection tests the connection to a project.
+func (s *Server) handleTestProjectConnection(w http.ResponseWriter, r *http.Request) {
+	projectName := chi.URLParam(r, "project")
+	if !isValidProjectName(projectName) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid project name"})
 		return
 	}
 
-	repoCfg, err := s.getRepoConfig(repoName)
+	projectCfg, err := s.getProjectConfig(projectName)
 	if err != nil {
-		if errors.Is(err, secrets.ErrRepoNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "repository not found"})
+		if errors.Is(err, secrets.ErrProjectNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": s.sanitizeErrorMessage(err.Error())})
 		return
 	}
-	if repoCfg == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "repository not found"})
+	if projectCfg == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 		return
 	}
 
 	testCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	auth, err := gitauth.AuthMethod(testCtx, repoCfg)
+	auth, err := gitauth.AuthMethod(testCtx, projectCfg)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": s.sanitizeErrorMessage(err.Error())})
 		return
 	}
 
-	cloneURL := strings.TrimSpace(repoCfg.EffectiveCloneURL())
+	cloneURL := strings.TrimSpace(projectCfg.EffectiveCloneURL())
 	if cloneURL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repository URL is empty"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "project URL is empty"})
 		return
 	}
 
@@ -597,7 +597,7 @@ func (s *Server) handleTestRepoConnection(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	branch := strings.TrimSpace(repoCfg.Branch)
+	branch := strings.TrimSpace(projectCfg.Branch)
 	if branch != "" {
 		expectedRef := plumbing.NewBranchReferenceName(branch)
 		found := false
@@ -761,9 +761,9 @@ func (s *Server) handleDeleteSettingsIntegration(w http.ResponseWriter, r *http.
 	}
 
 	id := chi.URLParam(r, "integration")
-	if s.repoStore != nil {
-		for _, repo := range s.repoStore.List() {
-			if repo.IntegrationID == id {
+	if s.projectStore != nil {
+		for _, project := range s.projectStore.List() {
+			if project.IntegrationID == id {
 				writeJSON(w, http.StatusBadRequest, map[string]string{
 					"error": "integration is still referenced by repositories",
 				})

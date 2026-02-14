@@ -16,9 +16,9 @@ import (
 )
 
 func TestStartScanCreatesScanAndStacks(t *testing.T) {
-	repoDir := t.TempDir()
+	projectDir := t.TempDir()
 	dataDir := t.TempDir()
-	initGitRepo(t, repoDir)
+	initGitRepo(t, projectDir)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -44,12 +44,12 @@ func TestStartScanCreatesScanAndStacks(t *testing.T) {
 	orch := New(cfg, q)
 	defer orch.Stop()
 
-	repoCfg := &config.RepoConfig{
-		Name: "repo",
-		URL:  "file://" + repoDir,
+	projectCfg := &config.ProjectConfig{
+		Name: "project",
+		URL:  "file://" + projectDir,
 	}
 
-	scan, stacks, err := orch.StartScan(context.Background(), repoCfg, "manual", "", "")
+	scan, stacks, err := orch.StartScan(context.Background(), projectCfg, "manual", "", "")
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
@@ -73,16 +73,16 @@ func TestStartScanCreatesScanAndStacks(t *testing.T) {
 	if _, err := os.Stat(state.WorkspacePath); err != nil {
 		t.Fatalf("workspace missing: %v", err)
 	}
-	expectedWorkspace := filepath.Join(dataDir, "workspaces", "scans", repoCfg.Name, scan.ID, "repo")
+	expectedWorkspace := filepath.Join(dataDir, "workspaces", "scans", projectCfg.Name, scan.ID, "project")
 	if state.WorkspacePath != expectedWorkspace {
 		t.Fatalf("expected workspace path %s, got %s", expectedWorkspace, state.WorkspacePath)
 	}
 }
 
 func TestCloneWorkspaceFetchesUpdates(t *testing.T) {
-	repoDir := t.TempDir()
+	projectDir := t.TempDir()
 	dataDir := t.TempDir()
-	repo := initGitRepo(t, repoDir)
+	project := initGitRepo(t, projectDir)
 
 	cfg := &config.Config{
 		DataDir: dataDir,
@@ -94,20 +94,20 @@ func TestCloneWorkspaceFetchesUpdates(t *testing.T) {
 	}
 	orch := New(cfg, nil)
 
-	repoCfg := &config.RepoConfig{
-		Name: "repo",
-		URL:  "file://" + repoDir,
+	projectCfg := &config.ProjectConfig{
+		Name: "project",
+		URL:  "file://" + projectDir,
 	}
 
-	workspace, commit1, err := orch.cloneWorkspace(context.Background(), repoCfg, "scan-a", nil)
+	workspace, commit1, err := orch.cloneWorkspace(context.Background(), projectCfg, "scan-a", nil)
 	if err != nil {
 		t.Fatalf("clone workspace: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(repoDir, "second.tf"), []byte(`resource "null_resource" "second" {}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "second.tf"), []byte(`resource "null_resource" "second" {}`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	wt, err := repo.Worktree()
+	wt, err := project.Worktree()
 	if err != nil {
 		t.Fatalf("worktree: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestCloneWorkspaceFetchesUpdates(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 
-	workspace2, commit2, err := orch.cloneWorkspace(context.Background(), repoCfg, "scan-b", nil)
+	workspace2, commit2, err := orch.cloneWorkspace(context.Background(), projectCfg, "scan-b", nil)
 	if err != nil {
 		t.Fatalf("clone workspace (update): %v", err)
 	}
@@ -145,16 +145,16 @@ func TestCloneWorkspaceFetchesUpdates(t *testing.T) {
 func initGitRepo(t *testing.T, dir string) *git.Repository {
 	t.Helper()
 
-	repo, err := git.PlainInit(dir, false)
+	project, err := git.PlainInit(dir, false)
 	if err != nil {
-		t.Fatalf("init repo: %v", err)
+		t.Fatalf("init project: %v", err)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`resource "null_resource" "test" {}`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
-	wt, err := repo.Worktree()
+	wt, err := project.Worktree()
 	if err != nil {
 		t.Fatalf("worktree: %v", err)
 	}
@@ -170,7 +170,7 @@ func initGitRepo(t *testing.T, dir string) *git.Repository {
 	}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	return repo
+	return project
 }
 
 func TestCloneLockRenewalKeepsLockOwned(t *testing.T) {

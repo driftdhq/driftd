@@ -41,14 +41,14 @@ func (s *Server) handleGetStackScan(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(toAPIStackScan(stackScan))
 }
 
-func (s *Server) handleListRepoStackScans(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	if !isValidRepoName(repoName) {
-		http.Error(w, "Invalid repository name", http.StatusBadRequest)
+func (s *Server) handleListProjectStackScans(w http.ResponseWriter, r *http.Request) {
+	projectName := chi.URLParam(r, "project")
+	if !isValidProjectName(projectName) {
+		http.Error(w, "Invalid project name", http.StatusBadRequest)
 		return
 	}
 
-	stackScans, err := s.queue.ListRepoStackScans(r.Context(), repoName, 50)
+	stackScans, err := s.queue.ListProjectStackScans(r.Context(), projectName, 50)
 	if err != nil {
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
 		return
@@ -85,28 +85,28 @@ type scanResponse struct {
 	Error      string     `json:"error,omitempty"`
 }
 
-func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	if !isValidRepoName(repoName) {
-		http.Error(w, "Invalid repository name", http.StatusBadRequest)
+func (s *Server) handleScanProjectUI(w http.ResponseWriter, r *http.Request) {
+	projectName := chi.URLParam(r, "project")
+	if !isValidProjectName(projectName) {
+		http.Error(w, "Invalid project name", http.StatusBadRequest)
 		return
 	}
 
-	repoCfg, err := s.getRepoConfig(repoName)
-	if err != nil || repoCfg == nil {
-		http.Error(w, "Repository not configured", http.StatusNotFound)
+	projectCfg, err := s.getProjectConfig(projectName)
+	if err != nil || projectCfg == nil {
+		http.Error(w, "Project not configured", http.StatusNotFound)
 		return
 	}
 
 	trigger := "manual"
-	_, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), repoCfg, trigger, "", "")
+	_, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), projectCfg, trigger, "", "")
 	if err != nil {
-		if err == queue.ErrRepoLocked {
-			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+		if err == queue.ErrProjectLocked {
+			http.Redirect(w, r, "/projects/"+projectName, http.StatusSeeOther)
 			return
 		}
 		if err == orchestrate.ErrNoStacksEnqueued {
-			http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+			http.Redirect(w, r, "/projects/"+projectName, http.StatusSeeOther)
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
@@ -114,23 +114,23 @@ func (s *Server) handleScanRepoUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err == orchestrate.ErrNoStacksEnqueued || (enqResult != nil && len(enqResult.StackIDs) == 0) {
-		http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+		http.Redirect(w, r, "/projects/"+projectName, http.StatusSeeOther)
 		return
 	}
 
-	http.Redirect(w, r, "/repos/"+repoName, http.StatusSeeOther)
+	http.Redirect(w, r, "/projects/"+projectName, http.StatusSeeOther)
 }
 
 func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	if !isValidRepoName(repoName) {
-		http.Error(w, "Invalid repository name", http.StatusBadRequest)
+	projectName := chi.URLParam(r, "project")
+	if !isValidProjectName(projectName) {
+		http.Error(w, "Invalid project name", http.StatusBadRequest)
 		return
 	}
 
-	repoCfg, err := s.getRepoConfig(repoName)
-	if err != nil || repoCfg == nil {
-		http.Error(w, "Repository not configured", http.StatusNotFound)
+	projectCfg, err := s.getProjectConfig(projectName)
+	if err != nil || projectCfg == nil {
+		http.Error(w, "Project not configured", http.StatusNotFound)
 		return
 	}
 
@@ -141,17 +141,17 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trigger := normalizeScanTrigger(req.Trigger)
-	scan, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), repoCfg, trigger, req.Commit, req.Actor)
+	scan, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), projectCfg, trigger, req.Commit, req.Actor)
 	if err != nil {
-		if err == queue.ErrRepoLocked {
-			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), repoName)
+		if err == queue.ErrProjectLocked {
+			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), projectName)
 			if activeErr != nil {
-				http.Error(w, "Repository scan already in progress", http.StatusConflict)
+				http.Error(w, "Project scan already in progress", http.StatusConflict)
 				return
 			}
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(scanResponse{
-				Error:      "Repository scan already in progress",
+				Error:      "Project scan already in progress",
 				ActiveScan: toAPIScan(activeScan),
 			})
 			return
@@ -182,17 +182,17 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
+	projectName := chi.URLParam(r, "project")
 	stackPath := chi.URLParam(r, "*")
-	if !isValidRepoName(repoName) || !pathutil.IsSafeStackPath(stackPath) {
+	if !isValidProjectName(projectName) || !pathutil.IsSafeStackPath(stackPath) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	repoCfg, err := s.getRepoConfig(repoName)
-	if err != nil || repoCfg == nil {
+	projectCfg, err := s.getProjectConfig(projectName)
+	if err != nil || projectCfg == nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(scanResponse{Error: "Repository not configured"})
+		json.NewEncoder(w).Encode(scanResponse{Error: "Project not configured"})
 		return
 	}
 
@@ -203,17 +203,17 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trigger := normalizeScanTrigger(req.Trigger)
-	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, req.Commit, req.Actor)
+	scan, stacks, err := s.startScanWithCancel(r.Context(), projectCfg, trigger, req.Commit, req.Actor)
 	if err != nil {
-		if err == queue.ErrRepoLocked {
-			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), repoName)
+		if err == queue.ErrProjectLocked {
+			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), projectName)
 			if activeErr != nil {
 				w.WriteHeader(http.StatusConflict)
-				json.NewEncoder(w).Encode(scanResponse{Error: "Repository scan already in progress"})
+				json.NewEncoder(w).Encode(scanResponse{Error: "Project scan already in progress"})
 				return
 			}
 			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(scanResponse{Error: "Repository scan already in progress", ActiveScan: toAPIScan(activeScan)})
+			json.NewEncoder(w).Encode(scanResponse{Error: "Project scan already in progress", ActiveScan: toAPIScan(activeScan)})
 			return
 		}
 		http.Error(w, s.sanitizeErrorMessage(err.Error()), http.StatusInternalServerError)
@@ -222,12 +222,12 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 	// startScanWithCancel handles lock renewal and version detection
 
 	if !containsStack(stackPath, stacks) {
-		_ = s.queue.FailScan(r.Context(), scan.ID, repoName, "stack not found")
+		_ = s.queue.FailScan(r.Context(), scan.ID, projectName, "stack not found")
 		http.Error(w, "Stack not found", http.StatusNotFound)
 		return
 	}
 
-	enqResult, enqueueErr := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, trigger, req.Commit, req.Actor)
+	enqResult, enqueueErr := s.orchestrator.EnqueueStacks(r.Context(), scan, projectCfg, []string{stackPath}, trigger, req.Commit, req.Actor)
 	w.Header().Set("Content-Type", "application/json")
 	if enqueueErr != nil {
 		if enqueueErr == orchestrate.ErrNoStacksEnqueued {
@@ -268,10 +268,10 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(toAPIScan(scan))
 }
 
-func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
-	repoName := chi.URLParam(r, "repo")
-	if !isValidRepoName(repoName) {
-		http.Error(w, "Invalid repository name", http.StatusBadRequest)
+func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
+	projectName := chi.URLParam(r, "project")
+	if !isValidProjectName(projectName) {
+		http.Error(w, "Invalid project name", http.StatusBadRequest)
 		return
 	}
 
@@ -285,14 +285,14 @@ func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activeScan, _ := s.queue.GetActiveScan(r.Context(), repoName)
-	lastScan, _ := s.queue.GetLastScan(r.Context(), repoName)
-	stacks, _ := s.storage.ListStacks(repoName)
-	payload, _ := buildSnapshotPayload(repoName, activeScan, lastScan, stacks)
+	activeScan, _ := s.queue.GetActiveScan(r.Context(), projectName)
+	lastScan, _ := s.queue.GetLastScan(r.Context(), projectName)
+	stacks, _ := s.storage.ListStacks(projectName)
+	payload, _ := buildSnapshotPayload(projectName, activeScan, lastScan, stacks)
 	fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", payload)
 	flusher.Flush()
 
-	sub := s.queue.Client().Subscribe(r.Context(), "driftd:events:"+repoName)
+	sub := s.queue.Client().Subscribe(r.Context(), "driftd:events:"+projectName)
 	defer sub.Close()
 
 	ch := sub.Channel()
@@ -304,7 +304,7 @@ func (s *Server) handleRepoEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			var event queue.RepoEvent
+			var event queue.ProjectEvent
 			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
 				continue
 			}
@@ -330,7 +330,7 @@ func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Emit an initial SSE comment so headers are flushed and clients can
-	// establish the stream before the first repository event is published.
+	// establish the stream before the first project event is published.
 	fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
@@ -346,7 +346,7 @@ func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			var event queue.RepoEvent
+			var event queue.ProjectEvent
 			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
 				continue
 			}

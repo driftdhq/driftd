@@ -9,8 +9,8 @@ import (
 
 func (w *Worker) executePlan(ctx context.Context, sc *ScanContext) (*storage.RunResult, error) {
 	return w.runner.Run(ctx, &runner.RunParams{
-		RepoName:      sc.RepoName,
-		RepoURL:       sc.RepoURL,
+		ProjectName:   sc.ProjectName,
+		ProjectURL:    sc.ProjectURL,
 		StackPath:     sc.StackPath,
 		TFVersion:     sc.TFVersion,
 		TGVersion:     sc.TGVersion,

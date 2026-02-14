@@ -9,14 +9,14 @@ import (
 )
 
 func TestBuildUpdatePayloadScan(t *testing.T) {
-	event := &queue.RepoEvent{
-		Type:      "scan_update",
-		RepoName:  "repo",
-		ScanID:    "scan-1",
-		Status:    queue.ScanStatusRunning,
-		Completed: 3,
-		Failed:    1,
-		Total:     10,
+	event := &queue.ProjectEvent{
+		Type:        "scan_update",
+		ProjectName: "project",
+		ScanID:      "scan-1",
+		Status:      queue.ScanStatusRunning,
+		Completed:   3,
+		Failed:      1,
+		Total:       10,
 	}
 
 	data, err := buildUpdatePayload(event)
@@ -40,13 +40,13 @@ func TestBuildUpdatePayloadScan(t *testing.T) {
 }
 
 func TestBuildUpdatePayloadStack(t *testing.T) {
-	event := &queue.RepoEvent{
-		Type:      "stack_update",
-		RepoName:  "repo",
-		ScanID:    "scan-1",
-		StackPath: "envs/dev",
-		Status:    queue.StatusFailed,
-		Error:     "boom",
+	event := &queue.ProjectEvent{
+		Type:        "stack_update",
+		ProjectName: "project",
+		ScanID:      "scan-1",
+		StackPath:   "envs/dev",
+		Status:      queue.StatusFailed,
+		Error:       "boom",
 	}
 
 	data, err := buildUpdatePayload(event)
@@ -67,14 +67,14 @@ func TestBuildUpdatePayloadStack(t *testing.T) {
 }
 
 func TestProgressPctZeroInJSON(t *testing.T) {
-	event := &queue.RepoEvent{
-		Type:      "scan_update",
-		RepoName:  "repo",
-		ScanID:    "scan-1",
-		Status:    queue.ScanStatusRunning,
-		Completed: 0,
-		Failed:    0,
-		Total:     10,
+	event := &queue.ProjectEvent{
+		Type:        "scan_update",
+		ProjectName: "project",
+		ScanID:      "scan-1",
+		Status:      queue.ScanStatusRunning,
+		Completed:   0,
+		Failed:      0,
+		Total:       10,
 	}
 
 	data, err := buildUpdatePayload(event)
@@ -97,14 +97,14 @@ func TestProgressPctZeroInJSON(t *testing.T) {
 
 func TestSnapshotPayloadIncludesProgressPct(t *testing.T) {
 	scan := &queue.Scan{
-		ID:        "scan-1",
-		RepoName:  "repo",
-		Status:    queue.ScanStatusRunning,
-		StartedAt: time.Now(),
-		Total:     10,
+		ID:          "scan-1",
+		ProjectName: "project",
+		Status:      queue.ScanStatusRunning,
+		StartedAt:   time.Now(),
+		Total:       10,
 	}
 
-	data, err := buildSnapshotPayload("repo", scan, nil, nil)
+	data, err := buildSnapshotPayload("project", scan, nil, nil)
 	if err != nil {
 		t.Fatalf("build snapshot: %v", err)
 	}

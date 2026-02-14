@@ -9,11 +9,11 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
-// prepareRepoRoot returns the root directory containing the repo and an optional
+// prepareProjectRoot returns the root directory containing the project and an optional
 // cleanup function. When a shared workspace is available (scan-based flow), plans
 // run directly in it — no filesystem copy. When no workspace exists (standalone
-// stack scan), the repo is cloned into a temp directory.
-func (r *Runner) prepareRepoRoot(ctx context.Context, repoURL, workspacePath string, auth transport.AuthMethod) (string, func(), error) {
+// stack scan), the project is cloned into a temp directory.
+func (r *Runner) prepareProjectRoot(ctx context.Context, projectURL, workspacePath string, auth transport.AuthMethod) (string, func(), error) {
 	if workspacePath != "" {
 		return workspacePath, nil, nil
 	}
@@ -25,13 +25,13 @@ func (r *Runner) prepareRepoRoot(ctx context.Context, repoURL, workspacePath str
 	cleanup := func() { os.RemoveAll(tmpDir) }
 
 	_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
-		URL:   repoURL,
+		URL:   projectURL,
 		Depth: 1,
 		Auth:  auth,
 	})
 	if err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("failed to clone repo: %v", err)
+		return "", nil, fmt.Errorf("failed to clone project: %v", err)
 	}
 
 	return tmpDir, cleanup, nil

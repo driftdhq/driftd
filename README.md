@@ -119,7 +119,7 @@ go build -o driftd ./cmd/driftd
 data_dir: ./data
 redis:
   addr: "localhost:6379"
-repos:
+projects:
   - name: my-infra
     url: https://github.com/myorg/terraform-infra.git
 ```
@@ -145,7 +145,7 @@ workspace:
   retention: 5            # workspace snapshots to keep per project
   cleanup_after_plan: true # remove terraform/terragrunt artifacts from workspaces
 
-repos:
+projects:
   - name: my-infra
     url: https://github.com/myorg/terraform-infra.git
     branch: main
@@ -161,7 +161,7 @@ repos:
 ### Monorepo Projects Example
 
 ```yaml
-repos:
+projects:
   - name: infra-monorepo
     url: https://github.com/myorg/infra.git
     branch: main
@@ -300,13 +300,13 @@ If a stack has no version file and no default env var is set, driftd uses `terra
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Dashboard |
-| GET | `/repos/{repo}` | Project detail |
-| GET | `/repos/{repo}/stacks/{stack...}` | Stack detail with plan output |
+| GET | `/projects/{project}` | Project detail |
+| GET | `/projects/{project}/stacks/{stack...}` | Stack detail with plan output |
 | GET | `/api/health` | Health check |
 | GET | `/api/scans/{scanID}` | Scan status |
 | GET | `/api/stacks/{stackID...}` | Stack scan status |
-| POST | `/api/repos/{repo}/scan` | Trigger full project scan |
-| POST | `/api/repos/{repo}/stacks/{stack...}` | Trigger single stack scan |
+| POST | `/api/projects/{project}/scan` | Trigger full project scan |
+| POST | `/api/projects/{project}/stacks/{stack...}` | Trigger single stack scan |
 | POST | `/api/webhooks/github` | GitHub webhook endpoint |
 
 ### Examples
@@ -314,7 +314,7 @@ If a stack has no version file and no default env var is set, driftd uses `terra
 **Trigger a scan:**
 
 ```bash
-curl -X POST http://localhost:8080/api/repos/my-infra/scan
+curl -X POST http://localhost:8080/api/projects/my-infra/scan
 ```
 
 **With API token:**
@@ -322,7 +322,7 @@ curl -X POST http://localhost:8080/api/repos/my-infra/scan
 ```bash
 curl -X POST \
   -H "X-API-Token: your-token" \
-  http://localhost:8080/api/repos/my-infra/scan
+  http://localhost:8080/api/projects/my-infra/scan
 ```
 
 **Response:**
@@ -381,7 +381,7 @@ Shared providers across stacks, cached binaries, reduced downloads.
 
 ## Troubleshooting
 
-- **Repo locked**: A scan is still running. Check `/api/scans/{id}` and worker logs.
+- **Project locked**: A scan is still running. Check `/api/scans/{id}` and worker logs.
 - **Stacks stuck**: Confirm Redis connectivity and worker health.
 - **Missing stacks**: Ensure the project path has `*.tf` or `terragrunt.hcl` in expected locations.
 - **Auth errors**: Validate SSH keys, tokens, or GitHub App configuration.

@@ -41,30 +41,30 @@ func (q *Queue) QueueDepth(ctx context.Context) (int64, error) {
 	return q.client.LLen(ctx, keyQueue).Result()
 }
 
-// IsRepoLocked checks if a repo scan is in progress.
-func (q *Queue) IsRepoLocked(ctx context.Context, repoName string) (bool, error) {
-	locked, err := q.client.Exists(ctx, keyLockPrefix+repoName).Result()
+// IsProjectLocked checks if a project scan is in progress.
+func (q *Queue) IsProjectLocked(ctx context.Context, projectName string) (bool, error) {
+	locked, err := q.client.Exists(ctx, keyLockPrefix+projectName).Result()
 	if err != nil {
 		return false, err
 	}
 	return locked > 0, nil
 }
 
-// ReleaseScanLock releases the repo lock if still owned by the scan.
-func (q *Queue) ReleaseScanLock(ctx context.Context, repoName, scanID string) error {
-	return q.releaseOwnedLock(ctx, repoName, scanID)
+// ReleaseScanLock releases the project lock if still owned by the scan.
+func (q *Queue) ReleaseScanLock(ctx context.Context, projectName, scanID string) error {
+	return q.releaseOwnedLock(ctx, projectName, scanID)
 }
 
 // releaseOwnedLock deletes the lock only if it is still owned by the given scanID.
 // This prevents accidentally releasing a lock that was re-acquired by a different scan.
-func (q *Queue) releaseOwnedLock(ctx context.Context, repoName, scanID string) error {
+func (q *Queue) releaseOwnedLock(ctx context.Context, projectName, scanID string) error {
 	script := redis.NewScript(`
 if redis.call('GET', KEYS[1]) == ARGV[1] then
   return redis.call('DEL', KEYS[1])
 end
 return 0
 `)
-	return script.Run(ctx, q.client, []string{keyLockPrefix + repoName}, scanID).Err()
+	return script.Run(ctx, q.client, []string{keyLockPrefix + projectName}, scanID).Err()
 }
 
 // Client returns the underlying Redis client for health checks.

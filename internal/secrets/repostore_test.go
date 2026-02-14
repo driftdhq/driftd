@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func setupTestRepoStore(t *testing.T) (*RepoStore, string) {
+func setupTestProjectStore(t *testing.T) (*ProjectStore, string) {
 	t.Helper()
 
 	tmpDir, err := os.MkdirTemp("", "repostore-test-*")
@@ -24,37 +24,37 @@ func setupTestRepoStore(t *testing.T) (*RepoStore, string) {
 		t.Fatalf("failed to create encryptor: %v", err)
 	}
 
-	store := NewRepoStore(tmpDir, enc)
+	store := NewProjectStore(tmpDir, enc)
 	return store, tmpDir
 }
 
-func TestRepoStore_AddAndGet(t *testing.T) {
-	store, tmpDir := setupTestRepoStore(t)
+func TestProjectStore_AddAndGet(t *testing.T) {
+	store, tmpDir := setupTestProjectStore(t)
 	defer os.RemoveAll(tmpDir)
 
-	entry := &RepoEntry{
-		Name:   "test-repo",
-		URL:    "https://github.com/example/repo.git",
+	entry := &ProjectEntry{
+		Name:   "test-project",
+		URL:    "https://github.com/example/project.git",
 		Branch: "main",
-		Git: RepoGitConfig{
+		Git: ProjectGitConfig{
 			Type: "github_app",
-			GitHubApp: &RepoGitHubApp{
+			GitHubApp: &ProjectGitHubApp{
 				AppID:          12345,
 				InstallationID: 67890,
 			},
 		},
 	}
-	creds := &RepoCredentials{
+	creds := &ProjectCredentials{
 		GitHubAppPrivateKey: "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
 	}
 
-	// Add repo
+	// Add project
 	if err := store.Add(entry, creds); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 
 	// Get without credentials
-	got, err := store.Get("test-repo")
+	got, err := store.Get("test-project")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -66,7 +66,7 @@ func TestRepoStore_AddAndGet(t *testing.T) {
 	}
 
 	// Get with credentials
-	gotEntry, gotCreds, err := store.GetWithCredentials("test-repo")
+	gotEntry, gotCreds, err := store.GetWithCredentials("test-project")
 	if err != nil {
 		t.Fatalf("GetWithCredentials() error = %v", err)
 	}
@@ -78,14 +78,14 @@ func TestRepoStore_AddAndGet(t *testing.T) {
 	}
 }
 
-func TestRepoStore_AddDuplicate(t *testing.T) {
-	store, tmpDir := setupTestRepoStore(t)
+func TestProjectStore_AddDuplicate(t *testing.T) {
+	store, tmpDir := setupTestProjectStore(t)
 	defer os.RemoveAll(tmpDir)
 
-	entry := &RepoEntry{
-		Name: "test-repo",
-		URL:  "https://github.com/example/repo.git",
-		Git:  RepoGitConfig{Type: "https"},
+	entry := &ProjectEntry{
+		Name: "test-project",
+		URL:  "https://github.com/example/project.git",
+		Git:  ProjectGitConfig{Type: "https"},
 	}
 
 	if err := store.Add(entry, nil); err != nil {
@@ -93,22 +93,22 @@ func TestRepoStore_AddDuplicate(t *testing.T) {
 	}
 
 	err := store.Add(entry, nil)
-	if err != ErrRepoAlreadyExists {
-		t.Errorf("Add() duplicate error = %v, want %v", err, ErrRepoAlreadyExists)
+	if err != ErrProjectAlreadyExists {
+		t.Errorf("Add() duplicate error = %v, want %v", err, ErrProjectAlreadyExists)
 	}
 }
 
-func TestRepoStore_Update(t *testing.T) {
-	store, tmpDir := setupTestRepoStore(t)
+func TestProjectStore_Update(t *testing.T) {
+	store, tmpDir := setupTestProjectStore(t)
 	defer os.RemoveAll(tmpDir)
 
-	entry := &RepoEntry{
-		Name:   "test-repo",
-		URL:    "https://github.com/example/repo.git",
+	entry := &ProjectEntry{
+		Name:   "test-project",
+		URL:    "https://github.com/example/project.git",
 		Branch: "main",
-		Git:    RepoGitConfig{Type: "https"},
+		Git:    ProjectGitConfig{Type: "https"},
 	}
-	creds := &RepoCredentials{
+	creds := &ProjectCredentials{
 		HTTPSToken: "old-token",
 	}
 
@@ -118,15 +118,15 @@ func TestRepoStore_Update(t *testing.T) {
 
 	// Update with new credentials
 	entry.Branch = "develop"
-	newCreds := &RepoCredentials{
+	newCreds := &ProjectCredentials{
 		HTTPSToken: "new-token",
 	}
 
-	if err := store.Update("test-repo", entry, newCreds); err != nil {
+	if err := store.Update("test-project", entry, newCreds); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
 
-	got, gotCreds, err := store.GetWithCredentials("test-repo")
+	got, gotCreds, err := store.GetWithCredentials("test-project")
 	if err != nil {
 		t.Fatalf("GetWithCredentials() error = %v", err)
 	}
@@ -138,16 +138,16 @@ func TestRepoStore_Update(t *testing.T) {
 	}
 }
 
-func TestRepoStore_UpdateKeepCredentials(t *testing.T) {
-	store, tmpDir := setupTestRepoStore(t)
+func TestProjectStore_UpdateKeepCredentials(t *testing.T) {
+	store, tmpDir := setupTestProjectStore(t)
 	defer os.RemoveAll(tmpDir)
 
-	entry := &RepoEntry{
-		Name: "test-repo",
-		URL:  "https://github.com/example/repo.git",
-		Git:  RepoGitConfig{Type: "https"},
+	entry := &ProjectEntry{
+		Name: "test-project",
+		URL:  "https://github.com/example/project.git",
+		Git:  ProjectGitConfig{Type: "https"},
 	}
-	creds := &RepoCredentials{
+	creds := &ProjectCredentials{
 		HTTPSToken: "secret-token",
 	}
 
@@ -157,11 +157,11 @@ func TestRepoStore_UpdateKeepCredentials(t *testing.T) {
 
 	// Update without credentials (should keep existing)
 	entry.Branch = "develop"
-	if err := store.Update("test-repo", entry, nil); err != nil {
+	if err := store.Update("test-project", entry, nil); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
 
-	_, gotCreds, err := store.GetWithCredentials("test-repo")
+	_, gotCreds, err := store.GetWithCredentials("test-project")
 	if err != nil {
 		t.Fatalf("GetWithCredentials() error = %v", err)
 	}
@@ -170,35 +170,35 @@ func TestRepoStore_UpdateKeepCredentials(t *testing.T) {
 	}
 }
 
-func TestRepoStore_Delete(t *testing.T) {
-	store, tmpDir := setupTestRepoStore(t)
+func TestProjectStore_Delete(t *testing.T) {
+	store, tmpDir := setupTestProjectStore(t)
 	defer os.RemoveAll(tmpDir)
 
-	entry := &RepoEntry{
-		Name: "test-repo",
-		URL:  "https://github.com/example/repo.git",
-		Git:  RepoGitConfig{Type: "https"},
+	entry := &ProjectEntry{
+		Name: "test-project",
+		URL:  "https://github.com/example/project.git",
+		Git:  ProjectGitConfig{Type: "https"},
 	}
 
 	if err := store.Add(entry, nil); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
 
-	if err := store.Delete("test-repo"); err != nil {
+	if err := store.Delete("test-project"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	if store.Exists("test-repo") {
+	if store.Exists("test-project") {
 		t.Error("Exists() should return false after delete")
 	}
 
-	_, err := store.Get("test-repo")
-	if err != ErrRepoNotFound {
-		t.Errorf("Get() after delete error = %v, want %v", err, ErrRepoNotFound)
+	_, err := store.Get("test-project")
+	if err != ErrProjectNotFound {
+		t.Errorf("Get() after delete error = %v, want %v", err, ErrProjectNotFound)
 	}
 }
 
-func TestRepoStore_Persistence(t *testing.T) {
+func TestProjectStore_Persistence(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "repostore-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -208,14 +208,14 @@ func TestRepoStore_Persistence(t *testing.T) {
 	key, _ := GenerateKey()
 	enc, _ := NewEncryptor(key)
 
-	// Create store and add repo
-	store1 := NewRepoStore(tmpDir, enc)
-	entry := &RepoEntry{
-		Name: "test-repo",
-		URL:  "https://github.com/example/repo.git",
-		Git:  RepoGitConfig{Type: "https"},
+	// Create store and add project
+	store1 := NewProjectStore(tmpDir, enc)
+	entry := &ProjectEntry{
+		Name: "test-project",
+		URL:  "https://github.com/example/project.git",
+		Git:  ProjectGitConfig{Type: "https"},
 	}
-	creds := &RepoCredentials{
+	creds := &ProjectCredentials{
 		HTTPSToken: "secret",
 	}
 
@@ -224,53 +224,53 @@ func TestRepoStore_Persistence(t *testing.T) {
 	}
 
 	// Verify file exists
-	if _, err := os.Stat(filepath.Join(tmpDir, ReposFileName)); os.IsNotExist(err) {
-		t.Fatal("repos.json should exist after Add()")
+	if _, err := os.Stat(filepath.Join(tmpDir, ProjectsFileName)); os.IsNotExist(err) {
+		t.Fatal("projects.json should exist after Add()")
 	}
 
 	// Create new store instance and load
-	store2 := NewRepoStore(tmpDir, enc)
+	store2 := NewProjectStore(tmpDir, enc)
 	if err := store2.Load(); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 
 	// Verify data persisted
-	got, gotCreds, err := store2.GetWithCredentials("test-repo")
+	got, gotCreds, err := store2.GetWithCredentials("test-project")
 	if err != nil {
 		t.Fatalf("GetWithCredentials() error = %v", err)
 	}
-	if got.Name != "test-repo" {
-		t.Errorf("Persistence: name = %v, want %v", got.Name, "test-repo")
+	if got.Name != "test-project" {
+		t.Errorf("Persistence: name = %v, want %v", got.Name, "test-project")
 	}
 	if gotCreds.HTTPSToken != "secret" {
 		t.Errorf("Persistence: token = %v, want %v", gotCreds.HTTPSToken, "secret")
 	}
 }
 
-func TestRepoStore_List(t *testing.T) {
-	store, tmpDir := setupTestRepoStore(t)
+func TestProjectStore_List(t *testing.T) {
+	store, tmpDir := setupTestProjectStore(t)
 	defer os.RemoveAll(tmpDir)
 
-	// Add multiple repos
-	for _, name := range []string{"repo-a", "repo-b", "repo-c"} {
-		entry := &RepoEntry{
+	// Add multiple projects
+	for _, name := range []string{"project-a", "project-b", "project-c"} {
+		entry := &ProjectEntry{
 			Name: name,
 			URL:  "https://github.com/example/" + name + ".git",
-			Git:  RepoGitConfig{Type: "https"},
+			Git:  ProjectGitConfig{Type: "https"},
 		}
 		if err := store.Add(entry, nil); err != nil {
 			t.Fatalf("Add() error = %v", err)
 		}
 	}
 
-	repos := store.List()
-	if len(repos) != 3 {
-		t.Errorf("List() returned %d repos, want 3", len(repos))
+	projects := store.List()
+	if len(projects) != 3 {
+		t.Errorf("List() returned %d projects, want 3", len(projects))
 	}
 
 	// Verify no encrypted credentials in list
-	for _, repo := range repos {
-		if repo.EncryptedCredentials != "" {
+	for _, project := range projects {
+		if project.EncryptedCredentials != "" {
 			t.Errorf("List() should not include encrypted credentials")
 		}
 	}

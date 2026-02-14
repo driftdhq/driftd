@@ -14,20 +14,20 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-func AuthMethod(ctx context.Context, repo *config.RepoConfig) (transport.AuthMethod, error) {
-	if repo == nil || repo.Git == nil || repo.Git.Type == "" {
+func AuthMethod(ctx context.Context, project *config.ProjectConfig) (transport.AuthMethod, error) {
+	if project == nil || project.Git == nil || project.Git.Type == "" {
 		return nil, nil
 	}
 
-	switch repo.Git.Type {
+	switch project.Git.Type {
 	case "ssh":
-		return sshAuth(repo.Git)
+		return sshAuth(project.Git)
 	case "https":
-		return httpsAuth(repo.Git)
+		return httpsAuth(project.Git)
 	case "github_app":
-		return githubAppAuth(ctx, repo.Git)
+		return githubAppAuth(ctx, project.Git)
 	default:
-		return nil, fmt.Errorf("unsupported git auth type: %s", repo.Git.Type)
+		return nil, fmt.Errorf("unsupported git auth type: %s", project.Git.Type)
 	}
 }
 

@@ -21,11 +21,11 @@ var defaultIgnore = []string{
 	"**/node_modules/**",
 }
 
-func Discover(repoDir, rootPath string, ignore []string) ([]string, error) {
+func Discover(projectDir, rootPath string, ignore []string) ([]string, error) {
 	patterns := append([]string{}, defaultIgnore...)
 	patterns = append(patterns, ignore...)
 	scopeRoot := ""
-	walkRoot := repoDir
+	walkRoot := projectDir
 	if rootPath != "" {
 		if filepath.IsAbs(rootPath) {
 			return nil, fmt.Errorf("root path must be relative: %q", rootPath)
@@ -38,7 +38,7 @@ func Discover(repoDir, rootPath string, ignore []string) ([]string, error) {
 			return nil, fmt.Errorf("root path must not traverse outside repository: %q", rootPath)
 		}
 		scopeRoot = filepath.ToSlash(clean)
-		walkRoot = filepath.Join(repoDir, clean)
+		walkRoot = filepath.Join(projectDir, clean)
 		info, err := os.Stat(walkRoot)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -61,7 +61,7 @@ func Discover(repoDir, rootPath string, ignore []string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(repoDir, path)
+		rel, _ := filepath.Rel(projectDir, path)
 		if rel == "." {
 			return nil
 		}

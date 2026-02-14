@@ -276,89 +276,80 @@ a:hover {
     color: var(--link);
 }
 
-/* Repos */
-.repos {
-    display: grid;
-    gap: 1.25rem;
-}
-
-.repo-card {
+/* Projects */
+.projects-list {
     background: rgba(15, 23, 42, 0.92);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1rem 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
+    border-radius: 16px;
+    overflow: hidden;
     box-shadow: 0 12px 30px rgba(8, 12, 24, 0.45);
-    transition: transform 0.2s ease, border-color 0.2s ease;
-    color: inherit;
-    text-decoration: none;
-    position: relative;
 }
 
-:root[data-theme="light"] .repo-card {
+:root[data-theme="light"] .projects-list {
     background: var(--panel);
     box-shadow: 0 10px 22px rgba(24, 34, 66, 0.12);
 }
 
-.repo-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(77, 215, 255, 0.35);
+.projects-list-header,
+.project-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) minmax(130px, 1.3fr) 90px 90px 140px 140px;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.8rem 1rem;
+}
+
+.projects-list-header {
+    background: rgba(10, 16, 30, 0.4);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+
+:root[data-theme="light"] .projects-list-header {
+    background: rgba(226, 232, 240, 0.8);
+    color: var(--text);
+}
+
+.project-row {
+    border-bottom: 1px solid var(--border);
+    color: inherit;
     text-decoration: none;
 }
 
-.repo-card:focus-visible {
+.project-row:last-child {
+    border-bottom: none;
+}
+
+.project-row:hover {
+    background: rgba(77, 215, 255, 0.06);
+}
+
+.project-row:focus-visible {
     outline: 2px solid rgba(77, 215, 255, 0.6);
-    outline-offset: 2px;
+    outline-offset: -2px;
 }
 
-.repo-name {
-    font-weight: 600;
-}
-
-.repo-header {
+.project-cell.name {
     display: flex;
     align-items: center;
     gap: 0.65rem;
 }
 
-.repo-meta {
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    flex-wrap: nowrap;
-    margin-left: auto;
+.project-cell.status {
+    min-width: 0;
+}
+
+.project-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.repo-meta span::before {
-    content: "·";
-    margin-right: 0.5rem;
-}
-
-.repo-meta .meta-pill::before {
-    content: "";
-    margin-right: 0;
-}
-
-.repo-card-link {
-    position: absolute;
-    inset: 0;
-    border-radius: 14px;
-    z-index: 1;
-}
-
-.repo-card .repo-meta a {
-    position: relative;
-    z-index: 2;
-}
-
-.repo-meta span:first-child::before {
-    content: "";
-    margin-right: 0;
+.project-cell.commit a {
+    color: var(--link);
 }
 
 .drifted-count {
@@ -646,7 +637,7 @@ a:hover {
 .destroy { color: var(--red); margin-left: 0.5rem; }
 
 /* Drift Detail */
-.repo-header-section,
+.project-header-section,
 .stack-header {
     display: flex;
     justify-content: space-between;
@@ -858,10 +849,20 @@ a:hover {
         padding: 1.5rem 1rem 3rem;
     }
 
-    .repo-card,
     .scan-summary {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .projects-list-header,
+    .project-row {
+        grid-template-columns: minmax(160px, 1fr) 120px 100px;
+    }
+
+    .project-cell.healthy,
+    .project-cell.commit,
+    .project-cell.last-run {
+        display: none;
     }
 
     .progress-bar {
@@ -870,6 +871,15 @@ a:hover {
 }
 
 @media (max-width: 900px) {
+    .projects-list-header,
+    .project-row {
+        grid-template-columns: minmax(200px, 1fr) minmax(120px, 1fr) 85px 85px 120px;
+    }
+
+    .project-cell.commit {
+        display: none;
+    }
+
     .stack-tree-header,
     .stack-row {
         grid-template-columns: minmax(200px, 1fr) 110px;

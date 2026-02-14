@@ -13,10 +13,10 @@ var errScanCanceled = errors.New("scan canceled")
 
 func (w *Worker) resolveScanContext(ctx context.Context, job *queue.StackScan) (*ScanContext, error) {
 	sc := &ScanContext{
-		RepoName:  job.RepoName,
-		RepoURL:   job.RepoURL,
-		StackPath: job.StackPath,
-		ScanID:    job.ScanID,
+		ProjectName: job.ProjectName,
+		ProjectURL:  job.ProjectURL,
+		StackPath:   job.StackPath,
+		ScanID:      job.ScanID,
 	}
 
 	if job.ScanID != "" {
@@ -55,19 +55,19 @@ func (w *Worker) resolveAuth(ctx context.Context, job *queue.StackScan, sc *Scan
 		return nil
 	}
 
-	var repoCfg *config.RepoConfig
+	var projectCfg *config.ProjectConfig
 	if w.provider != nil {
-		if resolved, err := w.provider.Get(job.RepoName); err == nil {
-			repoCfg = resolved
+		if resolved, err := w.provider.Get(job.ProjectName); err == nil {
+			projectCfg = resolved
 		}
 	} else {
-		repoCfg = w.cfg.GetRepo(job.RepoName)
+		projectCfg = w.cfg.GetProject(job.ProjectName)
 	}
-	if repoCfg == nil {
+	if projectCfg == nil {
 		return nil
 	}
 
-	authMethod, authErr := gitauth.AuthMethod(ctx, repoCfg)
+	authMethod, authErr := gitauth.AuthMethod(ctx, projectCfg)
 	if authErr != nil {
 		return authErr
 	}

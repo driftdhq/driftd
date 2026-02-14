@@ -28,34 +28,50 @@
 </section>
 
 {{if .ConfigRepos}}
-<section class="repos">
-    {{range .ConfigRepos}}
-    {{$repo := index $.RepoByName .Name}}
-    <div class="repo-card" data-repo-name="{{.Name}}">
-        <a class="repo-card-link" href="/repos/{{.Name}}" aria-label="View {{.Name}}"></a>
-        <div class="repo-header">
-            <span class="status-indicator {{if $repo.Drifted}}drifted{{else}}healthy{{end}}"></span>
-            <span class="repo-name">{{.Name}}</span>
-        </div>
-        <div class="repo-meta">
-            {{if $repo.HealthyStacks}}<span class="healthy-count">{{$repo.HealthyStacks}} healthy stacks</span>{{end}}
-            {{if $repo.DriftedStacks}}<span class="drifted-count">{{$repo.DriftedStacks}} drifted stacks</span>{{end}}
-            {{if $repo.Active}}
-                <span class="meta-pill scan-pill" data-last-scan="{{if not $repo.LastRun.IsZero}}Last scan {{timeAgo $repo.LastRun}}{{end}}">Scanning {{$repo.Progress}}</span>
-            {{else if not $repo.LastRun.IsZero}}
-                <span class="meta-pill scan-pill" data-last-scan="Last scan {{timeAgo $repo.LastRun}}">Last scan {{timeAgo $repo.LastRun}}</span>
-            {{end}}
-            {{if $repo.CommitSHA}}
-                {{$repoCfg := index $.ConfigByName .Name}}
-                {{$commitURL := commitURL $repoCfg.URL $repo.CommitSHA}}
-                {{if $commitURL}}
-                    <span class="meta-pill">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" $repo.CommitSHA}}</a></span>
-                {{else}}
-                    <span class="meta-pill">Commit {{printf "%.7s" $repo.CommitSHA}}</span>
-                {{end}}
-            {{end}}
-        </div>
+<section class="projects-list">
+    <div class="projects-list-header">
+        <div class="project-cell name">Project</div>
+        <div class="project-cell status">Scan</div>
+        <div class="project-cell healthy">Healthy</div>
+        <div class="project-cell drifted">Drifted</div>
+        <div class="project-cell last-run">Last Run</div>
+        <div class="project-cell commit">Commit</div>
     </div>
+    {{range .ConfigRepos}}
+    {{$project := index $.ProjectByName .Name}}
+    <a class="project-row" href="/projects/{{.Name}}" data-project-name="{{.Name}}" aria-label="View {{.Name}}">
+        <div class="project-cell name">
+            <span class="status-indicator {{if $project.Drifted}}drifted{{else}}healthy{{end}}"></span>
+            <span class="project-name">{{.Name}}</span>
+        </div>
+        <div class="project-cell status">
+            {{if $project.Active}}
+                <span class="meta-pill project-scan-pill" data-last-scan="{{if not $project.LastRun.IsZero}}Last scan {{timeAgo $project.LastRun}}{{end}}">Scanning {{$project.Progress}}</span>
+            {{else if not $project.LastRun.IsZero}}
+                <span class="meta-pill project-scan-pill" data-last-scan="Last scan {{timeAgo $project.LastRun}}">Last scan {{timeAgo $project.LastRun}}</span>
+            {{else}}
+                <span class="meta-pill project-scan-pill">No scans yet</span>
+            {{end}}
+        </div>
+        <div class="project-cell healthy"><span class="healthy-count">{{$project.HealthyStacks}}</span></div>
+        <div class="project-cell drifted"><span class="drifted-count">{{$project.DriftedStacks}}</span></div>
+        <div class="project-cell last-run">
+            {{if not $project.LastRun.IsZero}}{{timeAgo $project.LastRun}}{{else}}-{{end}}
+        </div>
+        <div class="project-cell commit">
+            {{if $project.CommitSHA}}
+                {{$projectCfg := index $.ConfigByName .Name}}
+                {{$commitURL := commitURL $projectCfg.URL $project.CommitSHA}}
+                {{if $commitURL}}
+                    <span class="meta-pill"> <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" $project.CommitSHA}}</a></span>
+                {{else}}
+                    <span class="meta-pill">{{printf "%.7s" $project.CommitSHA}}</span>
+                {{end}}
+            {{else}}
+                -
+            {{end}}
+        </div>
+    </a>
     {{end}}
 </section>
 {{else}}
@@ -67,30 +83,30 @@
         if (!window.EventSource) return;
         const source = new EventSource("/api/events");
 
-        const getRepoCard = (repoName) =>
-            document.querySelector(`.repo-card[data-repo-name="${CSS.escape(repoName)}"]`);
+        const getProjectRow = (projectName) =>
+            document.querySelector(`.project-row[data-project-name="${CSS.escape(projectName)}"]`);
 
-        const getScanPill = (card) => card.querySelector(".meta-pill.scan-pill");
+        const getScanPill = (row) => row.querySelector(".project-scan-pill");
 
         source.addEventListener("update", (e) => {
             const data = JSON.parse(e.data || "{}");
-            if (!data || !data.repo) return;
-            const card = getRepoCard(data.repo);
-            if (!card) {
+            if (!data || !data.project) return;
+            const row = getProjectRow(data.project);
+            if (!row) {
                 window.location.reload();
                 return;
             }
             const kind = data.kind || (data.type === "scan_update" ? "scan" : "");
             if (kind === "scan") {
                 if (data.status === "running") {
-                    const pill = getScanPill(card);
+                    const pill = getScanPill(row);
                     if (pill) {
                         const done = (data.completed || 0) + (data.failed || 0);
                         const total = data.total || 0;
                         pill.textContent = `Scanning ${done} / ${total}`;
                     }
                 } else if (data.status) {
-                    const pill = getScanPill(card);
+                    const pill = getScanPill(row);
                     if (pill) {
                         const lastScan = pill.getAttribute("data-last-scan");
                         if (lastScan) {

@@ -34,7 +34,7 @@ config:
   data_dir: /data
   redis:
     addr: "redis:6379"
-  repos:
+  projects:
     - name: infra
       url: git@github.com:myorg/infra.git
       branch: main
@@ -73,7 +73,7 @@ For multi-worker deployments, use `ReadWriteMany` volumes if possible. If only `
 
 ### Git credentials
 
-- **SSH**: Mount keys at the paths referenced in `config.repos[].git`.
+- **SSH**: Mount keys at the paths referenced in `config.projects[].git`.
 - **HTTPS token**: Use an environment variable and reference it via `https_token_env`.
 - **GitHub App**: Mount the private key and set `app_id`, `installation_id`, and `private_key_path`.
 

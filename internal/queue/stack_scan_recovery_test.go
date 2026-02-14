@@ -13,12 +13,12 @@ func TestRecoverStaleStackScans(t *testing.T) {
 	ctx := context.Background()
 
 	stackScan := &StackScan{
-		ID:         "scan-stale",
-		RepoName:   "repo",
-		StackPath:  "envs/dev",
-		Status:     StatusRunning,
-		StartedAt:  time.Now().Add(-2 * time.Hour),
-		MaxRetries: 0,
+		ID:          "scan-stale",
+		ProjectName: "project",
+		StackPath:   "envs/dev",
+		Status:      StatusRunning,
+		StartedAt:   time.Now().Add(-2 * time.Hour),
+		MaxRetries:  0,
 	}
 
 	if err := q.saveStackScan(ctx, stackScan); err != nil {

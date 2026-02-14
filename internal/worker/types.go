@@ -6,8 +6,8 @@ import (
 )
 
 type ScanContext struct {
-	RepoName      string
-	RepoURL       string
+	ProjectName   string
+	ProjectURL    string
 	StackPath     string
 	ScanID        string
 	CommitSHA     string

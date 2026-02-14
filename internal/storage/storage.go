@@ -14,10 +14,10 @@ type Storage struct {
 }
 
 type Store interface {
-	SaveResult(repoName, stackPath string, result *RunResult) error
-	GetResult(repoName, stackPath string) (*RunResult, error)
-	ListRepos() ([]RepoStatus, error)
-	ListStacks(repoName string) ([]StackStatus, error)
+	SaveResult(projectName, stackPath string, result *RunResult) error
+	GetResult(projectName, stackPath string) (*RunResult, error)
+	ListRepos() ([]ProjectStatus, error)
+	ListStacks(projectName string) ([]StackStatus, error)
 }
 
 type RunResult struct {
@@ -30,7 +30,7 @@ type RunResult struct {
 	RunAt      time.Time `json:"run_at"`
 }
 
-type RepoStatus struct {
+type ProjectStatus struct {
 	Name          string
 	Drifted       bool
 	Stacks        int
@@ -55,16 +55,16 @@ func (s *Storage) resultsDir() string {
 	return filepath.Join(s.dataDir, "results")
 }
 
-func (s *Storage) stackDir(baseDir, repoName, stackPath string) string {
-	return filepath.Join(baseDir, repoName, safePath(stackPath))
+func (s *Storage) stackDir(baseDir, projectName, stackPath string) string {
+	return filepath.Join(baseDir, projectName, safePath(stackPath))
 }
 
 func safePath(path string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(path))
 }
 
-func (s *Storage) SaveResult(repoName, stackPath string, result *RunResult) error {
-	dir := s.stackDir(s.resultsDir(), repoName, stackPath)
+func (s *Storage) SaveResult(projectName, stackPath string, result *RunResult) error {
+	dir := s.stackDir(s.resultsDir(), projectName, stackPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -122,15 +122,15 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-func (s *Storage) GetResult(repoName, stackPath string) (*RunResult, error) {
+func (s *Storage) GetResult(projectName, stackPath string) (*RunResult, error) {
 	// Prefer the new layout under <data_dir>/results, but support legacy reads
-	// from <data_dir>/<repo>/<stack> for existing installations.
-	dir := s.stackDir(s.resultsDir(), repoName, stackPath)
+	// from <data_dir>/<project>/<stack> for existing installations.
+	dir := s.stackDir(s.resultsDir(), projectName, stackPath)
 
 	statusPath := filepath.Join(dir, "status.json")
 	statusData, err := os.ReadFile(statusPath)
 	if err != nil {
-		legacyDir := s.stackDir(s.dataDir, repoName, stackPath)
+		legacyDir := s.stackDir(s.dataDir, projectName, stackPath)
 		legacyStatus := filepath.Join(legacyDir, "status.json")
 		legacyData, legacyErr := os.ReadFile(legacyStatus)
 		if legacyErr != nil {
@@ -155,9 +155,9 @@ func (s *Storage) GetResult(repoName, stackPath string) (*RunResult, error) {
 	return &result, nil
 }
 
-func (s *Storage) ListRepos() ([]RepoStatus, error) {
-	// Prefer repos under results/, but also include legacy repos for upgrades.
-	repoNames := map[string]struct{}{}
+func (s *Storage) ListRepos() ([]ProjectStatus, error) {
+	// Prefer projects under results/, but also include legacy projects for upgrades.
+	projectNames := map[string]struct{}{}
 	for _, base := range []string{s.resultsDir(), s.dataDir} {
 		entries, err := os.ReadDir(base)
 		if err != nil {
@@ -168,19 +168,19 @@ func (s *Storage) ListRepos() ([]RepoStatus, error) {
 				continue
 			}
 			name := entry.Name()
-			if isReservedRepoDir(name) {
+			if isReservedProjectDir(name) {
 				continue
 			}
-			repoNames[name] = struct{}{}
+			projectNames[name] = struct{}{}
 		}
 	}
 
-	if len(repoNames) == 0 {
+	if len(projectNames) == 0 {
 		return nil, nil
 	}
 
-	var repos []RepoStatus
-	for name := range repoNames {
+	var projects []ProjectStatus
+	for name := range projectNames {
 		stacks, err := s.ListStacks(name)
 		if err != nil {
 			continue
@@ -191,23 +191,23 @@ func (s *Storage) ListRepos() ([]RepoStatus, error) {
 				driftedCount++
 			}
 		}
-		repos = append(repos, RepoStatus{
+		projects = append(projects, ProjectStatus{
 			Name:          name,
 			Drifted:       driftedCount > 0,
 			Stacks:        len(stacks),
 			DriftedStacks: driftedCount,
 		})
 	}
-	return repos, nil
+	return projects, nil
 }
 
-func (s *Storage) ListStacks(repoName string) ([]StackStatus, error) {
+func (s *Storage) ListStacks(projectName string) ([]StackStatus, error) {
 	merged := map[string]StackStatus{}
 
 	// Load legacy first, then results/ overwrites.
 	for _, base := range []string{s.dataDir, s.resultsDir()} {
-		repoDir := filepath.Join(base, repoName)
-		entries, err := os.ReadDir(repoDir)
+		projectDir := filepath.Join(base, projectName)
+		entries, err := os.ReadDir(projectDir)
 		if err != nil {
 			continue
 		}
@@ -219,7 +219,7 @@ func (s *Storage) ListStacks(repoName string) ([]StackStatus, error) {
 			if err != nil {
 				continue
 			}
-			result, err := s.GetResult(repoName, stackPath)
+			result, err := s.GetResult(projectName, stackPath)
 			if err != nil {
 				continue
 			}
@@ -254,7 +254,7 @@ func decodeSafePath(value string) (string, error) {
 	return string(data), nil
 }
 
-func isReservedRepoDir(name string) bool {
+func isReservedProjectDir(name string) bool {
 	switch name {
 	case "workspaces", "results":
 		return true

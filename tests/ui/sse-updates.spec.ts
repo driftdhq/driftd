@@ -8,7 +8,7 @@ test('scan updates via SSE without reload', async ({ page }) => {
     }
   });
 
-  await page.goto('/repos/repo');
+  await page.goto('/projects/project');
   const scanButton = page.locator('text=Scan All Stacks');
   await expect(scanButton).toBeVisible();
   await scanButton.click();

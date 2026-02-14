@@ -3,11 +3,11 @@
 {{define "content"}}
 <nav class="breadcrumb">
     <a href="/">Projects</a> /
-    <a href="/repos/{{.RepoName}}">{{.RepoName}}</a> /
+    <a href="/projects/{{.ProjectName}}">{{.ProjectName}}</a> /
     <span>{{.Path}}</span>
 </nav>
 
-<div class="stack-header" data-repo="{{.RepoName}}" data-stack="{{.Path}}">
+<div class="stack-header" data-project="{{.ProjectName}}" data-stack="{{.Path}}">
     <div class="stack-title">
         <h1>{{.Path}}</h1>
         {{if .Result}}
@@ -31,7 +31,7 @@
             {{if .Scan}}
                 <span class="meta">last scan {{timeAgo .Scan.EndedAt}}</span>
                 {{if .Scan.CommitSHA}}
-                    {{$commitURL := commitURL .RepoURL .Scan.CommitSHA}}
+                    {{$commitURL := commitURL .ProjectURL .Scan.CommitSHA}}
                     {{if $commitURL}}
                         <span class="meta">commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .Scan.CommitSHA}}</a></span>
                     {{else}}
@@ -55,7 +55,7 @@
     (function () {
         const header = document.querySelector(".stack-header");
         if (!header) return;
-        const repoName = header.dataset.repo;
+        const projectName = header.dataset.project;
         const stackPath = header.dataset.stack;
         const statusBadge = header.querySelector(".badge");
         const planSection = document.getElementById("plan-output-section");
@@ -122,7 +122,7 @@
         initCopyButton();
 
         if (window.EventSource) {
-            const source = new EventSource(`/api/repos/${encodeURIComponent(repoName)}/events`);
+            const source = new EventSource(`/api/projects/${encodeURIComponent(projectName)}/events`);
             source.addEventListener("update", (e) => {
                 const data = JSON.parse(e.data || "{}");
                 const kind = data.kind || (data.type === "stack_update" ? "stack" : "");

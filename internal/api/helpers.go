@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
-	"github.com/driftdhq/driftd/internal/repos"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/secrets"
 )
 
-var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var projectNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
 func containsStack(target string, stacks []string) bool {
@@ -27,11 +27,11 @@ func containsStack(target string, stacks []string) bool {
 	return false
 }
 
-func isValidRepoName(name string) bool {
+func isValidProjectName(name string) bool {
 	if name == "" || len(name) > 255 {
 		return false
 	}
-	return repoNamePattern.MatchString(name)
+	return projectNamePattern.MatchString(name)
 }
 
 func (s *Server) sanitizeErrorMessage(msg string) string {
@@ -45,35 +45,35 @@ func (s *Server) sanitizeErrorMessage(msg string) string {
 	return msg
 }
 
-func (s *Server) getRepoConfig(name string) (*config.RepoConfig, error) {
-	if s.repoProvider != nil {
-		return s.repoProvider.Get(name)
+func (s *Server) getProjectConfig(name string) (*config.ProjectConfig, error) {
+	if s.projectProvider != nil {
+		return s.projectProvider.Get(name)
 	}
-	if repo := s.cfg.GetRepo(name); repo != nil {
-		return repo, nil
+	if project := s.cfg.GetProject(name); project != nil {
+		return project, nil
 	}
-	return nil, secrets.ErrRepoNotFound
+	return nil, secrets.ErrProjectNotFound
 }
 
-func (s *Server) listConfiguredRepos() []config.RepoConfig {
-	repos := make([]config.RepoConfig, 0, len(s.cfg.Repos))
-	seen := make(map[string]struct{}, len(s.cfg.Repos))
+func (s *Server) listConfiguredRepos() []config.ProjectConfig {
+	projects := make([]config.ProjectConfig, 0, len(s.cfg.Projects))
+	seen := make(map[string]struct{}, len(s.cfg.Projects))
 
-	for _, repo := range s.cfg.Repos {
-		repos = append(repos, repo)
-		seen[repo.Name] = struct{}{}
+	for _, project := range s.cfg.Projects {
+		projects = append(projects, project)
+		seen[project.Name] = struct{}{}
 	}
 
-	if s.repoStore == nil {
-		return repos
+	if s.projectStore == nil {
+		return projects
 	}
 
-	for _, entry := range s.repoStore.List() {
+	for _, entry := range s.projectStore.List() {
 		if _, ok := seen[entry.Name]; ok {
 			continue
 		}
 		cancel := entry.CancelInflightOnNewTrigger
-		repo := config.RepoConfig{
+		project := config.ProjectConfig{
 			Name:                       entry.Name,
 			URL:                        entry.URL,
 			CloneURL:                   entry.URL,
@@ -83,28 +83,28 @@ func (s *Server) listConfiguredRepos() []config.RepoConfig {
 			CancelInflightOnNewTrigger: &cancel,
 		}
 		if entry.Git.Type != "" {
-			repo.Git = &config.GitAuthConfig{Type: entry.Git.Type}
+			project.Git = &config.GitAuthConfig{Type: entry.Git.Type}
 			if entry.Git.GitHubApp != nil {
-				repo.Git.GitHubApp = &config.GitHubAppConfig{
+				project.Git.GitHubApp = &config.GitHubAppConfig{
 					AppID:          entry.Git.GitHubApp.AppID,
 					InstallationID: entry.Git.GitHubApp.InstallationID,
 				}
 			}
 		}
-		repos = append(repos, repo)
+		projects = append(projects, project)
 	}
 
-	return repos
+	return projects
 }
 
-func (s *Server) getReposByURL(urls ...string) ([]*config.RepoConfig, error) {
+func (s *Server) getReposByURL(urls ...string) ([]*config.ProjectConfig, error) {
 	if len(urls) == 0 {
 		return nil, nil
 	}
 
 	candidates := make(map[string]struct{}, len(urls))
 	for _, rawURL := range urls {
-		canonical, ok := repos.CanonicalURL(rawURL)
+		canonical, ok := projects.CanonicalURL(rawURL)
 		if !ok {
 			continue
 		}
@@ -116,15 +116,15 @@ func (s *Server) getReposByURL(urls ...string) ([]*config.RepoConfig, error) {
 
 	all := s.listConfiguredRepos()
 	names := make(map[string]struct{})
-	for _, repo := range all {
-		canonical, ok := repos.CanonicalURL(repo.EffectiveCloneURL())
+	for _, project := range all {
+		canonical, ok := projects.CanonicalURL(project.EffectiveCloneURL())
 		if !ok {
 			continue
 		}
 		if _, match := candidates[canonical]; !match {
 			continue
 		}
-		names[repo.Name] = struct{}{}
+		names[project.Name] = struct{}{}
 	}
 
 	if len(names) == 0 {
@@ -137,17 +137,17 @@ func (s *Server) getReposByURL(urls ...string) ([]*config.RepoConfig, error) {
 	}
 	sort.Strings(sortedNames)
 
-	matched := make([]*config.RepoConfig, 0, len(sortedNames))
+	matched := make([]*config.ProjectConfig, 0, len(sortedNames))
 	for _, name := range sortedNames {
-		repoCfg, err := s.getRepoConfig(name)
+		projectCfg, err := s.getProjectConfig(name)
 		if err != nil {
-			if err == secrets.ErrRepoNotFound {
+			if err == secrets.ErrProjectNotFound {
 				continue
 			}
 			return nil, err
 		}
-		if repoCfg != nil {
-			matched = append(matched, repoCfg)
+		if projectCfg != nil {
+			matched = append(matched, projectCfg)
 		}
 	}
 	return matched, nil
@@ -202,11 +202,11 @@ func planLineClass(line string) string {
 	}
 }
 
-func commitURL(repoURL, sha string) string {
-	if repoURL == "" || sha == "" {
+func commitURL(projectURL, sha string) string {
+	if projectURL == "" || sha == "" {
 		return ""
 	}
-	clean := strings.TrimSuffix(repoURL, ".git")
+	clean := strings.TrimSuffix(projectURL, ".git")
 	switch {
 	case strings.HasPrefix(clean, "git@github.com:"):
 		clean = strings.TrimPrefix(clean, "git@github.com:")

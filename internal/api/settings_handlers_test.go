@@ -11,21 +11,21 @@ import (
 	"github.com/driftdhq/driftd/internal/secrets"
 )
 
-func TestScanDynamicRepoViaAPI(t *testing.T) {
+func TestScanDynamicProjectViaAPI(t *testing.T) {
 	runner := &fakeRunner{
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	_, ts, q, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string) {
-		entry := &secrets.RepoEntry{
-			Name:                       "dyn-repo",
-			URL:                        repoDir,
-			Git:                        secrets.RepoGitConfig{Type: ""},
+	_, ts, q, cleanup := newTestServerWithProjectStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.ProjectStore, intStore *secrets.IntegrationStore, projectDir string) {
+		entry := &secrets.ProjectEntry{
+			Name:                       "dyn-project",
+			URL:                        projectDir,
+			Git:                        secrets.ProjectGitConfig{Type: ""},
 			Schedule:                   "",
 			CancelInflightOnNewTrigger: true,
 		}
 		if err := store.Add(entry, nil); err != nil {
-			t.Fatalf("add repo: %v", err)
+			t.Fatalf("add project: %v", err)
 		}
 	}, nil)
 	defer cleanup()
@@ -35,7 +35,7 @@ func TestScanDynamicRepoViaAPI(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	resp, err := http.Post(ts.URL+"/api/repos/dyn-repo/scan", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/api/projects/dyn-project/scan", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
@@ -49,11 +49,11 @@ func TestScanDynamicRepoViaAPI(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if sr.Scan == nil || sr.Scan.RepoName != "dyn-repo" {
+	if sr.Scan == nil || sr.Scan.ProjectName != "dyn-project" {
 		t.Fatalf("unexpected scan response: %+v", sr.Scan)
 	}
 
-	active, err := q.GetActiveScan(context.Background(), "dyn-repo")
+	active, err := q.GetActiveScan(context.Background(), "dyn-project")
 	if err != nil || active == nil {
 		t.Fatalf("expected active scan: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestSettingsAuthMiddleware(t *testing.T) {
 	})
 	defer cleanup()
 
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/repos", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/projects", nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestSettingsAuthMiddleware(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 
-	reqAuth, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/repos", nil)
+	reqAuth, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/projects", nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestSettingsUpdatePreservesFields(t *testing.T) {
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	srv, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string) {
+	srv, ts, _, cleanup := newTestServerWithProjectStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.ProjectStore, intStore *secrets.IntegrationStore, projectDir string) {
 		intEntry := &secrets.IntegrationEntry{
 			ID:   "int-1",
 			Name: "main",
@@ -115,18 +115,18 @@ func TestSettingsUpdatePreservesFields(t *testing.T) {
 		if err := intStore.Add(intEntry); err != nil {
 			t.Fatalf("add integration: %v", err)
 		}
-		entry := &secrets.RepoEntry{
-			Name:                       "dyn-repo",
-			URL:                        repoDir,
+		entry := &secrets.ProjectEntry{
+			Name:                       "dyn-project",
+			URL:                        projectDir,
 			Branch:                     "main",
 			IgnorePaths:                []string{"modules/"},
 			Schedule:                   "0 * * * *",
 			CancelInflightOnNewTrigger: true,
 			IntegrationID:              "int-1",
-			Git:                        secrets.RepoGitConfig{},
+			Git:                        secrets.ProjectGitConfig{},
 		}
 		if err := store.Add(entry, nil); err != nil {
-			t.Fatalf("add repo: %v", err)
+			t.Fatalf("add project: %v", err)
 		}
 	}, func(cfg *config.Config) {
 		cfg.UIAuth.Username = "user"
@@ -141,7 +141,7 @@ func TestSettingsUpdatePreservesFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/settings/repos/dyn-repo", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/settings/projects/dyn-project", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -156,9 +156,9 @@ func TestSettingsUpdatePreservesFields(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	entry, err := srv.repoStore.Get("dyn-repo")
+	entry, err := srv.projectStore.Get("dyn-project")
 	if err != nil {
-		t.Fatalf("get repo: %v", err)
+		t.Fatalf("get project: %v", err)
 	}
 	if entry.URL != "https://example.com/new.git" {
 		t.Fatalf("expected url updated, got %s", entry.URL)
@@ -182,21 +182,21 @@ func TestSettingsAuthTypeChangeRequiresCredentials(t *testing.T) {
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	_, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string) {
-		entry := &secrets.RepoEntry{
-			Name:                       "dyn-repo",
-			URL:                        repoDir,
+	_, ts, _, cleanup := newTestServerWithProjectStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.ProjectStore, intStore *secrets.IntegrationStore, projectDir string) {
+		entry := &secrets.ProjectEntry{
+			Name:                       "dyn-project",
+			URL:                        projectDir,
 			CancelInflightOnNewTrigger: true,
-			Git: secrets.RepoGitConfig{
+			Git: secrets.ProjectGitConfig{
 				Type: "https",
 			},
 		}
-		creds := &secrets.RepoCredentials{
+		creds := &secrets.ProjectCredentials{
 			HTTPSUsername: "x-access-token",
 			HTTPSToken:    "token",
 		}
 		if err := store.Add(entry, creds); err != nil {
-			t.Fatalf("add repo: %v", err)
+			t.Fatalf("add project: %v", err)
 		}
 	}, func(cfg *config.Config) {
 		cfg.UIAuth.Username = "user"
@@ -211,7 +211,7 @@ func TestSettingsAuthTypeChangeRequiresCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/settings/repos/dyn-repo", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/settings/projects/dyn-project", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -227,14 +227,14 @@ func TestSettingsAuthTypeChangeRequiresCredentials(t *testing.T) {
 	}
 }
 
-func TestSettingsRepoLifecycleAndConnectionTest(t *testing.T) {
+func TestSettingsProjectLifecycleAndConnectionTest(t *testing.T) {
 	runner := &fakeRunner{
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	var repoDir string
-	srv, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, sourceRepo string) {
-		repoDir = sourceRepo
+	var projectDir string
+	srv, ts, _, cleanup := newTestServerWithProjectStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.ProjectStore, intStore *secrets.IntegrationStore, sourceRepo string) {
+		projectDir = sourceRepo
 	}, func(cfg *config.Config) {
 		cfg.UIAuth.Username = "user"
 		cfg.UIAuth.Password = "pass"
@@ -242,8 +242,8 @@ func TestSettingsRepoLifecycleAndConnectionTest(t *testing.T) {
 	defer cleanup()
 
 	createPayload := map[string]interface{}{
-		"name":           "dyn-repo",
-		"url":            repoDir,
+		"name":           "dyn-project",
+		"url":            projectDir,
 		"auth_type":      "https",
 		"https_token":    "token",
 		"https_username": "x-access-token",
@@ -252,7 +252,7 @@ func TestSettingsRepoLifecycleAndConnectionTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal create payload: %v", err)
 	}
-	createReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/settings/repos", bytes.NewReader(createBody))
+	createReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/settings/projects", bytes.NewReader(createBody))
 	if err != nil {
 		t.Fatalf("new create request: %v", err)
 	}
@@ -260,35 +260,35 @@ func TestSettingsRepoLifecycleAndConnectionTest(t *testing.T) {
 	createReq.SetBasicAuth("user", "pass")
 	createResp, err := http.DefaultClient.Do(createReq)
 	if err != nil {
-		t.Fatalf("create repo request: %v", err)
+		t.Fatalf("create project request: %v", err)
 	}
 	createResp.Body.Close()
 	if createResp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201 from repo create, got %d", createResp.StatusCode)
+		t.Fatalf("expected 201 from project create, got %d", createResp.StatusCode)
 	}
 
-	listReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/repos", nil)
+	listReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/projects", nil)
 	if err != nil {
 		t.Fatalf("new list request: %v", err)
 	}
 	listReq.SetBasicAuth("user", "pass")
 	listResp, err := http.DefaultClient.Do(listReq)
 	if err != nil {
-		t.Fatalf("list repos request: %v", err)
+		t.Fatalf("list projects request: %v", err)
 	}
 	defer listResp.Body.Close()
 	if listResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 from repo list, got %d", listResp.StatusCode)
+		t.Fatalf("expected 200 from project list, got %d", listResp.StatusCode)
 	}
-	var reposResp []RepoResponse
+	var reposResp []ProjectResponse
 	if err := json.NewDecoder(listResp.Body).Decode(&reposResp); err != nil {
-		t.Fatalf("decode repo list: %v", err)
+		t.Fatalf("decode project list: %v", err)
 	}
 	if len(reposResp) == 0 {
-		t.Fatalf("expected at least one repo in settings list")
+		t.Fatalf("expected at least one project in settings list")
 	}
 
-	testReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/settings/repos/dyn-repo/test", bytes.NewReader([]byte(`{}`)))
+	testReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/settings/projects/dyn-project/test", bytes.NewReader([]byte(`{}`)))
 	if err != nil {
 		t.Fatalf("new test request: %v", err)
 	}
@@ -296,29 +296,29 @@ func TestSettingsRepoLifecycleAndConnectionTest(t *testing.T) {
 	testReq.SetBasicAuth("user", "pass")
 	testResp, err := http.DefaultClient.Do(testReq)
 	if err != nil {
-		t.Fatalf("test repo connection request: %v", err)
+		t.Fatalf("test project connection request: %v", err)
 	}
 	testResp.Body.Close()
 	if testResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 from repo connection test, got %d", testResp.StatusCode)
+		t.Fatalf("expected 200 from project connection test, got %d", testResp.StatusCode)
 	}
 
-	deleteReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/settings/repos/dyn-repo", nil)
+	deleteReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/settings/projects/dyn-project", nil)
 	if err != nil {
 		t.Fatalf("new delete request: %v", err)
 	}
 	deleteReq.SetBasicAuth("user", "pass")
 	deleteResp, err := http.DefaultClient.Do(deleteReq)
 	if err != nil {
-		t.Fatalf("delete repo request: %v", err)
+		t.Fatalf("delete project request: %v", err)
 	}
 	deleteResp.Body.Close()
 	if deleteResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 from repo delete, got %d", deleteResp.StatusCode)
+		t.Fatalf("expected 200 from project delete, got %d", deleteResp.StatusCode)
 	}
 
-	if _, err := srv.repoStore.Get("dyn-repo"); err != secrets.ErrRepoNotFound {
-		t.Fatalf("expected deleted repo to be missing, got %v", err)
+	if _, err := srv.projectStore.Get("dyn-project"); err != secrets.ErrProjectNotFound {
+		t.Fatalf("expected deleted project to be missing, got %v", err)
 	}
 }
 
@@ -327,9 +327,9 @@ func TestSettingsIntegrationLifecycleAndReferenceProtection(t *testing.T) {
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	var repoDir string
-	_, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, sourceRepo string) {
-		repoDir = sourceRepo
+	var projectDir string
+	_, ts, _, cleanup := newTestServerWithProjectStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.ProjectStore, intStore *secrets.IntegrationStore, sourceRepo string) {
+		projectDir = sourceRepo
 	}, func(cfg *config.Config) {
 		cfg.UIAuth.Username = "user"
 		cfg.UIAuth.Password = "pass"
@@ -426,28 +426,28 @@ func TestSettingsIntegrationLifecycleAndReferenceProtection(t *testing.T) {
 		t.Fatalf("expected 200 from integration update, got %d", updateResp.StatusCode)
 	}
 
-	repoCreate := map[string]interface{}{
-		"name":           "dyn-repo",
-		"url":            repoDir,
+	projectCreate := map[string]interface{}{
+		"name":           "dyn-project",
+		"url":            projectDir,
 		"integration_id": created.ID,
 	}
-	repoCreateBody, err := json.Marshal(repoCreate)
+	projectCreateBody, err := json.Marshal(projectCreate)
 	if err != nil {
-		t.Fatalf("marshal repo create payload: %v", err)
+		t.Fatalf("marshal project create payload: %v", err)
 	}
-	repoCreateReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/settings/repos", bytes.NewReader(repoCreateBody))
+	projectCreateReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/settings/projects", bytes.NewReader(projectCreateBody))
 	if err != nil {
-		t.Fatalf("new repo create request: %v", err)
+		t.Fatalf("new project create request: %v", err)
 	}
-	repoCreateReq.Header.Set("Content-Type", "application/json")
-	repoCreateReq.SetBasicAuth("user", "pass")
-	repoCreateResp, err := http.DefaultClient.Do(repoCreateReq)
+	projectCreateReq.Header.Set("Content-Type", "application/json")
+	projectCreateReq.SetBasicAuth("user", "pass")
+	projectCreateResp, err := http.DefaultClient.Do(projectCreateReq)
 	if err != nil {
-		t.Fatalf("create repo request: %v", err)
+		t.Fatalf("create project request: %v", err)
 	}
-	repoCreateResp.Body.Close()
-	if repoCreateResp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201 from repo create with integration, got %d", repoCreateResp.StatusCode)
+	projectCreateResp.Body.Close()
+	if projectCreateResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 from project create with integration, got %d", projectCreateResp.StatusCode)
 	}
 
 	deleteIntegrationReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/settings/integrations/"+created.ID, nil)
@@ -464,18 +464,18 @@ func TestSettingsIntegrationLifecycleAndReferenceProtection(t *testing.T) {
 		t.Fatalf("expected 400 when deleting referenced integration, got %d", deleteIntegrationResp.StatusCode)
 	}
 
-	deleteRepoReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/settings/repos/dyn-repo", nil)
+	deleteProjectReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/settings/projects/dyn-project", nil)
 	if err != nil {
-		t.Fatalf("new repo delete request: %v", err)
+		t.Fatalf("new project delete request: %v", err)
 	}
-	deleteRepoReq.SetBasicAuth("user", "pass")
-	deleteRepoResp, err := http.DefaultClient.Do(deleteRepoReq)
+	deleteProjectReq.SetBasicAuth("user", "pass")
+	deleteProjectResp, err := http.DefaultClient.Do(deleteProjectReq)
 	if err != nil {
-		t.Fatalf("delete repo request: %v", err)
+		t.Fatalf("delete project request: %v", err)
 	}
-	deleteRepoResp.Body.Close()
-	if deleteRepoResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 from repo delete, got %d", deleteRepoResp.StatusCode)
+	deleteProjectResp.Body.Close()
+	if deleteProjectResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from project delete, got %d", deleteProjectResp.StatusCode)
 	}
 
 	deleteIntegrationReq2, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/settings/integrations/"+created.ID, nil)
@@ -498,7 +498,7 @@ func TestSettingsUpdateCanClearIntegrationID(t *testing.T) {
 		drifted:  map[string]bool{},
 		failures: map[string]error{},
 	}
-	srv, ts, _, cleanup := newTestServerWithRepoStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string) {
+	srv, ts, _, cleanup := newTestServerWithProjectStore(t, runner, []string{"envs/dev"}, false, func(store *secrets.ProjectStore, intStore *secrets.IntegrationStore, projectDir string) {
 		intEntry := &secrets.IntegrationEntry{
 			ID:   "int-1",
 			Name: "shared",
@@ -510,14 +510,14 @@ func TestSettingsUpdateCanClearIntegrationID(t *testing.T) {
 		if err := intStore.Add(intEntry); err != nil {
 			t.Fatalf("add integration: %v", err)
 		}
-		entry := &secrets.RepoEntry{
-			Name:                       "dyn-repo",
-			URL:                        repoDir,
+		entry := &secrets.ProjectEntry{
+			Name:                       "dyn-project",
+			URL:                        projectDir,
 			IntegrationID:              "int-1",
 			CancelInflightOnNewTrigger: true,
 		}
 		if err := store.Add(entry, nil); err != nil {
-			t.Fatalf("add repo: %v", err)
+			t.Fatalf("add project: %v", err)
 		}
 	}, func(cfg *config.Config) {
 		cfg.UIAuth.Username = "user"
@@ -535,7 +535,7 @@ func TestSettingsUpdateCanClearIntegrationID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/settings/repos/dyn-repo", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/settings/projects/dyn-project", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -550,9 +550,9 @@ func TestSettingsUpdateCanClearIntegrationID(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	entry, err := srv.repoStore.Get("dyn-repo")
+	entry, err := srv.projectStore.Get("dyn-project")
 	if err != nil {
-		t.Fatalf("get repo: %v", err)
+		t.Fatalf("get project: %v", err)
 	}
 	if entry.IntegrationID != "" {
 		t.Fatalf("expected integration_id to be cleared, got %q", entry.IntegrationID)

@@ -11,14 +11,14 @@ import (
 )
 
 func TestMetricsHandleEvents(t *testing.T) {
-	activeScans = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "active_scans"}, []string{"repo"})
-	scansCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "scans_completed_total"}, []string{"repo"})
-	scansFailed = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "scans_failed_total"}, []string{"repo"})
-	scansCanceled = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "scans_canceled_total"}, []string{"repo"})
-	stackCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "stack_scans_completed_total"}, []string{"repo"})
-	stackFailed = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "stack_scans_failed_total"}, []string{"repo"})
-	stackDrifted = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "stack_scans_drifted_total"}, []string{"repo"})
-	stackDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "stack_scan_duration_seconds"}, []string{"repo"})
+	activeScans = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "active_scans"}, []string{"project"})
+	scansCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "scans_completed_total"}, []string{"project"})
+	scansFailed = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "scans_failed_total"}, []string{"project"})
+	scansCanceled = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "scans_canceled_total"}, []string{"project"})
+	stackCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "stack_scans_completed_total"}, []string{"project"})
+	stackFailed = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "stack_scans_failed_total"}, []string{"project"})
+	stackDrifted = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "stack_scans_drifted_total"}, []string{"project"})
+	stackDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "stack_scan_duration_seconds"}, []string{"project"})
 
 	state := &eventState{
 		scanStatus:  map[string]string{},
@@ -26,28 +26,28 @@ func TestMetricsHandleEvents(t *testing.T) {
 		stackStart:  map[string]time.Time{},
 	}
 
-	updateScanMetrics(state, &queue.RepoEvent{Type: "scan_update", RepoName: "repo", ScanID: "scan1", Status: "running"})
-	if got := testutil.ToFloat64(activeScans.WithLabelValues("repo")); got != 1 {
+	updateScanMetrics(state, &queue.ProjectEvent{Type: "scan_update", ProjectName: "project", ScanID: "scan1", Status: "running"})
+	if got := testutil.ToFloat64(activeScans.WithLabelValues("project")); got != 1 {
 		t.Fatalf("active scans: got %v, want 1", got)
 	}
 
-	updateScanMetrics(state, &queue.RepoEvent{Type: "scan_update", RepoName: "repo", ScanID: "scan1", Status: "completed"})
-	if got := testutil.ToFloat64(activeScans.WithLabelValues("repo")); got != 0 {
+	updateScanMetrics(state, &queue.ProjectEvent{Type: "scan_update", ProjectName: "project", ScanID: "scan1", Status: "completed"})
+	if got := testutil.ToFloat64(activeScans.WithLabelValues("project")); got != 0 {
 		t.Fatalf("active scans after complete: got %v, want 0", got)
 	}
-	if got := testutil.ToFloat64(scansCompleted.WithLabelValues("repo")); got != 1 {
+	if got := testutil.ToFloat64(scansCompleted.WithLabelValues("project")); got != 1 {
 		t.Fatalf("completed scans: got %v, want 1", got)
 	}
 
 	now := time.Now()
-	updateStackMetrics(state, &queue.RepoEvent{Type: "stack_update", RepoName: "repo", ScanID: "scan1", StackPath: "stack", Status: "running", RunAt: &now})
+	updateStackMetrics(state, &queue.ProjectEvent{Type: "stack_update", ProjectName: "project", ScanID: "scan1", StackPath: "stack", Status: "running", RunAt: &now})
 	drifted := true
-	updateStackMetrics(state, &queue.RepoEvent{Type: "stack_update", RepoName: "repo", ScanID: "scan1", StackPath: "stack", Status: "completed", Drifted: &drifted})
+	updateStackMetrics(state, &queue.ProjectEvent{Type: "stack_update", ProjectName: "project", ScanID: "scan1", StackPath: "stack", Status: "completed", Drifted: &drifted})
 
-	if got := testutil.ToFloat64(stackCompleted.WithLabelValues("repo")); got != 1 {
+	if got := testutil.ToFloat64(stackCompleted.WithLabelValues("project")); got != 1 {
 		t.Fatalf("completed stacks: got %v, want 1", got)
 	}
-	if got := testutil.ToFloat64(stackDrifted.WithLabelValues("repo")); got != 1 {
+	if got := testutil.ToFloat64(stackDrifted.WithLabelValues("project")); got != 1 {
 		t.Fatalf("drifted stacks: got %v, want 1", got)
 	}
 

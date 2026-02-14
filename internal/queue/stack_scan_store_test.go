@@ -14,28 +14,28 @@ func TestStackScanStoreGetAndList(t *testing.T) {
 
 	now := time.Now()
 	first := &StackScan{
-		ID:        "scan-1",
-		RepoName:  "repo",
-		StackPath: "envs/dev",
-		Status:    StatusCompleted,
-		CreatedAt: now.Add(-time.Minute),
+		ID:          "scan-1",
+		ProjectName: "project",
+		StackPath:   "envs/dev",
+		Status:      StatusCompleted,
+		CreatedAt:   now.Add(-time.Minute),
 	}
 	second := &StackScan{
-		ID:        "scan-2",
-		RepoName:  "repo",
-		StackPath: "envs/prod",
-		Status:    StatusCompleted,
-		CreatedAt: now,
+		ID:          "scan-2",
+		ProjectName: "project",
+		StackPath:   "envs/prod",
+		Status:      StatusCompleted,
+		CreatedAt:   now,
 	}
 
 	for _, scan := range []*StackScan{first, second} {
 		if err := q.saveStackScan(ctx, scan); err != nil {
 			t.Fatalf("save scan: %v", err)
 		}
-		if err := q.client.SAdd(ctx, keyRepoStackScans+scan.RepoName, scan.ID).Err(); err != nil {
+		if err := q.client.SAdd(ctx, keyProjectStackScans+scan.ProjectName, scan.ID).Err(); err != nil {
 			t.Fatalf("sadd: %v", err)
 		}
-		if err := q.client.ZAdd(ctx, keyRepoStackScansOrdered+scan.RepoName, redis.Z{
+		if err := q.client.ZAdd(ctx, keyProjectStackScansOrdered+scan.ProjectName, redis.Z{
 			Score:  float64(scan.CreatedAt.Unix()),
 			Member: scan.ID,
 		}).Err(); err != nil {
@@ -51,7 +51,7 @@ func TestStackScanStoreGetAndList(t *testing.T) {
 		t.Fatalf("expected %s, got %s", first.StackPath, got.StackPath)
 	}
 
-	list, err := q.ListRepoStackScans(ctx, "repo", 0)
+	list, err := q.ListProjectStackScans(ctx, "project", 0)
 	if err != nil {
 		t.Fatalf("list scans: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestStackScanStoreGetAndList(t *testing.T) {
 		t.Fatalf("expected latest scan first, got %s", list[0].ID)
 	}
 
-	limited, err := q.ListRepoStackScans(ctx, "repo", 1)
+	limited, err := q.ListProjectStackScans(ctx, "project", 1)
 	if err != nil {
 		t.Fatalf("list scans limit: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestStackScanStoreGetAndList(t *testing.T) {
 	if err := q.removeStackScanRefs(ctx, second); err != nil {
 		t.Fatalf("remove refs: %v", err)
 	}
-	after, err := q.ListRepoStackScans(ctx, "repo", 0)
+	after, err := q.ListProjectStackScans(ctx, "project", 0)
 	if err != nil {
 		t.Fatalf("list scans after remove: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 type ssePayload struct {
 	Kind        string                `json:"kind"`
 	Type        string                `json:"type,omitempty"`
-	Repo        string                `json:"repo"`
+	Project     string                `json:"project"`
 	ScanID      string                `json:"scan_id,omitempty"`
 	CommitSHA   string                `json:"commit_sha,omitempty"`
 	StackPath   string                `json:"stack_path,omitempty"`
@@ -46,10 +46,10 @@ type scanSummary struct {
 	CommitSHA   string     `json:"commit_sha,omitempty"`
 }
 
-func buildSnapshotPayload(repo string, active, last *queue.Scan, stacks []storage.StackStatus) ([]byte, error) {
+func buildSnapshotPayload(project string, active, last *queue.Scan, stacks []storage.StackStatus) ([]byte, error) {
 	payload := ssePayload{
 		Kind:       "snapshot",
-		Repo:       repo,
+		Project:    project,
 		ActiveScan: buildScanSummary(active),
 		LastScan:   buildScanSummary(last),
 		Stacks:     stacks,
@@ -57,13 +57,13 @@ func buildSnapshotPayload(repo string, active, last *queue.Scan, stacks []storag
 	return json.Marshal(payload)
 }
 
-func buildUpdatePayload(event *queue.RepoEvent) ([]byte, error) {
+func buildUpdatePayload(event *queue.ProjectEvent) ([]byte, error) {
 	if event == nil {
 		return json.Marshal(ssePayload{Kind: "unknown"})
 	}
 	payload := ssePayload{
 		Type:      event.Type,
-		Repo:      event.RepoName,
+		Project:   event.ProjectName,
 		ScanID:    event.ScanID,
 		CommitSHA: event.CommitSHA,
 		StackPath: event.StackPath,

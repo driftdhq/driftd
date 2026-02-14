@@ -11,7 +11,7 @@
 
 <div class="settings-tabs">
     <button class="tab active" data-tab="integrations">Integrations</button>
-    <button class="tab" data-tab="repos">Projects</button>
+    <button class="tab" data-tab="projects">Projects</button>
     <button class="tab" data-tab="appearance">Appearance</button>
 </div>
 
@@ -23,7 +23,7 @@
         {{end}}
     </div>
 
-    <div id="integrations-list" class="repos-settings-list">
+    <div id="integrations-list" class="projects-settings-list">
         <p class="loading">Loading integrations...</p>
     </div>
 </section>
@@ -38,15 +38,15 @@
     </div>
 </section>
 
-<section id="repos-tab" class="settings-section" style="display: none;">
+<section id="projects-tab" class="settings-section" style="display: none;">
     <div class="section-header">
         <h2>Projects</h2>
         {{if .DynamicReposEnabled}}
-        <button class="btn btn-scan" onclick="showAddRepoModal()">Add Project</button>
+        <button class="btn btn-scan" onclick="showAddProjectModal()">Add Project</button>
         {{end}}
     </div>
 
-    <div id="repos-list" class="repos-settings-list">
+    <div id="projects-list" class="projects-settings-list">
         <p class="loading">Loading projects...</p>
     </div>
 </section>
@@ -157,50 +157,50 @@
 </div>
 
 <!-- Add/Edit Project Modal -->
-<div id="repo-modal" class="modal" style="display: none;">
+<div id="project-modal" class="modal" style="display: none;">
     <div class="modal-backdrop" onclick="closeModal()"></div>
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="modal-title">Add Project</h3>
             <button class="modal-close" onclick="closeModal()">&times;</button>
         </div>
-        <form id="repo-form" onsubmit="saveRepo(event)">
-            <input type="hidden" id="repo-original-name" value="">
+        <form id="project-form" onsubmit="saveRepo(event)">
+            <input type="hidden" id="project-original-name" value="">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
             <div class="form-group">
-                <label for="repo-name">Name</label>
-                <input type="text" id="repo-name" name="name" required
+                <label for="project-name">Name</label>
+                <input type="text" id="project-name" name="name" required
                        pattern="[a-zA-Z0-9_-]+"
                        title="Alphanumeric, hyphens, and underscores only"
-                       placeholder="my-infra-repo">
+                       placeholder="my-infra-project">
             </div>
 
             <div class="form-group">
-                <label for="repo-url">Git URL</label>
-                <input type="text" id="repo-url" name="url" required
-                       placeholder="https://github.com/org/repo.git">
+                <label for="project-url">Git URL</label>
+                <input type="text" id="project-url" name="url" required
+                       placeholder="https://github.com/org/project.git">
             </div>
 
             <div class="form-group">
-                <label for="repo-branch">Branch (optional)</label>
-                <input type="text" id="repo-branch" name="branch" placeholder="main">
+                <label for="project-branch">Branch (optional)</label>
+                <input type="text" id="project-branch" name="branch" placeholder="main">
             </div>
 
             <div class="form-group">
-                <label for="repo-integration">Integration</label>
-                <select id="repo-integration" name="integration_id" required></select>
+                <label for="project-integration">Integration</label>
+                <select id="project-integration" name="integration_id" required></select>
             </div>
 
             <div class="form-group">
-                <label for="repo-schedule">Schedule (optional)</label>
-                <input type="text" id="repo-schedule" name="schedule"
+                <label for="project-schedule">Schedule (optional)</label>
+                <input type="text" id="project-schedule" name="schedule"
                        placeholder="0 */6 * * * (cron expression)">
             </div>
 
             <div class="form-group">
-                <label for="repo-ignore-paths">Ignore Paths (optional)</label>
-                <input type="text" id="repo-ignore-paths" name="ignore_paths"
+                <label for="project-ignore-paths">Ignore Paths (optional)</label>
+                <input type="text" id="project-ignore-paths" name="ignore_paths"
                        placeholder="**/modules/**, envs/dev/*">
                 <small>Comma-separated glob patterns</small>
             </div>
@@ -221,7 +221,7 @@
             <h3>Delete Project</h3>
             <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
         </div>
-        <p>Are you sure you want to delete <strong id="delete-repo-name"></strong>?</p>
+        <p>Are you sure you want to delete <strong id="delete-project-name"></strong>?</p>
         <p class="text-muted">This will remove the project configuration. Scan history will be preserved.</p>
         <div class="modal-actions">
             <button type="button" class="btn" onclick="closeDeleteModal()">Cancel</button>
@@ -235,7 +235,7 @@ const csrfToken = "{{.CSRFToken}}";
 const dynamicEnabled = {{.DynamicReposEnabled}};
 const dynamicIntegrationsEnabled = {{.DynamicIntegrationsEnabled}};
 let integrationsCache = [];
-let deleteRepoName = "";
+let deleteProjectName = "";
 let deleteIntegrationID = "";
 
 function setActiveTab(tabName) {
@@ -253,11 +253,11 @@ document.querySelectorAll(".tab").forEach((tab) => {
 
 async function loadRepos() {
     try {
-        const resp = await fetch("/api/settings/repos", {credentials: "same-origin"});
-        const repos = await resp.json();
-        renderRepos(repos);
+        const resp = await fetch("/api/settings/projects", {credentials: "same-origin"});
+        const projects = await resp.json();
+        renderRepos(projects);
     } catch (err) {
-        document.getElementById("repos-list").innerHTML =
+        document.getElementById("projects-list").innerHTML =
             '<p class="error">Failed to load projects</p>';
     }
 }
@@ -280,9 +280,9 @@ async function loadIntegrations() {
     }
 }
 
-function renderRepos(repos) {
-    const container = document.getElementById("repos-list");
-    if (repos.length === 0) {
+function renderRepos(projects) {
+    const container = document.getElementById("projects-list");
+    if (projects.length === 0) {
         container.innerHTML = '<p class="empty-state">No projects configured.</p>';
         return;
     }
@@ -296,20 +296,20 @@ function renderRepos(repos) {
     html += '<div class="col-actions"></div>';
     html += '</div>';
 
-    for (const repo of repos) {
-        const isStatic = repo.source === "config";
-        const integrationLabel = repo.integration_name || formatTypeLabel(repo.integration_type || repo.auth_type) || "none";
-        const integrationType = repo.integration_type || repo.auth_type || "none";
-        const sourceLabel = formatSourceLabel(repo.source);
+    for (const project of projects) {
+        const isStatic = project.source === "config";
+        const integrationLabel = project.integration_name || formatTypeLabel(project.integration_type || project.auth_type) || "none";
+        const integrationType = project.integration_type || project.auth_type || "none";
+        const sourceLabel = formatSourceLabel(project.source);
         html += '<div class="settings-table-row">';
-        html += `<div class="col-name">${escapeHtml(repo.name)}</div>`;
-        html += `<div class="col-url"><span class="url-truncate">${escapeHtml(repo.url)}</span></div>`;
+        html += `<div class="col-name">${escapeHtml(project.name)}</div>`;
+        html += `<div class="col-url"><span class="url-truncate">${escapeHtml(project.url)}</span></div>`;
         html += `<div class="col-auth"><span class="badge badge-${integrationType}">${escapeHtml(integrationLabel)}</span></div>`;
-        html += `<div class="col-source"><span class="source-badge source-${repo.source}">${escapeHtml(sourceLabel)}</span></div>`;
+        html += `<div class="col-source"><span class="source-badge source-${project.source}">${escapeHtml(sourceLabel)}</span></div>`;
         html += '<div class="col-actions">';
         if (!isStatic && dynamicEnabled) {
-            html += `<button class="btn btn-small" onclick="editRepo('${escapeHtml(repo.name)}')">Edit</button>`;
-            html += `<button class="btn btn-small btn-danger-outline" onclick="deleteRepo('${escapeHtml(repo.name)}')">Delete</button>`;
+            html += `<button class="btn btn-small" onclick="editRepo('${escapeHtml(project.name)}')">Edit</button>`;
+            html += `<button class="btn btn-small btn-danger-outline" onclick="deleteRepo('${escapeHtml(project.name)}')">Delete</button>`;
         } else {
             html += '<span class="text-muted">Read-only</span>';
         }
@@ -376,7 +376,7 @@ function integrationDetails(integration) {
 }
 
 function populateIntegrationSelect(selectedId) {
-    const select = document.getElementById("repo-integration");
+    const select = document.getElementById("project-integration");
     if (!select) return;
     select.innerHTML = "";
     const placeholder = document.createElement("option");
@@ -404,13 +404,13 @@ function populateIntegrationSelect(selectedId) {
     }
 }
 
-function showAddRepoModal() {
+function showAddProjectModal() {
     document.getElementById("modal-title").textContent = "Add Project";
-    document.getElementById("repo-form").reset();
-    document.getElementById("repo-original-name").value = "";
-    document.getElementById("repo-name").disabled = false;
+    document.getElementById("project-form").reset();
+    document.getElementById("project-original-name").value = "";
+    document.getElementById("project-name").disabled = false;
     populateIntegrationSelect();
-    document.getElementById("repo-modal").style.display = "flex";
+    document.getElementById("project-modal").style.display = "flex";
 }
 
 function showAddIntegrationModal() {
@@ -423,21 +423,21 @@ function showAddIntegrationModal() {
 
 async function editRepo(name) {
     try {
-        const resp = await fetch(`/api/settings/repos/${encodeURIComponent(name)}`, {credentials: "same-origin"});
-        const repo = await resp.json();
+        const resp = await fetch(`/api/settings/projects/${encodeURIComponent(name)}`, {credentials: "same-origin"});
+        const project = await resp.json();
 
         document.getElementById("modal-title").textContent = "Edit Project";
-        document.getElementById("repo-original-name").value = repo.name;
-        document.getElementById("repo-name").value = repo.name;
-        document.getElementById("repo-name").disabled = true;
-        document.getElementById("repo-url").value = repo.url;
-        document.getElementById("repo-branch").value = repo.branch || "";
-        document.getElementById("repo-schedule").value = repo.schedule || "";
-        document.getElementById("repo-ignore-paths").value = (repo.ignore_paths || []).join(", ");
+        document.getElementById("project-original-name").value = project.name;
+        document.getElementById("project-name").value = project.name;
+        document.getElementById("project-name").disabled = true;
+        document.getElementById("project-url").value = project.url;
+        document.getElementById("project-branch").value = project.branch || "";
+        document.getElementById("project-schedule").value = project.schedule || "";
+        document.getElementById("project-ignore-paths").value = (project.ignore_paths || []).join(", ");
 
-        populateIntegrationSelect(repo.integration_id || "");
+        populateIntegrationSelect(project.integration_id || "");
 
-        document.getElementById("repo-modal").style.display = "flex";
+        document.getElementById("project-modal").style.display = "flex";
     } catch (err) {
         alert("Failed to load project details");
     }
@@ -478,7 +478,7 @@ async function editIntegration(id) {
 }
 
 function closeModal() {
-    document.getElementById("repo-modal").style.display = "none";
+    document.getElementById("project-modal").style.display = "none";
 }
 
 function closeIntegrationModal() {
@@ -487,27 +487,27 @@ function closeIntegrationModal() {
 
 async function saveRepo(e) {
     e.preventDefault();
-    const originalName = document.getElementById("repo-original-name").value;
+    const originalName = document.getElementById("project-original-name").value;
     const isEdit = originalName !== "";
 
-    const ignorePaths = document.getElementById("repo-ignore-paths").value
+    const ignorePaths = document.getElementById("project-ignore-paths").value
         .split(",")
         .map(p => p.trim())
         .filter(p => p);
 
     const data = {
-        name: document.getElementById("repo-name").value,
-        url: document.getElementById("repo-url").value,
-        branch: document.getElementById("repo-branch").value,
-        integration_id: document.getElementById("repo-integration").value,
-        schedule: document.getElementById("repo-schedule").value,
+        name: document.getElementById("project-name").value,
+        url: document.getElementById("project-url").value,
+        branch: document.getElementById("project-branch").value,
+        integration_id: document.getElementById("project-integration").value,
+        schedule: document.getElementById("project-schedule").value,
         ignore_paths: ignorePaths,
     };
 
     try {
         const url = isEdit
-            ? `/api/settings/repos/${encodeURIComponent(originalName)}`
-            : "/api/settings/repos";
+            ? `/api/settings/projects/${encodeURIComponent(originalName)}`
+            : "/api/settings/projects";
         const method = isEdit ? "PUT" : "POST";
 
         const resp = await fetch(url, {
@@ -578,14 +578,14 @@ async function saveIntegration(e) {
 }
 
 function deleteRepo(name) {
-    deleteRepoName = name;
-    document.getElementById("delete-repo-name").textContent = name;
+    deleteProjectName = name;
+    document.getElementById("delete-project-name").textContent = name;
     document.getElementById("delete-modal").style.display = "flex";
 }
 
 function deleteIntegration(id, name) {
     deleteIntegrationID = id;
-    document.getElementById("delete-repo-name").textContent = name;
+    document.getElementById("delete-project-name").textContent = name;
     document.querySelector("#delete-modal h3").textContent = "Delete Integration";
     document.querySelector("#delete-modal .text-muted").textContent =
         "This will remove the integration configuration.";
@@ -594,7 +594,7 @@ function deleteIntegration(id, name) {
 
 function closeDeleteModal() {
     document.getElementById("delete-modal").style.display = "none";
-    deleteRepoName = "";
+    deleteProjectName = "";
     deleteIntegrationID = "";
     document.querySelector("#delete-modal h3").textContent = "Delete Project";
     document.querySelector("#delete-modal .text-muted").textContent =
@@ -602,12 +602,12 @@ function closeDeleteModal() {
 }
 
 async function confirmDelete() {
-    if (!deleteRepoName && !deleteIntegrationID) return;
+    if (!deleteProjectName && !deleteIntegrationID) return;
 
     try {
         const target = deleteIntegrationID
             ? `/api/settings/integrations/${encodeURIComponent(deleteIntegrationID)}`
-            : `/api/settings/repos/${encodeURIComponent(deleteRepoName)}`;
+            : `/api/settings/projects/${encodeURIComponent(deleteProjectName)}`;
         const resp = await fetch(target, {
             method: "DELETE",
             credentials: "same-origin",

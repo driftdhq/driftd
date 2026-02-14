@@ -10,7 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-const repoEventsPattern = "driftd:events:*"
+const projectEventsPattern = "driftd:events:*"
 
 var (
 	registerOnce sync.Once
@@ -45,46 +45,46 @@ func Register(q *queue.Queue) {
 			Namespace: "driftd",
 			Name:      "active_scans",
 			Help:      "Number of active scans per repository.",
-		}, []string{"repo"})
+		}, []string{"project"})
 
 		scansCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "driftd",
 			Name:      "scans_completed_total",
 			Help:      "Number of scans completed successfully.",
-		}, []string{"repo"})
+		}, []string{"project"})
 		scansFailed = prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "driftd",
 			Name:      "scans_failed_total",
 			Help:      "Number of scans that failed.",
-		}, []string{"repo"})
+		}, []string{"project"})
 		scansCanceled = prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "driftd",
 			Name:      "scans_canceled_total",
 			Help:      "Number of scans that were canceled.",
-		}, []string{"repo"})
+		}, []string{"project"})
 
 		stackCompleted = prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "driftd",
 			Name:      "stack_scans_completed_total",
 			Help:      "Number of stack scans completed successfully.",
-		}, []string{"repo"})
+		}, []string{"project"})
 		stackFailed = prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "driftd",
 			Name:      "stack_scans_failed_total",
 			Help:      "Number of stack scans that failed.",
-		}, []string{"repo"})
+		}, []string{"project"})
 		stackDrifted = prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "driftd",
 			Name:      "stack_scans_drifted_total",
 			Help:      "Number of stack scans that detected drift.",
-		}, []string{"repo"})
+		}, []string{"project"})
 
 		stackDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "driftd",
 			Name:      "stack_scan_duration_seconds",
 			Help:      "Duration of stack scans in seconds.",
 			Buckets:   prometheus.DefBuckets,
-		}, []string{"repo"})
+		}, []string{"project"})
 
 		prometheus.MustRegister(
 			activeScans,
@@ -172,9 +172,9 @@ func Register(q *queue.Queue) {
 }
 
 func consumeEvents(q *queue.Queue, state *eventState) {
-	pubsub := q.Client().PSubscribe(context.Background(), repoEventsPattern)
+	pubsub := q.Client().PSubscribe(context.Background(), projectEventsPattern)
 	for msg := range pubsub.Channel() {
-		var event queue.RepoEvent
+		var event queue.ProjectEvent
 		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
 			continue
 		}
@@ -182,7 +182,7 @@ func consumeEvents(q *queue.Queue, state *eventState) {
 	}
 }
 
-func handleEvent(state *eventState, event *queue.RepoEvent) {
+func handleEvent(state *eventState, event *queue.ProjectEvent) {
 	switch event.Type {
 	case "scan_update":
 		updateScanMetrics(state, event)
@@ -191,8 +191,8 @@ func handleEvent(state *eventState, event *queue.RepoEvent) {
 	}
 }
 
-func updateScanMetrics(state *eventState, event *queue.RepoEvent) {
-	if event.RepoName == "" || event.ScanID == "" || event.Status == "" {
+func updateScanMetrics(state *eventState, event *queue.ProjectEvent) {
+	if event.ProjectName == "" || event.ScanID == "" || event.Status == "" {
 		return
 	}
 
@@ -207,34 +207,34 @@ func updateScanMetrics(state *eventState, event *queue.RepoEvent) {
 
 	switch event.Status {
 	case "running":
-		activeScans.WithLabelValues(event.RepoName).Inc()
+		activeScans.WithLabelValues(event.ProjectName).Inc()
 	case "completed":
 		if prev == "running" {
-			activeScans.WithLabelValues(event.RepoName).Dec()
+			activeScans.WithLabelValues(event.ProjectName).Dec()
 		}
-		scansCompleted.WithLabelValues(event.RepoName).Inc()
+		scansCompleted.WithLabelValues(event.ProjectName).Inc()
 		delete(state.scanStatus, event.ScanID)
 	case "failed":
 		if prev == "running" {
-			activeScans.WithLabelValues(event.RepoName).Dec()
+			activeScans.WithLabelValues(event.ProjectName).Dec()
 		}
-		scansFailed.WithLabelValues(event.RepoName).Inc()
+		scansFailed.WithLabelValues(event.ProjectName).Inc()
 		delete(state.scanStatus, event.ScanID)
 	case "canceled":
 		if prev == "running" {
-			activeScans.WithLabelValues(event.RepoName).Dec()
+			activeScans.WithLabelValues(event.ProjectName).Dec()
 		}
-		scansCanceled.WithLabelValues(event.RepoName).Inc()
+		scansCanceled.WithLabelValues(event.ProjectName).Inc()
 		delete(state.scanStatus, event.ScanID)
 	}
 }
 
-func updateStackMetrics(state *eventState, event *queue.RepoEvent) {
-	if event.RepoName == "" || event.StackPath == "" || event.Status == "" {
+func updateStackMetrics(state *eventState, event *queue.ProjectEvent) {
+	if event.ProjectName == "" || event.StackPath == "" || event.Status == "" {
 		return
 	}
 
-	key := event.RepoName + "|" + event.ScanID + "|" + event.StackPath
+	key := event.ProjectName + "|" + event.ScanID + "|" + event.StackPath
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -253,27 +253,27 @@ func updateStackMetrics(state *eventState, event *queue.RepoEvent) {
 			state.stackStart[key] = time.Now()
 		}
 	case "completed":
-		stackCompleted.WithLabelValues(event.RepoName).Inc()
+		stackCompleted.WithLabelValues(event.ProjectName).Inc()
 		if event.Drifted != nil && *event.Drifted {
-			stackDrifted.WithLabelValues(event.RepoName).Inc()
+			stackDrifted.WithLabelValues(event.ProjectName).Inc()
 		}
-		observeStackDuration(state, key, event.RepoName)
+		observeStackDuration(state, key, event.ProjectName)
 		delete(state.stackStatus, key)
 	case "failed":
-		stackFailed.WithLabelValues(event.RepoName).Inc()
-		observeStackDuration(state, key, event.RepoName)
+		stackFailed.WithLabelValues(event.ProjectName).Inc()
+		observeStackDuration(state, key, event.ProjectName)
 		delete(state.stackStatus, key)
 	case "canceled":
-		observeStackDuration(state, key, event.RepoName)
+		observeStackDuration(state, key, event.ProjectName)
 		delete(state.stackStatus, key)
 	}
 }
 
-func observeStackDuration(state *eventState, key, repo string) {
+func observeStackDuration(state *eventState, key, project string) {
 	start, ok := state.stackStart[key]
 	if !ok {
 		return
 	}
 	delete(state.stackStart, key)
-	stackDuration.WithLabelValues(repo).Observe(time.Since(start).Seconds())
+	stackDuration.WithLabelValues(project).Observe(time.Since(start).Seconds())
 }

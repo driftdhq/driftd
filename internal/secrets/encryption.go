@@ -17,7 +17,7 @@ const (
 )
 
 var (
-	ErrInvalidKeySize   = errors.New("encryption key must be 32 bytes")
+	ErrInvalidKeySize    = errors.New("encryption key must be 32 bytes")
 	ErrInvalidCiphertext = errors.New("ciphertext too short")
 	ErrDecryptionFailed  = errors.New("decryption failed")
 )

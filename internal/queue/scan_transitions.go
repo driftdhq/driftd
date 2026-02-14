@@ -12,7 +12,7 @@ import (
 // and auto-finishing the scan when all stack scans are done. It also performs
 // compare-and-delete on the lock key to avoid releasing another scan's lock.
 //
-// KEYS: [1] scan hash key, [2] lock key, [3] scan:repo: key, [4] scan:last: key, [5] running scans zset
+// KEYS: [1] scan hash key, [2] lock key, [3] scan:project: key, [4] scan:last: key, [5] running scans zset
 // ARGV: [1] scan_id, [2] ended_at, [3..N] pairs of (field, delta) to apply
 //
 // Returns a tuple: [status, completed, failed, total, drifted, ended_at].
@@ -60,7 +60,7 @@ return {status, comp, fail, total, drifted, ended}
 `)
 
 type scanTransitionState struct {
-	Status   string
+	Status    string
 	Completed int
 	Failed    int
 	Total     int
@@ -68,18 +68,18 @@ type scanTransitionState struct {
 	EndedAt   *time.Time
 }
 
-func (q *Queue) scanTransitionKeys(scanID, repoName string) []string {
+func (q *Queue) scanTransitionKeys(scanID, projectName string) []string {
 	return []string{
 		keyScanPrefix + scanID,
-		keyLockPrefix + repoName,
-		keyScanRepo + repoName,
-		keyScanLast + repoName,
+		keyLockPrefix + projectName,
+		keyScanRepo + projectName,
+		keyScanLast + projectName,
 		keyRunningScans,
 	}
 }
 
-func (q *Queue) runScanTransition(ctx context.Context, scanID, repoName string, deltas ...any) error {
-	keys := q.scanTransitionKeys(scanID, repoName)
+func (q *Queue) runScanTransition(ctx context.Context, scanID, projectName string, deltas ...any) error {
+	keys := q.scanTransitionKeys(scanID, projectName)
 	args := []any{scanID, time.Now().Unix()}
 	args = append(args, deltas...)
 	result, err := scanTransitionScript.Run(ctx, q.client, keys, args...).Result()
@@ -90,36 +90,36 @@ func (q *Queue) runScanTransition(ctx context.Context, scanID, repoName string, 
 	if err != nil {
 		return err
 	}
-	q.publishScanUpdateFromState(ctx, scanID, repoName, state)
+	q.publishScanUpdateFromState(ctx, scanID, projectName, state)
 	return nil
 }
 
-func (q *Queue) repoNameForScan(ctx context.Context, scanID string) (string, error) {
-	repo, err := q.client.HGet(ctx, keyScanPrefix+scanID, "repo").Result()
+func (q *Queue) projectNameForScan(ctx context.Context, scanID string) (string, error) {
+	project, err := q.client.HGet(ctx, keyScanPrefix+scanID, "project").Result()
 	if err != nil {
-		return "", fmt.Errorf("failed to get repo for scan %s: %w", scanID, err)
+		return "", fmt.Errorf("failed to get project for scan %s: %w", scanID, err)
 	}
-	return repo, nil
+	return project, nil
 }
 
 func (q *Queue) markScanStackScanRunning(ctx context.Context, scanID string) error {
-	repoName, err := q.repoNameForScan(ctx, scanID)
+	projectName, err := q.projectNameForScan(ctx, scanID)
 	if err != nil {
 		return err
 	}
-	return q.runScanTransition(ctx, scanID, repoName, "running", 1, "queued", -1)
+	return q.runScanTransition(ctx, scanID, projectName, "running", 1, "queued", -1)
 }
 
 func (q *Queue) markScanStackScanRetry(ctx context.Context, scanID string) error {
-	repoName, err := q.repoNameForScan(ctx, scanID)
+	projectName, err := q.projectNameForScan(ctx, scanID)
 	if err != nil {
 		return err
 	}
-	return q.runScanTransition(ctx, scanID, repoName, "running", -1, "queued", 1)
+	return q.runScanTransition(ctx, scanID, projectName, "running", -1, "queued", 1)
 }
 
 func (q *Queue) markScanStackScanCompleted(ctx context.Context, scanID string, drifted bool) error {
-	repoName, err := q.repoNameForScan(ctx, scanID)
+	projectName, err := q.projectNameForScan(ctx, scanID)
 	if err != nil {
 		return err
 	}
@@ -127,51 +127,51 @@ func (q *Queue) markScanStackScanCompleted(ctx context.Context, scanID string, d
 	if drifted {
 		deltas = append(deltas, "drifted", 1)
 	}
-	return q.runScanTransition(ctx, scanID, repoName, deltas...)
+	return q.runScanTransition(ctx, scanID, projectName, deltas...)
 }
 
 func (q *Queue) markScanStackScanFailed(ctx context.Context, scanID string) error {
-	repoName, err := q.repoNameForScan(ctx, scanID)
+	projectName, err := q.projectNameForScan(ctx, scanID)
 	if err != nil {
 		return err
 	}
-	return q.runScanTransition(ctx, scanID, repoName, "running", -1, "failed", 1, "errored", 1)
+	return q.runScanTransition(ctx, scanID, projectName, "running", -1, "failed", 1, "errored", 1)
 }
 
 // AdjustScanCounters atomically updates scan counters and auto-finishes the scan
-// if all stacks are done. Use this when you know the repoName and want to apply
+// if all stacks are done. Use this when you know the projectName and want to apply
 // multiple counter deltas in a single call (e.g. batch enqueue skips/failures).
 // Deltas are pairs of (field, delta): "queued", -3, "total", -3
-func (q *Queue) AdjustScanCounters(ctx context.Context, scanID, repoName string, deltas ...any) error {
-	return q.runScanTransition(ctx, scanID, repoName, deltas...)
+func (q *Queue) AdjustScanCounters(ctx context.Context, scanID, projectName string, deltas ...any) error {
+	return q.runScanTransition(ctx, scanID, projectName, deltas...)
 }
 
 func (q *Queue) MarkScanEnqueueFailed(ctx context.Context, scanID string) error {
-	repoName, err := q.repoNameForScan(ctx, scanID)
+	projectName, err := q.projectNameForScan(ctx, scanID)
 	if err != nil {
 		return err
 	}
-	return q.runScanTransition(ctx, scanID, repoName, "queued", -1, "failed", 1, "errored", 1)
+	return q.runScanTransition(ctx, scanID, projectName, "queued", -1, "failed", 1, "errored", 1)
 }
 
 func (q *Queue) MarkScanEnqueueSkipped(ctx context.Context, scanID string) error {
-	repoName, err := q.repoNameForScan(ctx, scanID)
+	projectName, err := q.projectNameForScan(ctx, scanID)
 	if err != nil {
 		return err
 	}
-	return q.runScanTransition(ctx, scanID, repoName, "queued", -1, "total", -1)
+	return q.runScanTransition(ctx, scanID, projectName, "queued", -1, "total", -1)
 }
 
-func (q *Queue) publishScanUpdateFromState(ctx context.Context, scanID, repoName string, state scanTransitionState) {
-	_ = q.PublishScanEvent(ctx, repoName, ScanEvent{
-		RepoName:   repoName,
-		ScanID:     scanID,
-		Status:     state.Status,
-		Completed:  state.Completed,
-		Failed:     state.Failed,
-		Total:      state.Total,
-		DriftedCnt: state.Drifted,
-		EndedAt:    state.EndedAt,
+func (q *Queue) publishScanUpdateFromState(ctx context.Context, scanID, projectName string, state scanTransitionState) {
+	_ = q.PublishScanEvent(ctx, projectName, ScanEvent{
+		ProjectName: projectName,
+		ScanID:      scanID,
+		Status:      state.Status,
+		Completed:   state.Completed,
+		Failed:      state.Failed,
+		Total:       state.Total,
+		DriftedCnt:  state.Drifted,
+		EndedAt:     state.EndedAt,
 	})
 }
 

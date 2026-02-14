@@ -34,7 +34,7 @@ func (q *Queue) RecoverStaleScans(ctx context.Context, maxAge time.Duration) (in
 			_ = q.client.ZRem(ctx, keyRunningScans, id).Err()
 			continue
 		}
-		if err := q.FailScan(ctx, scan.ID, scan.RepoName, "scan exceeded maximum duration"); err != nil {
+		if err := q.FailScan(ctx, scan.ID, scan.ProjectName, "scan exceeded maximum duration"); err != nil {
 			continue
 		}
 		recovered++

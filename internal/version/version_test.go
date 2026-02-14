@@ -21,16 +21,16 @@ func ensureDir(t *testing.T, path string) {
 }
 
 func TestDetectRootVersions(t *testing.T) {
-	repo := t.TempDir()
-	writeFile(t, filepath.Join(repo, ".terraform-version"), "1.6.2")
-	writeFile(t, filepath.Join(repo, ".terragrunt-version"), "0.56.4")
+	project := t.TempDir()
+	writeFile(t, filepath.Join(project, ".terraform-version"), "1.6.2")
+	writeFile(t, filepath.Join(project, ".terragrunt-version"), "0.56.4")
 
 	stacks := []string{"envs/dev", "envs/prod"}
 	for _, stack := range stacks {
-		ensureDir(t, filepath.Join(repo, stack))
+		ensureDir(t, filepath.Join(project, stack))
 	}
 
-	versions, err := Detect(repo, stacks)
+	versions, err := Detect(project, stacks)
 	if err != nil {
 		t.Fatalf("detect: %v", err)
 	}
@@ -47,18 +47,18 @@ func TestDetectRootVersions(t *testing.T) {
 }
 
 func TestDetectStackOverrides(t *testing.T) {
-	repo := t.TempDir()
-	writeFile(t, filepath.Join(repo, ".terraform-version"), "1.6.2")
-	writeFile(t, filepath.Join(repo, ".terragrunt-version"), "0.56.4")
+	project := t.TempDir()
+	writeFile(t, filepath.Join(project, ".terraform-version"), "1.6.2")
+	writeFile(t, filepath.Join(project, ".terragrunt-version"), "0.56.4")
 
 	stacks := []string{"envs/dev", "envs/prod"}
 	for _, stack := range stacks {
-		ensureDir(t, filepath.Join(repo, stack))
+		ensureDir(t, filepath.Join(project, stack))
 	}
-	writeFile(t, filepath.Join(repo, "envs/dev", ".terraform-version"), "1.5.7")
-	writeFile(t, filepath.Join(repo, "envs/prod", ".terragrunt-version"), "0.55.0")
+	writeFile(t, filepath.Join(project, "envs/dev", ".terraform-version"), "1.5.7")
+	writeFile(t, filepath.Join(project, "envs/prod", ".terragrunt-version"), "0.55.0")
 
-	versions, err := Detect(repo, stacks)
+	versions, err := Detect(project, stacks)
 	if err != nil {
 		t.Fatalf("detect: %v", err)
 	}
@@ -78,15 +78,15 @@ func TestDetectStackOverrides(t *testing.T) {
 }
 
 func TestCollapseIfSingle(t *testing.T) {
-	repo := t.TempDir()
+	project := t.TempDir()
 	stacks := []string{"envs/dev", "envs/prod"}
 	for _, stack := range stacks {
-		stackDir := filepath.Join(repo, stack)
+		stackDir := filepath.Join(project, stack)
 		ensureDir(t, stackDir)
 		writeFile(t, filepath.Join(stackDir, ".terraform-version"), "1.5.0")
 	}
 
-	versions, err := Detect(repo, stacks)
+	versions, err := Detect(project, stacks)
 	if err != nil {
 		t.Fatalf("detect: %v", err)
 	}
@@ -99,17 +99,17 @@ func TestCollapseIfSingle(t *testing.T) {
 }
 
 func TestMixedVersions(t *testing.T) {
-	repo := t.TempDir()
+	project := t.TempDir()
 	stacks := []string{"envs/dev", "envs/prod"}
 	for _, stack := range stacks {
-		ensureDir(t, filepath.Join(repo, stack))
+		ensureDir(t, filepath.Join(project, stack))
 	}
-	writeFile(t, filepath.Join(repo, "envs/dev", ".terraform-version"), "1.5.0")
-	writeFile(t, filepath.Join(repo, "envs/prod", ".terraform-version"), "1.6.1")
-	writeFile(t, filepath.Join(repo, "envs/dev", ".terragrunt-version"), "0.55.0")
-	writeFile(t, filepath.Join(repo, "envs/prod", ".terragrunt-version"), "0.56.0")
+	writeFile(t, filepath.Join(project, "envs/dev", ".terraform-version"), "1.5.0")
+	writeFile(t, filepath.Join(project, "envs/prod", ".terraform-version"), "1.6.1")
+	writeFile(t, filepath.Join(project, "envs/dev", ".terragrunt-version"), "0.55.0")
+	writeFile(t, filepath.Join(project, "envs/prod", ".terragrunt-version"), "0.56.0")
 
-	versions, err := Detect(repo, stacks)
+	versions, err := Detect(project, stacks)
 	if err != nil {
 		t.Fatalf("detect: %v", err)
 	}
@@ -125,11 +125,11 @@ func TestMixedVersions(t *testing.T) {
 }
 
 func TestNoVersionFiles(t *testing.T) {
-	repo := t.TempDir()
+	project := t.TempDir()
 	stacks := []string{"envs/dev"}
-	ensureDir(t, filepath.Join(repo, "envs/dev"))
+	ensureDir(t, filepath.Join(project, "envs/dev"))
 
-	versions, err := Detect(repo, stacks)
+	versions, err := Detect(project, stacks)
 	if err != nil {
 		t.Fatalf("detect: %v", err)
 	}

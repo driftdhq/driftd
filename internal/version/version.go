@@ -13,9 +13,9 @@ type Versions struct {
 	StackTerragrunt   map[string]string
 }
 
-func Detect(repoDir string, stacks []string) (*Versions, error) {
-	tfRoot := readVersionFile(filepath.Join(repoDir, ".terraform-version"))
-	tgRoot := readVersionFile(filepath.Join(repoDir, ".terragrunt-version"))
+func Detect(projectDir string, stacks []string) (*Versions, error) {
+	tfRoot := readVersionFile(filepath.Join(projectDir, ".terraform-version"))
+	tgRoot := readVersionFile(filepath.Join(projectDir, ".terragrunt-version"))
 
 	stackTF := make(map[string]string)
 	stackTG := make(map[string]string)
@@ -24,7 +24,7 @@ func Detect(repoDir string, stacks []string) (*Versions, error) {
 	tgSet := map[string]struct{}{}
 
 	for _, stack := range stacks {
-		stackDir := filepath.Join(repoDir, stack)
+		stackDir := filepath.Join(projectDir, stack)
 		tf := readVersionFile(filepath.Join(stackDir, ".terraform-version"))
 		if tf == "" {
 			tf = tfRoot

@@ -1,4 +1,4 @@
-package repos
+package projects
 
 import (
 	"net/url"
@@ -22,11 +22,11 @@ func CanonicalURL(raw string) (string, bool) {
 	parsed, err := url.Parse(trimmed)
 	if err == nil && parsed.Host != "" {
 		host := strings.ToLower(parsed.Host)
-		repoPath := normalizeRepoPath(parsed.Path)
-		if repoPath == "" {
+		projectPath := normalizeProjectPath(parsed.Path)
+		if projectPath == "" {
 			return "", false
 		}
-		return host + "/" + repoPath, true
+		return host + "/" + projectPath, true
 	}
 
 	cleanPath := filepath.ToSlash(filepath.Clean(trimmed))
@@ -45,19 +45,19 @@ func canonicalizeScpURL(raw string) (string, bool) {
 		return "", false
 	}
 	hostPart := parts[0]
-	repoPath := parts[1]
+	projectPath := parts[1]
 	if at := strings.LastIndex(hostPart, "@"); at >= 0 {
 		hostPart = hostPart[at+1:]
 	}
 	hostPart = strings.ToLower(strings.TrimSpace(hostPart))
-	normalizedPath := normalizeRepoPath(repoPath)
+	normalizedPath := normalizeProjectPath(projectPath)
 	if hostPart == "" || normalizedPath == "" {
 		return "", false
 	}
 	return hostPart + "/" + normalizedPath, true
 }
 
-func normalizeRepoPath(raw string) string {
+func normalizeProjectPath(raw string) string {
 	p := strings.TrimSpace(filepath.ToSlash(raw))
 	p = strings.TrimPrefix(p, "/")
 	p = strings.TrimSuffix(p, "/")

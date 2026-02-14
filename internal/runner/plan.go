@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-func planStack(ctx context.Context, workDir, repoRoot, stackPath, tfVersion, tgVersion, runID string) (string, error) {
+func planStack(ctx context.Context, workDir, projectRoot, stackPath, tfVersion, tgVersion, runID string) (string, error) {
 	tool := detectTool(workDir)
 
 	tfBin, err := ensureTerraformBinary(ctx, workDir, tfVersion)
@@ -32,7 +32,7 @@ func planStack(ctx context.Context, workDir, repoRoot, stackPath, tfVersion, tgV
 		}
 	}
 
-	return runPlan(ctx, workDir, tool, tfBin, tgBin, repoRoot, stackPath, runID)
+	return runPlan(ctx, workDir, tool, tfBin, tgBin, projectRoot, stackPath, runID)
 }
 
 func detectTool(stackDir string) string {
@@ -43,10 +43,10 @@ func detectTool(stackDir string) string {
 	return "terraform"
 }
 
-func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, repoRoot, stackPath, runID string) (string, error) {
+func runPlan(ctx context.Context, workDir, tool, tfBin, tgBin, projectRoot, stackPath, runID string) (string, error) {
 	dataKey := runID
 	if dataKey == "" {
-		dataKey = filepath.Base(repoRoot)
+		dataKey = filepath.Base(projectRoot)
 	}
 	pluginCacheBase := os.Getenv("TF_PLUGIN_CACHE_DIR")
 	if pluginCacheBase == "" {

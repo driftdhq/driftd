@@ -58,25 +58,25 @@ func (w *Worker) failStack(job *queue.StackScan, sc *ScanContext, errMsg string)
 
 func (w *Worker) publishStackFailure(job *queue.StackScan, sc *ScanContext, errMsg string) {
 	now := time.Now()
-	_ = w.queue.PublishStackEvent(w.ctx, job.RepoName, queue.StackEvent{
-		RepoName:  job.RepoName,
-		ScanID:    job.ScanID,
-		StackPath: job.StackPath,
-		Status:    "failed",
-		Error:     errMsg,
-		RunAt:     &now,
+	_ = w.queue.PublishStackEvent(w.ctx, job.ProjectName, queue.StackEvent{
+		ProjectName: job.ProjectName,
+		ScanID:      job.ScanID,
+		StackPath:   job.StackPath,
+		Status:      "failed",
+		Error:       errMsg,
+		RunAt:       &now,
 	})
 }
 
 func (w *Worker) publishStackCompletion(job *queue.StackScan, sc *ScanContext, result *storage.RunResult) {
 	now := time.Now()
 	drifted := result.Drifted
-	_ = w.queue.PublishStackEvent(w.ctx, job.RepoName, queue.StackEvent{
-		RepoName:  job.RepoName,
-		ScanID:    job.ScanID,
-		StackPath: job.StackPath,
-		Status:    "completed",
-		Drifted:   &drifted,
-		RunAt:     &now,
+	_ = w.queue.PublishStackEvent(w.ctx, job.ProjectName, queue.StackEvent{
+		ProjectName: job.ProjectName,
+		ScanID:      job.ScanID,
+		StackPath:   job.StackPath,
+		Status:      "completed",
+		Drifted:     &drifted,
+		RunAt:       &now,
 	})
 }

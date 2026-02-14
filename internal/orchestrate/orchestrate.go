@@ -15,8 +15,8 @@ import (
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/gitauth"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/stack"
 	"github.com/driftdhq/driftd/internal/version"
 	"github.com/go-git/go-git/v5"
@@ -26,7 +26,7 @@ import (
 )
 
 // ScanOrchestrator handles the full lifecycle of starting a scan:
-// acquiring the repo lock, cloning the workspace, discovering stacks,
+// acquiring the project lock, cloning the workspace, discovering stacks,
 // detecting versions, and spawning the lock renewal goroutine.
 type ScanOrchestrator struct {
 	cfg    *config.Config
@@ -58,17 +58,17 @@ func (o *ScanOrchestrator) Stop() {
 	o.wg.Wait()
 }
 
-// StartScan acquires a repo lock (cancelling an in-flight scan if allowed),
+// StartScan acquires a project lock (cancelling an in-flight scan if allowed),
 // clones the workspace, discovers stacks, detects versions, and spawns a
 // background lock renewal goroutine. On any failure, the scan is marked failed.
-func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, []string, error) {
-	scan, err := o.queue.StartScan(ctx, repoCfg.Name, trigger, commit, actor, 0)
+func (o *ScanOrchestrator) StartScan(ctx context.Context, projectCfg *config.ProjectConfig, trigger, commit, actor string) (*queue.Scan, []string, error) {
+	scan, err := o.queue.StartScan(ctx, projectCfg.Name, trigger, commit, actor, 0)
 	if err != nil {
-		if err == queue.ErrRepoLocked && repoCfg.CancelInflightEnabled() {
-			activeScan, activeErr := o.queue.GetActiveScan(ctx, repoCfg.Name)
+		if err == queue.ErrProjectLocked && projectCfg.CancelInflightEnabled() {
+			activeScan, activeErr := o.queue.GetActiveScan(ctx, projectCfg.Name)
 			if activeErr == nil && activeScan != nil {
 				if queue.TriggerPriority(trigger) >= queue.TriggerPriority(activeScan.Trigger) {
-					scan, err = o.queue.CancelAndStartScan(ctx, activeScan.ID, repoCfg.Name, "superseded by new trigger", trigger, commit, actor, 0)
+					scan, err = o.queue.CancelAndStartScan(ctx, activeScan.ID, projectCfg.Name, "superseded by new trigger", trigger, commit, actor, 0)
 					if err == nil {
 						o.queue.ClearInflightForScan(ctx, activeScan.ID)
 					}
@@ -79,76 +79,76 @@ func (o *ScanOrchestrator) StartScan(ctx context.Context, repoCfg *config.RepoCo
 			return nil, nil, err
 		}
 	}
-	_ = o.queue.PublishScanEvent(ctx, repoCfg.Name, queue.ScanEvent{
-		RepoName:  repoCfg.Name,
-		ScanID:    scan.ID,
-		Status:    scan.Status,
-		StartedAt: &scan.StartedAt,
-		Total:     scan.Total,
+	_ = o.queue.PublishScanEvent(ctx, projectCfg.Name, queue.ScanEvent{
+		ProjectName: projectCfg.Name,
+		ScanID:      scan.ID,
+		Status:      scan.Status,
+		StartedAt:   &scan.StartedAt,
+		Total:       scan.Total,
 	})
 
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
-		o.queue.RenewScanLock(o.ctx, scan.ID, repoCfg.Name, o.cfg.Worker.ScanMaxAge, o.cfg.Worker.RenewEvery)
+		o.queue.RenewScanLock(o.ctx, scan.ID, projectCfg.Name, o.cfg.Worker.ScanMaxAge, o.cfg.Worker.RenewEvery)
 	}()
 
-	auth, err := gitauth.AuthMethod(ctx, repoCfg)
+	auth, err := gitauth.AuthMethod(ctx, projectCfg)
 	if err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, err.Error())
 		return nil, nil, err
 	}
 
-	workspacePath, commitSHA, err := o.cloneWorkspace(ctx, repoCfg, scan.ID, auth)
+	workspacePath, commitSHA, err := o.cloneWorkspace(ctx, projectCfg, scan.ID, auth)
 	if err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, err.Error())
 		return nil, nil, err
 	}
 
 	if err := o.queue.SetScanWorkspace(ctx, scan.ID, workspacePath, commitSHA); err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set workspace: %v", err))
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, fmt.Sprintf("failed to set workspace: %v", err))
 		return nil, nil, err
 	}
-	go o.cleanupWorkspaces(repoCfg.Name)
+	go o.cleanupWorkspaces(projectCfg.Name)
 
-	stacks, err := stack.Discover(workspacePath, repoCfg.RootPath, repoCfg.IgnorePaths)
+	stacks, err := stack.Discover(workspacePath, projectCfg.RootPath, projectCfg.IgnorePaths)
 	if err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, err.Error())
 		return nil, nil, err
 	}
 	if len(stacks) == 0 {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, "no stacks discovered")
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, "no stacks discovered")
 		return nil, nil, fmt.Errorf("no stacks discovered")
 	}
 	versions, err := version.Detect(workspacePath, stacks)
 	if err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, err.Error())
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, err.Error())
 		return nil, nil, err
 	}
 	if err := o.queue.SetScanVersions(ctx, scan.ID, versions.DefaultTerraform, versions.DefaultTerragrunt, versions.StackTerraform, versions.StackTerragrunt); err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set versions: %v", err))
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, fmt.Sprintf("failed to set versions: %v", err))
 		return nil, nil, err
 	}
 	return scan, stacks, nil
 }
 
 // StartAndEnqueue starts a scan and enqueues all discovered stacks.
-func (o *ScanOrchestrator) StartAndEnqueue(ctx context.Context, repoCfg *config.RepoConfig, trigger, commit, actor string) (*queue.Scan, *EnqueueStacksResult, error) {
-	scan, stacks, err := o.StartScan(ctx, repoCfg, trigger, commit, actor)
+func (o *ScanOrchestrator) StartAndEnqueue(ctx context.Context, projectCfg *config.ProjectConfig, trigger, commit, actor string) (*queue.Scan, *EnqueueStacksResult, error) {
+	scan, stacks, err := o.StartScan(ctx, projectCfg, trigger, commit, actor)
 	if err != nil {
 		return nil, nil, err
 	}
-	result, err := o.EnqueueStacks(ctx, scan, repoCfg, stacks, trigger, commit, actor)
+	result, err := o.EnqueueStacks(ctx, scan, projectCfg, stacks, trigger, commit, actor)
 	return scan, result, err
 }
 
 // StartAndEnqueueStacks starts a scan and enqueues a specific stack list.
-func (o *ScanOrchestrator) StartAndEnqueueStacks(ctx context.Context, repoCfg *config.RepoConfig, stacks []string, trigger, commit, actor string) (*queue.Scan, *EnqueueStacksResult, error) {
-	scan, _, err := o.StartScan(ctx, repoCfg, trigger, commit, actor)
+func (o *ScanOrchestrator) StartAndEnqueueStacks(ctx context.Context, projectCfg *config.ProjectConfig, stacks []string, trigger, commit, actor string) (*queue.Scan, *EnqueueStacksResult, error) {
+	scan, _, err := o.StartScan(ctx, projectCfg, trigger, commit, actor)
 	if err != nil {
 		return nil, nil, err
 	}
-	result, err := o.EnqueueStacks(ctx, scan, repoCfg, stacks, trigger, commit, actor)
+	result, err := o.EnqueueStacks(ctx, scan, projectCfg, stacks, trigger, commit, actor)
 	return scan, result, err
 }
 
@@ -164,14 +164,14 @@ var ErrNoStacksEnqueued = errors.New("no stacks enqueued")
 // EnqueueStacks sets the scan total, batch-enqueues stack scans, and adjusts
 // scan counters for any skips or failures. Returns ErrNoStacksEnqueued if
 // nothing was successfully enqueued (scan is auto-cancelled in that case).
-func (o *ScanOrchestrator) EnqueueStacks(ctx context.Context, scan *queue.Scan, repoCfg *config.RepoConfig, stacks []string, trigger, commit, actor string) (*EnqueueStacksResult, error) {
+func (o *ScanOrchestrator) EnqueueStacks(ctx context.Context, scan *queue.Scan, projectCfg *config.ProjectConfig, stacks []string, trigger, commit, actor string) (*EnqueueStacksResult, error) {
 	maxRetries := 0
 	if o.cfg != nil && o.cfg.Worker.RetryOnce {
 		maxRetries = 1
 	}
 
 	if err := o.queue.SetScanTotal(ctx, scan.ID, len(stacks)); err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("failed to set scan total: %v", err))
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, fmt.Sprintf("failed to set scan total: %v", err))
 		return nil, err
 	}
 
@@ -179,20 +179,20 @@ func (o *ScanOrchestrator) EnqueueStacks(ctx context.Context, scan *queue.Scan, 
 	batch := make([]*queue.StackScan, len(stacks))
 	for i, stackPath := range stacks {
 		batch[i] = &queue.StackScan{
-			ScanID:     scan.ID,
-			RepoName:   repoCfg.Name,
-			RepoURL:    repoCfg.URL,
-			StackPath:  stackPath,
-			MaxRetries: maxRetries,
-			Trigger:    trigger,
-			Commit:     commit,
-			Actor:      actor,
+			ScanID:      scan.ID,
+			ProjectName: projectCfg.Name,
+			ProjectURL:  projectCfg.URL,
+			StackPath:   stackPath,
+			MaxRetries:  maxRetries,
+			Trigger:     trigger,
+			Commit:      commit,
+			Actor:       actor,
 		}
 	}
 
 	batchResult, err := o.queue.EnqueueBatch(ctx, batch)
 	if err != nil {
-		_ = o.queue.FailScan(ctx, scan.ID, repoCfg.Name, fmt.Sprintf("batch enqueue failed: %v", err))
+		_ = o.queue.FailScan(ctx, scan.ID, projectCfg.Name, fmt.Sprintf("batch enqueue failed: %v", err))
 		return nil, err
 	}
 
@@ -214,29 +214,29 @@ func (o *ScanOrchestrator) EnqueueStacks(ctx context.Context, scan *queue.Scan, 
 		if errCount > 0 {
 			deltas = append(deltas, "queued", -errCount, "failed", errCount, "errored", errCount)
 		}
-		_ = o.queue.AdjustScanCounters(ctx, scan.ID, repoCfg.Name, deltas...)
+		_ = o.queue.AdjustScanCounters(ctx, scan.ID, projectCfg.Name, deltas...)
 	}
 
 	if len(result.StackIDs) == 0 {
-		_ = o.queue.CancelScan(ctx, scan.ID, repoCfg.Name, "all stacks inflight")
+		_ = o.queue.CancelScan(ctx, scan.ID, projectCfg.Name, "all stacks inflight")
 		return result, ErrNoStacksEnqueued
 	}
 
 	return result, nil
 }
 
-func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.RepoConfig, scanID string, auth transport.AuthMethod) (workspacePath, commitSHA string, err error) {
-	cloneURL := repoCfg.EffectiveCloneURL()
+func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, projectCfg *config.ProjectConfig, scanID string, auth transport.AuthMethod) (workspacePath, commitSHA string, err error) {
+	cloneURL := projectCfg.EffectiveCloneURL()
 	if strings.TrimSpace(cloneURL) == "" {
-		return "", "", fmt.Errorf("repo clone URL is empty")
+		return "", "", fmt.Errorf("project clone URL is empty")
 	}
 	if scanID == "" {
-		scanID = fmt.Sprintf("%s:%d", repoCfg.Name, time.Now().UnixNano())
+		scanID = fmt.Sprintf("%s:%d", projectCfg.Name, time.Now().UnixNano())
 	}
 
 	urlHash := hashCloneURL(cloneURL)
 	mirrorPath := filepath.Join(o.cfg.DataDir, "workspaces", "_shared", urlHash, "mirror.git")
-	scanWorkspace := filepath.Join(o.cfg.DataDir, "workspaces", "scans", repoCfg.Name, scanID, "repo")
+	scanWorkspace := filepath.Join(o.cfg.DataDir, "workspaces", "scans", projectCfg.Name, scanID, "project")
 
 	var releaseCloneLock func() error
 	if o.queue != nil {
@@ -283,7 +283,7 @@ func (o *ScanOrchestrator) cloneWorkspace(ctx context.Context, repoCfg *config.R
 		return "", "", err
 	}
 
-	hash, err := resolveTargetRef(mirrorRepo, repoCfg.Branch)
+	hash, err := resolveTargetRef(mirrorRepo, projectCfg.Branch)
 	if err != nil {
 		return "", "", err
 	}
@@ -319,9 +319,9 @@ func (o *ScanOrchestrator) openOrCreateMirror(ctx context.Context, mirrorPath, c
 		return nil, err
 	}
 
-	repo, err := git.PlainOpen(mirrorPath)
+	project, err := git.PlainOpen(mirrorPath)
 	if err == nil {
-		return repo, nil
+		return project, nil
 	}
 	if !errors.Is(err, git.ErrRepositoryNotExists) {
 		return nil, err
@@ -336,10 +336,10 @@ func (o *ScanOrchestrator) openOrCreateMirror(ctx context.Context, mirrorPath, c
 	})
 }
 
-func (o *ScanOrchestrator) fetchMirror(ctx context.Context, repo *git.Repository, auth transport.AuthMethod) error {
+func (o *ScanOrchestrator) fetchMirror(ctx context.Context, project *git.Repository, auth transport.AuthMethod) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	err := repo.FetchContext(fetchCtx, &git.FetchOptions{
+	err := project.FetchContext(fetchCtx, &git.FetchOptions{
 		RemoteName: "origin",
 		Auth:       auth,
 		Tags:       git.NoTags,
@@ -361,7 +361,7 @@ func (o *ScanOrchestrator) checkoutScanWorkspace(ctx context.Context, mirrorPath
 
 	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	repo, err := git.PlainCloneContext(cloneCtx, scanWorkspace, false, &git.CloneOptions{
+	project, err := git.PlainCloneContext(cloneCtx, scanWorkspace, false, &git.CloneOptions{
 		URL:        mirrorPath,
 		NoCheckout: true,
 	})
@@ -369,7 +369,7 @@ func (o *ScanOrchestrator) checkoutScanWorkspace(ctx context.Context, mirrorPath
 		return err
 	}
 
-	wt, err := repo.Worktree()
+	wt, err := project.Worktree()
 	if err != nil {
 		return err
 	}
@@ -444,13 +444,13 @@ func (o *ScanOrchestrator) startCloneLockRenewal(ctx context.Context, urlHash, o
 	}
 }
 
-func resolveTargetRef(repo *git.Repository, branch string) (plumbing.Hash, error) {
+func resolveTargetRef(project *git.Repository, branch string) (plumbing.Hash, error) {
 	if branch != "" {
 		for _, refName := range []plumbing.ReferenceName{
 			plumbing.NewBranchReferenceName(branch),
 			plumbing.NewRemoteReferenceName("origin", branch),
 		} {
-			if ref, err := repo.Reference(refName, true); err == nil {
+			if ref, err := project.Reference(refName, true); err == nil {
 				return ref.Hash(), nil
 			}
 		}
@@ -464,12 +464,12 @@ func resolveTargetRef(repo *git.Repository, branch string) (plumbing.Hash, error
 		plumbing.NewRemoteReferenceName("origin", "main"),
 		plumbing.NewRemoteReferenceName("origin", "master"),
 	} {
-		if ref, err := repo.Reference(name, true); err == nil {
+		if ref, err := project.Reference(name, true); err == nil {
 			return ref.Hash(), nil
 		}
 	}
 
-	head, err := repo.Head()
+	head, err := project.Head()
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
@@ -478,20 +478,20 @@ func resolveTargetRef(repo *git.Repository, branch string) (plumbing.Hash, error
 
 func hashCloneURL(cloneURL string) string {
 	identity := strings.TrimSpace(cloneURL)
-	if canonical, ok := repos.CanonicalURL(identity); ok {
+	if canonical, ok := projects.CanonicalURL(identity); ok {
 		identity = canonical
 	}
 	sum := sha256.Sum256([]byte(identity))
 	return hex.EncodeToString(sum[:])
 }
 
-func (o *ScanOrchestrator) cleanupWorkspaces(repoName string) {
+func (o *ScanOrchestrator) cleanupWorkspaces(projectName string) {
 	retention := o.cfg.Workspace.Retention
 	if retention <= 0 {
 		return
 	}
 
-	base := filepath.Join(o.cfg.DataDir, "workspaces", "scans", repoName)
+	base := filepath.Join(o.cfg.DataDir, "workspaces", "scans", projectName)
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		return

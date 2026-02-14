@@ -19,7 +19,7 @@ type Config struct {
 	Redis      RedisConfig     `yaml:"redis"`
 	Worker     WorkerConfig    `yaml:"worker"`
 	Workspace  WorkspaceConfig `yaml:"workspace"`
-	Repos      []RepoConfig    `yaml:"repos"`
+	Projects   []ProjectConfig `yaml:"projects"`
 	Webhook    WebhookConfig   `yaml:"webhook"`
 	UIAuth     UIAuthConfig    `yaml:"ui_auth"`
 	APIAuth    APIAuthConfig   `yaml:"api_auth"`
@@ -43,7 +43,7 @@ type WorkerConfig struct {
 }
 
 type WorkspaceConfig struct {
-	Retention        int   `yaml:"retention"`          // number of workspace snapshots to keep per repo
+	Retention        int   `yaml:"retention"`          // number of workspace snapshots to keep per project
 	CleanupAfterPlan *bool `yaml:"cleanup_after_plan"` // remove terraform/terragrunt artifacts from scan workspaces
 }
 
@@ -80,38 +80,38 @@ const (
 	minRenewEvery = 10 * time.Second
 )
 
-var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var projectNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-type ProjectConfig struct {
+type MonorepoProjectConfig struct {
 	Name        string   `yaml:"name"`
 	Path        string   `yaml:"path"`
 	Schedule    string   `yaml:"schedule,omitempty"`
 	IgnorePaths []string `yaml:"ignore_paths,omitempty"`
 }
 
-type RepoConfig struct {
-	Name                       string          `yaml:"name"`
-	URL                        string          `yaml:"url"`
-	Branch                     string          `yaml:"branch"`
-	IgnorePaths                []string        `yaml:"ignore_paths"`
-	Schedule                   string          `yaml:"schedule"` // cron expression, empty = no scheduled scans
-	CancelInflightOnNewTrigger *bool           `yaml:"cancel_inflight_on_new_trigger"`
-	Git                        *GitAuthConfig  `yaml:"git"`
-	Projects                   []ProjectConfig `yaml:"projects,omitempty"`
+type ProjectConfig struct {
+	Name                       string                  `yaml:"name"`
+	URL                        string                  `yaml:"url"`
+	Branch                     string                  `yaml:"branch"`
+	IgnorePaths                []string                `yaml:"ignore_paths"`
+	Schedule                   string                  `yaml:"schedule"` // cron expression, empty = no scheduled scans
+	CancelInflightOnNewTrigger *bool                   `yaml:"cancel_inflight_on_new_trigger"`
+	Git                        *GitAuthConfig          `yaml:"git"`
+	Projects                   []MonorepoProjectConfig `yaml:"projects,omitempty"`
 
 	// Derived fields used internally after config load/expansion.
 	RootPath string `yaml:"-"`
 	CloneURL string `yaml:"-"`
 }
 
-func (r *RepoConfig) CancelInflightEnabled() bool {
+func (r *ProjectConfig) CancelInflightEnabled() bool {
 	if r == nil || r.CancelInflightOnNewTrigger == nil {
 		return true
 	}
 	return *r.CancelInflightOnNewTrigger
 }
 
-func (r *RepoConfig) EffectiveCloneURL() string {
+func (r *ProjectConfig) EffectiveCloneURL() string {
 	if r == nil {
 		return ""
 	}
@@ -196,10 +196,10 @@ func Load(path string) (*Config, error) {
 	return applyDefaults(cfg)
 }
 
-func (c *Config) GetRepo(name string) *RepoConfig {
-	for i := range c.Repos {
-		if c.Repos[i].Name == name {
-			return &c.Repos[i]
+func (c *Config) GetProject(name string) *ProjectConfig {
+	for i := range c.Projects {
+		if c.Projects[i].Name == name {
+			return &c.Projects[i]
 		}
 	}
 	return nil
@@ -268,44 +268,44 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	if cfg.Worker.RenewEvery > cfg.Worker.LockTTL/2 {
 		return nil, fmt.Errorf("worker.renew_every must be <= lock_ttl/2")
 	}
-	expandedRepos, err := expandMonorepos(cfg.Repos)
+	expandedProjects, err := expandMonorepos(cfg.Projects)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Repos = expandedRepos
+	cfg.Projects = expandedProjects
 
 	return cfg, nil
 }
 
-func expandMonorepos(repos []RepoConfig) ([]RepoConfig, error) {
-	expanded := make([]RepoConfig, 0, len(repos))
-	seenNames := make(map[string]struct{}, len(repos))
+func expandMonorepos(projects []ProjectConfig) ([]ProjectConfig, error) {
+	expanded := make([]ProjectConfig, 0, len(projects))
+	seenNames := make(map[string]struct{}, len(projects))
 
-	for i, repo := range repos {
-		source := fmt.Sprintf("repos[%d]", i)
-		if !isValidRepoName(repo.Name) {
-			return nil, fmt.Errorf("%s: invalid repo name %q", source, repo.Name)
+	for i, project := range projects {
+		source := fmt.Sprintf("projects[%d]", i)
+		if !isValidProjectName(project.Name) {
+			return nil, fmt.Errorf("%s: invalid project name %q", source, project.Name)
 		}
-		if strings.TrimSpace(repo.URL) == "" {
-			return nil, fmt.Errorf("%s (%s): url is required", source, repo.Name)
+		if strings.TrimSpace(project.URL) == "" {
+			return nil, fmt.Errorf("%s (%s): url is required", source, project.Name)
 		}
 
-		if len(repo.Projects) == 0 {
-			repo.Projects = nil
-			repo.RootPath = ""
-			repo.CloneURL = repo.URL
-			if err := appendExpandedRepo(&expanded, seenNames, repo, source); err != nil {
+		if len(project.Projects) == 0 {
+			project.Projects = nil
+			project.RootPath = ""
+			project.CloneURL = project.URL
+			if err := appendExpandedProject(&expanded, seenNames, project, source); err != nil {
 				return nil, err
 			}
 			continue
 		}
 
-		projectRepos, err := expandRepoProjects(repo, source)
+		projectRepos, err := expandProjectProjects(project, source)
 		if err != nil {
 			return nil, err
 		}
 		for _, projectRepo := range projectRepos {
-			if err := appendExpandedRepo(&expanded, seenNames, projectRepo, source); err != nil {
+			if err := appendExpandedProject(&expanded, seenNames, projectRepo, source); err != nil {
 				return nil, err
 			}
 		}
@@ -314,20 +314,20 @@ func expandMonorepos(repos []RepoConfig) ([]RepoConfig, error) {
 	return expanded, nil
 }
 
-func appendExpandedRepo(expanded *[]RepoConfig, seen map[string]struct{}, repo RepoConfig, source string) error {
-	if _, ok := seen[repo.Name]; ok {
-		return fmt.Errorf("%s: duplicate repo/project name %q after expansion", source, repo.Name)
+func appendExpandedProject(expanded *[]ProjectConfig, seen map[string]struct{}, project ProjectConfig, source string) error {
+	if _, ok := seen[project.Name]; ok {
+		return fmt.Errorf("%s: duplicate project name %q after expansion", source, project.Name)
 	}
-	seen[repo.Name] = struct{}{}
-	*expanded = append(*expanded, repo)
+	seen[project.Name] = struct{}{}
+	*expanded = append(*expanded, project)
 	return nil
 }
 
-func expandRepoProjects(parent RepoConfig, source string) ([]RepoConfig, error) {
+func expandProjectProjects(parent ProjectConfig, source string) ([]ProjectConfig, error) {
 	cleanPaths := make([]string, 0, len(parent.Projects))
 	for idx := range parent.Projects {
 		project := parent.Projects[idx]
-		if !isValidRepoName(project.Name) {
+		if !isValidProjectName(project.Name) {
 			return nil, fmt.Errorf("%s (%s): invalid project name %q", source, parent.Name, project.Name)
 		}
 		cleanPath, err := normalizeProjectPath(project.Path)
@@ -342,7 +342,7 @@ func expandRepoProjects(parent RepoConfig, source string) ([]RepoConfig, error) 
 		return nil, fmt.Errorf("%s (%s): %w", source, parent.Name, err)
 	}
 
-	expanded := make([]RepoConfig, 0, len(parent.Projects))
+	expanded := make([]ProjectConfig, 0, len(parent.Projects))
 	for _, project := range parent.Projects {
 		ignorePaths := copyStringSlice(parent.IgnorePaths)
 		if project.IgnorePaths != nil {
@@ -353,7 +353,7 @@ func expandRepoProjects(parent RepoConfig, source string) ([]RepoConfig, error) 
 			schedule = project.Schedule
 		}
 
-		expanded = append(expanded, RepoConfig{
+		expanded = append(expanded, ProjectConfig{
 			Name:                       project.Name,
 			URL:                        parent.URL,
 			Branch:                     parent.Branch,
@@ -435,9 +435,9 @@ func copyGitAuth(cfg *GitAuthConfig) *GitAuthConfig {
 	return &copied
 }
 
-func isValidRepoName(name string) bool {
+func isValidProjectName(name string) bool {
 	if name == "" || len(name) > 255 {
 		return false
 	}
-	return repoNamePattern.MatchString(name)
+	return projectNamePattern.MatchString(name)
 }

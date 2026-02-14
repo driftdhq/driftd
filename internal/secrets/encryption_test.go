@@ -129,9 +129,9 @@ func TestDecrypt_InvalidCiphertext(t *testing.T) {
 		ciphertext string
 		wantErr    error
 	}{
-		{"invalid base64", "not-valid-base64!", nil},           // base64 decode error
-		{"too short", "YWJj", ErrInvalidCiphertext},            // valid base64 but too short
-		{"tampered", "", nil},                                   // will test with modified ciphertext
+		{"invalid base64", "not-valid-base64!", nil}, // base64 decode error
+		{"too short", "YWJj", ErrInvalidCiphertext},  // valid base64 but too short
+		{"tampered", "", nil},                        // will test with modified ciphertext
 	}
 
 	for _, tt := range tests {

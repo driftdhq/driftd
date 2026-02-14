@@ -10,8 +10,8 @@ import (
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/metrics"
 	"github.com/driftdhq/driftd/internal/orchestrate"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/driftdhq/driftd/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -21,25 +21,25 @@ import (
 )
 
 type Server struct {
-	cfg          *config.Config
-	storage      storage.Store
-	queue        *queue.Queue
-	repoStore    *secrets.RepoStore
-	intStore     *secrets.IntegrationStore
-	repoProvider repos.Provider
-	orchestrator *orchestrate.ScanOrchestrator
-	tmplIndex    *template.Template
-	tmplRepo     *template.Template
-	tmplDrift    *template.Template
-	tmplSettings *template.Template
-	staticFS     fs.FS
+	cfg             *config.Config
+	storage         storage.Store
+	queue           *queue.Queue
+	projectStore    *secrets.ProjectStore
+	intStore        *secrets.IntegrationStore
+	projectProvider projects.Provider
+	orchestrator    *orchestrate.ScanOrchestrator
+	tmplIndex       *template.Template
+	tmplRepo        *template.Template
+	tmplDrift       *template.Template
+	tmplSettings    *template.Template
+	staticFS        fs.FS
 
 	rateLimitMu  sync.Mutex
 	rateLimiters map[string]*rateLimiterEntry
 
-	onRepoAdded   func(name, schedule string)
-	onRepoUpdated func(name, schedule string)
-	onRepoDeleted func(name string)
+	onProjectAdded   func(name, schedule string)
+	onProjectUpdated func(name, schedule string)
+	onProjectDeleted func(name string)
 }
 
 type rateLimiterEntry struct {
@@ -50,10 +50,10 @@ type rateLimiterEntry struct {
 // ServerOption is a functional option for configuring the Server.
 type ServerOption func(*Server)
 
-// WithRepoStore sets the dynamic repository store.
-func WithRepoStore(rs *secrets.RepoStore) ServerOption {
+// WithProjectStore sets the dynamic repository store.
+func WithProjectStore(rs *secrets.ProjectStore) ServerOption {
 	return func(s *Server) {
-		s.repoStore = rs
+		s.projectStore = rs
 	}
 }
 
@@ -64,19 +64,19 @@ func WithIntegrationStore(is *secrets.IntegrationStore) ServerOption {
 	}
 }
 
-// WithRepoProvider sets a repository provider for resolving dynamic repos.
-func WithRepoProvider(provider repos.Provider) ServerOption {
+// WithProjectProvider sets a repository provider for resolving dynamic projects.
+func WithProjectProvider(provider projects.Provider) ServerOption {
 	return func(s *Server) {
-		s.repoProvider = provider
+		s.projectProvider = provider
 	}
 }
 
-// WithSchedulerCallbacks sets callbacks for scheduler integration when repos change.
+// WithSchedulerCallbacks sets callbacks for scheduler integration when projects change.
 func WithSchedulerCallbacks(onAdded, onUpdated func(name, schedule string), onDeleted func(name string)) ServerOption {
 	return func(s *Server) {
-		s.onRepoAdded = onAdded
-		s.onRepoUpdated = onUpdated
-		s.onRepoDeleted = onDeleted
+		s.onProjectAdded = onAdded
+		s.onProjectUpdated = onUpdated
+		s.onProjectDeleted = onDeleted
 	}
 }
 
@@ -115,7 +115,7 @@ func New(cfg *config.Config, s storage.Store, q *queue.Queue, templatesFS, stati
 	if err != nil {
 		return nil, err
 	}
-	tmplRepo, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/layout.html", "templates/repo.html")
+	tmplRepo, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/layout.html", "templates/project.html")
 	if err != nil {
 		return nil, err
 	}
@@ -170,12 +170,12 @@ func (s *Server) Handler() http.Handler {
 		}
 		r.Use(s.csrfMiddleware)
 		r.Get("/", s.handleIndex)
-		r.Get("/repos/{repo}", s.handleRepo)
-		r.Post("/repos/{repo}/scan", s.handleScanRepoUI)
-		r.Get("/repos/{repo}/stacks/*", s.handleStack)
-		r.Post("/repos/{repo}/stacks/*", s.handleScanStackUI)
+		r.Get("/projects/{project}", s.handleRepo)
+		r.Post("/projects/{project}/scan", s.handleScanProjectUI)
+		r.Get("/projects/{project}/stacks/*", s.handleStack)
+		r.Post("/projects/{project}/stacks/*", s.handleScanStackUI)
 		r.Get("/settings", s.handleSettings)
-		r.Get("/settings/repos", s.handleSettings)
+		r.Get("/settings/projects", s.handleSettings)
 	})
 
 	// SSE endpoints use UI auth (cookie/basic-auth) since EventSource
@@ -184,7 +184,7 @@ func (s *Server) Handler() http.Handler {
 		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
 			r.Use(s.uiAuthMiddleware)
 		}
-		r.Get("/api/repos/{repo}/events", s.handleRepoEvents)
+		r.Get("/api/projects/{project}/events", s.handleProjectEvents)
 		r.Get("/api/events", s.handleGlobalEvents)
 	})
 
@@ -196,9 +196,9 @@ func (s *Server) Handler() http.Handler {
 		// Stack scan IDs can contain slashes (stack paths), so use a wildcard.
 		r.Get("/stacks/*", s.handleGetStackScan)
 		r.Get("/scans/{scanID}", s.handleGetScan)
-		r.Get("/repos/{repo}/stacks", s.handleListRepoStackScans)
-		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/scan", s.handleScanRepo)
-		r.With(s.rateLimitMiddleware).Post("/repos/{repo}/stacks/*", s.handleScanStack)
+		r.Get("/projects/{project}/stacks", s.handleListProjectStackScans)
+		r.With(s.rateLimitMiddleware).Post("/projects/{project}/scan", s.handleScanRepo)
+		r.With(s.rateLimitMiddleware).Post("/projects/{project}/stacks/*", s.handleScanStack)
 		if s.cfg.Webhook.Enabled {
 			r.Post("/webhooks/github", s.handleGitHubWebhook)
 		}
@@ -210,12 +210,12 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/integrations/{integration}", s.handleGetSettingsIntegration)
 			r.Put("/integrations/{integration}", s.handleUpdateSettingsIntegration)
 			r.Delete("/integrations/{integration}", s.handleDeleteSettingsIntegration)
-			r.Get("/repos", s.handleListSettingsRepos)
-			r.Post("/repos", s.handleCreateSettingsRepo)
-			r.Get("/repos/{repo}", s.handleGetSettingsRepo)
-			r.Put("/repos/{repo}", s.handleUpdateSettingsRepo)
-			r.Delete("/repos/{repo}", s.handleDeleteSettingsRepo)
-			r.Post("/repos/{repo}/test", s.handleTestRepoConnection)
+			r.Get("/projects", s.handleListSettingsRepos)
+			r.Post("/projects", s.handleCreateSettingsRepo)
+			r.Get("/projects/{project}", s.handleGetSettingsRepo)
+			r.Put("/projects/{project}", s.handleUpdateSettingsRepo)
+			r.Delete("/projects/{project}", s.handleDeleteSettingsRepo)
+			r.Post("/projects/{project}/test", s.handleTestProjectConnection)
 		})
 	})
 

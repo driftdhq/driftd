@@ -17,8 +17,8 @@ const keyClaimPrefix = "driftd:claim:"
 type StackScan struct {
 	ID          string    `json:"id"`
 	ScanID      string    `json:"scan_id"`
-	RepoName    string    `json:"repo_name"`
-	RepoURL     string    `json:"repo_url"`
+	ProjectName string    `json:"project_name"`
+	ProjectURL  string    `json:"project_url"`
 	StackPath   string    `json:"stack_path"`
 	Status      string    `json:"status"`
 	Retries     int       `json:"retries"`
@@ -47,7 +47,7 @@ func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reaso
 	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
 	}
-	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
+	q.client.Del(ctx, inflightKey(stackScan.ProjectName, stackScan.StackPath))
 	return q.removeStackScanRefs(ctx, stackScan)
 }
 
@@ -56,10 +56,10 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 	stackScan.Status = StatusPending
 	stackScan.CreatedAt = time.Now()
 	if stackScan.ID == "" {
-		stackScan.ID = fmt.Sprintf("%s:%s:%d:%d", stackScan.RepoName, stackScan.StackPath, stackScan.CreatedAt.UnixNano(), rand.Int31())
+		stackScan.ID = fmt.Sprintf("%s:%s:%d:%d", stackScan.ProjectName, stackScan.StackPath, stackScan.CreatedAt.UnixNano(), rand.Int31())
 	}
 
-	inflight := inflightKey(stackScan.RepoName, stackScan.StackPath)
+	inflight := inflightKey(stackScan.ProjectName, stackScan.StackPath)
 	claimed, err := q.client.SetNX(ctx, inflight, stackScan.ID, stackScanRetention).Result()
 	if err != nil {
 		return fmt.Errorf("failed to mark stack scan inflight: %w", err)
@@ -77,8 +77,8 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 
 	pipe := q.client.Pipeline()
 	pipe.Set(ctx, stackScanKey, stackScanData, stackScanRetention)
-	pipe.SAdd(ctx, keyRepoStackScans+stackScan.RepoName, stackScan.ID)
-	pipe.ZAdd(ctx, keyRepoStackScansOrdered+stackScan.RepoName, redis.Z{
+	pipe.SAdd(ctx, keyProjectStackScans+stackScan.ProjectName, stackScan.ID)
+	pipe.ZAdd(ctx, keyProjectStackScansOrdered+stackScan.ProjectName, redis.Z{
 		Score:  float64(stackScan.CreatedAt.Unix()),
 		Member: stackScan.ID,
 	})
@@ -116,7 +116,7 @@ func (q *Queue) EnqueueBatch(ctx context.Context, stacks []*StackScan) (*Enqueue
 		ss.Status = StatusPending
 		ss.CreatedAt = now
 		if ss.ID == "" {
-			ss.ID = fmt.Sprintf("%s:%s:%d:%d", ss.RepoName, ss.StackPath, now.UnixNano(), rand.Int31())
+			ss.ID = fmt.Sprintf("%s:%s:%d:%d", ss.ProjectName, ss.StackPath, now.UnixNano(), rand.Int31())
 		}
 	}
 
@@ -125,7 +125,7 @@ func (q *Queue) EnqueueBatch(ctx context.Context, stacks []*StackScan) (*Enqueue
 	inflightCmds := make([]*redis.BoolCmd, len(stacks))
 	inflightKeys := make([]string, len(stacks))
 	for i, ss := range stacks {
-		key := inflightKey(ss.RepoName, ss.StackPath)
+		key := inflightKey(ss.ProjectName, ss.StackPath)
 		inflightKeys[i] = key
 		inflightCmds[i] = inflightPipe.SetNX(ctx, key, ss.ID, stackScanRetention)
 	}
@@ -162,12 +162,12 @@ func (q *Queue) EnqueueBatch(ctx context.Context, stacks []*StackScan) (*Enqueue
 		data, err := json.Marshal(ss)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: marshal: %v", ss.StackPath, err))
-			failedKeys = append(failedKeys, inflightKey(ss.RepoName, ss.StackPath))
+			failedKeys = append(failedKeys, inflightKey(ss.ProjectName, ss.StackPath))
 			continue
 		}
 		enqueuePipe.Set(ctx, keyStackScanPrefix+ss.ID, data, stackScanRetention)
-		enqueuePipe.SAdd(ctx, keyRepoStackScans+ss.RepoName, ss.ID)
-		enqueuePipe.ZAdd(ctx, keyRepoStackScansOrdered+ss.RepoName, redis.Z{
+		enqueuePipe.SAdd(ctx, keyProjectStackScans+ss.ProjectName, ss.ID)
+		enqueuePipe.ZAdd(ctx, keyProjectStackScansOrdered+ss.ProjectName, redis.Z{
 			Score:  float64(ss.CreatedAt.Unix()),
 			Member: ss.ID,
 		})
@@ -221,7 +221,7 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error
 			continue
 		}
 
-	if err := q.claimAndMarkRunning(ctx, stackScan, workerID); err != nil {
+		if err := q.claimAndMarkRunning(ctx, stackScan, workerID); err != nil {
 			if errors.Is(err, ErrAlreadyClaimed) {
 				continue
 			}
@@ -290,7 +290,7 @@ func (q *Queue) RecoverOrphanedStackScans(ctx context.Context) (int, error) {
 				_ = q.client.SRem(ctx, keyStackScanPending, id).Err()
 				continue
 			}
-			_ = q.client.SetNX(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath), stackScan.ID, stackScanRetention).Err()
+			_ = q.client.SetNX(ctx, inflightKey(stackScan.ProjectName, stackScan.StackPath), stackScan.ID, stackScanRetention).Err()
 			if err := q.client.LPush(ctx, keyQueue, stackScan.ID).Err(); err != nil {
 				continue
 			}
@@ -303,7 +303,7 @@ func (q *Queue) RecoverOrphanedStackScans(ctx context.Context) (int, error) {
 	}
 }
 
-// Complete marks a stack scan as completed and releases the repo lock.
+// Complete marks a stack scan as completed and releases the project lock.
 func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool) error {
 	stackScan.Status = StatusCompleted
 	stackScan.CompletedAt = time.Now()
@@ -311,7 +311,7 @@ func (q *Queue) Complete(ctx context.Context, stackScan *StackScan, drifted bool
 		return err
 	}
 	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
-	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
+	q.client.Del(ctx, inflightKey(stackScan.ProjectName, stackScan.StackPath))
 	q.client.SRem(ctx, keyStackScanPending, stackScan.ID)
 	if err := q.removeStackScanRefs(ctx, stackScan); err != nil {
 		return err
@@ -354,7 +354,7 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 		return err
 	}
 	q.client.Del(ctx, keyClaimPrefix+stackScan.ID)
-	q.client.Del(ctx, inflightKey(stackScan.RepoName, stackScan.StackPath))
+	q.client.Del(ctx, inflightKey(stackScan.ProjectName, stackScan.StackPath))
 	q.client.SRem(ctx, keyStackScanPending, stackScan.ID)
 	if err := q.client.ZRem(ctx, keyRunningStackScans, stackScan.ID).Err(); err != nil {
 		return err
@@ -368,11 +368,11 @@ func (q *Queue) Fail(ctx context.Context, stackScan *StackScan, errMsg string) e
 	return nil
 }
 
-func inflightKey(repoName, stackPath string) string {
+func inflightKey(projectName, stackPath string) string {
 	if stackPath == "" {
-		return keyStackScanInflight + repoName
+		return keyStackScanInflight + projectName
 	}
-	return keyStackScanInflight + repoName + ":" + safeStackKey(stackPath)
+	return keyStackScanInflight + projectName + ":" + safeStackKey(stackPath)
 }
 
 func safeStackKey(stackPath string) string {

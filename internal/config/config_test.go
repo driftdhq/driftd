@@ -47,29 +47,29 @@ func TestLoadValidation(t *testing.T) {
 	})
 
 	t.Run("cancel_inflight_defaults_true", func(t *testing.T) {
-		path := writeTempConfig(t, "repos:\n  - name: repo\n    url: https://example.com/repo.git\n")
+		path := writeTempConfig(t, "projects:\n  - name: project\n    url: https://example.com/project.git\n")
 		cfg, err := Load(path)
 		if err != nil {
 			t.Fatalf("load config: %v", err)
 		}
-		if !cfg.Repos[0].CancelInflightEnabled() {
+		if !cfg.Projects[0].CancelInflightEnabled() {
 			t.Fatalf("expected cancel_inflight_on_new_trigger default true")
 		}
 	})
 
 	t.Run("cancel_inflight_false", func(t *testing.T) {
-		path := writeTempConfig(t, "repos:\n  - name: repo\n    url: https://example.com/repo.git\n    cancel_inflight_on_new_trigger: false\n")
+		path := writeTempConfig(t, "projects:\n  - name: project\n    url: https://example.com/project.git\n    cancel_inflight_on_new_trigger: false\n")
 		cfg, err := Load(path)
 		if err != nil {
 			t.Fatalf("load config: %v", err)
 		}
-		if cfg.Repos[0].CancelInflightEnabled() {
+		if cfg.Projects[0].CancelInflightEnabled() {
 			t.Fatalf("expected cancel_inflight_on_new_trigger false")
 		}
 	})
 
 	t.Run("cleanup_after_plan_defaults_true", func(t *testing.T) {
-		path := writeTempConfig(t, "repos:\n  - name: repo\n    url: https://example.com/repo.git\n")
+		path := writeTempConfig(t, "projects:\n  - name: project\n    url: https://example.com/project.git\n")
 		cfg, err := Load(path)
 		if err != nil {
 			t.Fatalf("load config: %v", err)
@@ -80,7 +80,7 @@ func TestLoadValidation(t *testing.T) {
 	})
 
 	t.Run("cleanup_after_plan_false", func(t *testing.T) {
-		path := writeTempConfig(t, "workspace:\n  cleanup_after_plan: false\nrepos:\n  - name: repo\n    url: https://example.com/repo.git\n")
+		path := writeTempConfig(t, "workspace:\n  cleanup_after_plan: false\nrepos:\n  - name: project\n    url: https://example.com/project.git\n")
 		cfg, err := Load(path)
 		if err != nil {
 			t.Fatalf("load config: %v", err)
@@ -92,7 +92,7 @@ func TestLoadValidation(t *testing.T) {
 
 	t.Run("monorepo_expands_projects", func(t *testing.T) {
 		path := writeTempConfig(t, `
-repos:
+projects:
   - name: infra-monorepo
     url: https://example.com/infra.git
     branch: main
@@ -113,13 +113,13 @@ repos:
 			t.Fatalf("load config: %v", err)
 		}
 
-		if len(cfg.Repos) != 2 {
-			t.Fatalf("expected 2 expanded repos, got %d", len(cfg.Repos))
+		if len(cfg.Projects) != 2 {
+			t.Fatalf("expected 2 expanded projects, got %d", len(cfg.Projects))
 		}
 
-		accountA := cfg.GetRepo("account-a")
+		accountA := cfg.GetProject("account-a")
 		if accountA == nil {
-			t.Fatalf("expected account-a repo")
+			t.Fatalf("expected account-a project")
 		}
 		if accountA.RootPath != "aws/accountA" {
 			t.Fatalf("expected root path aws/accountA, got %q", accountA.RootPath)
@@ -140,9 +140,9 @@ repos:
 			t.Fatalf("expected ignore paths inherited, got %v", accountA.IgnorePaths)
 		}
 
-		accountB := cfg.GetRepo("account-b")
+		accountB := cfg.GetProject("account-b")
 		if accountB == nil {
-			t.Fatalf("expected account-b repo")
+			t.Fatalf("expected account-b project")
 		}
 		if accountB.Schedule != "0 0 * * *" {
 			t.Fatalf("expected schedule override, got %q", accountB.Schedule)
@@ -151,14 +151,14 @@ repos:
 			t.Fatalf("expected empty ignore override, got %v", accountB.IgnorePaths)
 		}
 
-		if cfg.GetRepo("infra-monorepo") != nil {
-			t.Fatalf("parent repo should not be scannable after expansion")
+		if cfg.GetProject("infra-monorepo") != nil {
+			t.Fatalf("parent project should not be scannable after expansion")
 		}
 	})
 
 	t.Run("monorepo_rejects_overlapping_paths", func(t *testing.T) {
 		path := writeTempConfig(t, `
-repos:
+projects:
   - name: infra-monorepo
     url: https://example.com/infra.git
     projects:
@@ -174,7 +174,7 @@ repos:
 
 	t.Run("monorepo_rejects_unsafe_path", func(t *testing.T) {
 		path := writeTempConfig(t, `
-repos:
+projects:
   - name: infra-monorepo
     url: https://example.com/infra.git
     projects:
@@ -188,7 +188,7 @@ repos:
 
 	t.Run("monorepo_rejects_duplicate_expanded_names", func(t *testing.T) {
 		path := writeTempConfig(t, `
-repos:
+projects:
   - name: project-a
     url: https://example.com/single.git
   - name: infra-monorepo

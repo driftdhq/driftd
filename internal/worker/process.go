@@ -10,15 +10,15 @@ import (
 )
 
 func (w *Worker) processStackScan(job *queue.StackScan) {
-	log.Printf("Processing stack scan %s: %s/%s", job.ID, job.RepoName, job.StackPath)
+	log.Printf("Processing stack scan %s: %s/%s", job.ID, job.ProjectName, job.StackPath)
 
 	now := time.Now()
-	_ = w.queue.PublishStackEvent(w.ctx, job.RepoName, queue.StackEvent{
-		RepoName:  job.RepoName,
-		ScanID:    job.ScanID,
-		StackPath: job.StackPath,
-		Status:    "running",
-		RunAt:     &now,
+	_ = w.queue.PublishStackEvent(w.ctx, job.ProjectName, queue.StackEvent{
+		ProjectName: job.ProjectName,
+		ScanID:      job.ScanID,
+		StackPath:   job.StackPath,
+		Status:      "running",
+		RunAt:       &now,
 	})
 
 	sc, err := w.resolveScanContext(w.ctx, job)

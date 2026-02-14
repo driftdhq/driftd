@@ -9,8 +9,8 @@ import (
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/orchestrate"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/robfig/cron/v3"
 )
 
@@ -19,14 +19,14 @@ const scheduledScanMaxJitter = 20 * time.Second
 type Scheduler struct {
 	cron         *cron.Cron
 	cfg          *config.Config
-	provider     repos.Provider
+	provider     projects.Provider
 	orchestrator *orchestrate.ScanOrchestrator
 
 	mu      sync.Mutex
 	entries map[string]cron.EntryID
 }
 
-func New(cfg *config.Config, provider repos.Provider, orch *orchestrate.ScanOrchestrator) *Scheduler {
+func New(cfg *config.Config, provider projects.Provider, orch *orchestrate.ScanOrchestrator) *Scheduler {
 	return &Scheduler{
 		cron:         cron.New(),
 		cfg:          cfg,
@@ -37,15 +37,15 @@ func New(cfg *config.Config, provider repos.Provider, orch *orchestrate.ScanOrch
 }
 
 func (s *Scheduler) Start() error {
-	repos, err := s.provider.List()
+	projects, err := s.provider.List()
 	if err != nil {
 		return err
 	}
-	for _, repo := range repos {
-		if repo.Schedule == "" {
+	for _, project := range projects {
+		if project.Schedule == "" {
 			continue
 		}
-		if err := s.scheduleRepo(repo.Name, repo.Schedule); err != nil {
+		if err := s.scheduleRepo(project.Name, project.Schedule); err != nil {
 			return err
 		}
 	}
@@ -59,26 +59,26 @@ func (s *Scheduler) Stop() {
 	<-ctx.Done()
 }
 
-func (s *Scheduler) OnRepoAdded(name, schedule string) {
+func (s *Scheduler) OnProjectAdded(name, schedule string) {
 	if schedule == "" {
 		return
 	}
 	if err := s.scheduleRepo(name, schedule); err != nil {
-		log.Printf("Failed to schedule repo %s: %v", name, err)
+		log.Printf("Failed to schedule project %s: %v", name, err)
 	}
 }
 
-func (s *Scheduler) OnRepoUpdated(name, schedule string) {
+func (s *Scheduler) OnProjectUpdated(name, schedule string) {
 	if schedule == "" {
 		s.unscheduleRepo(name)
 		return
 	}
 	if err := s.scheduleRepo(name, schedule); err != nil {
-		log.Printf("Failed to reschedule repo %s: %v", name, err)
+		log.Printf("Failed to reschedule project %s: %v", name, err)
 	}
 }
 
-func (s *Scheduler) OnRepoDeleted(name string) {
+func (s *Scheduler) OnProjectDeleted(name string) {
 	s.unscheduleRepo(name)
 }
 
@@ -91,9 +91,9 @@ func (s *Scheduler) scheduleRepo(name, schedule string) error {
 		delete(s.entries, name)
 	}
 
-	repoName := name
+	projectName := name
 	entryID, err := s.cron.AddFunc(schedule, func() {
-		s.enqueueRepoScans(repoName)
+		s.enqueueProjectScans(projectName)
 	})
 	if err != nil {
 		return err
@@ -114,39 +114,39 @@ func (s *Scheduler) unscheduleRepo(name string) {
 	}
 }
 
-func (s *Scheduler) enqueueRepoScans(repoName string) {
-	if delay := scheduledScanJitter(repoName); delay > 0 {
+func (s *Scheduler) enqueueProjectScans(projectName string) {
+	if delay := scheduledScanJitter(projectName); delay > 0 {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
 		<-timer.C
 	}
 
 	ctx := context.Background()
-	repoCfg, err := s.provider.Get(repoName)
-	if err != nil || repoCfg == nil {
-		log.Printf("Failed to find repo config for %s: %v", repoName, err)
+	projectCfg, err := s.provider.Get(projectName)
+	if err != nil || projectCfg == nil {
+		log.Printf("Failed to find project config for %s: %v", projectName, err)
 		return
 	}
 
-	_, result, err := s.orchestrator.StartAndEnqueue(ctx, repoCfg, "scheduled", "", "")
+	_, result, err := s.orchestrator.StartAndEnqueue(ctx, projectCfg, "scheduled", "", "")
 	if err != nil {
-		if err == queue.ErrRepoLocked {
-			log.Printf("Skipping scheduled scan for %s: repo already running", repoName)
+		if err == queue.ErrProjectLocked {
+			log.Printf("Skipping scheduled scan for %s: project already running", projectName)
 		} else {
-			log.Printf("Failed to start scan for %s: %v", repoName, err)
+			log.Printf("Failed to start scan for %s: %v", projectName, err)
 		}
 		return
 	}
 
-	log.Printf("Enqueued %d scheduled stacks for %s", len(result.StackIDs), repoName)
+	log.Printf("Enqueued %d scheduled stacks for %s", len(result.StackIDs), projectName)
 }
 
-func scheduledScanJitter(repoName string) time.Duration {
-	if repoName == "" || scheduledScanMaxJitter <= 0 {
+func scheduledScanJitter(projectName string) time.Duration {
+	if projectName == "" || scheduledScanMaxJitter <= 0 {
 		return 0
 	}
 
 	h := fnv.New64a()
-	_, _ = h.Write([]byte(repoName))
+	_, _ = h.Write([]byte(projectName))
 	return time.Duration(h.Sum64() % uint64(scheduledScanMaxJitter))
 }

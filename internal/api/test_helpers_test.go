@@ -16,8 +16,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/driftdhq/driftd/internal/config"
+	"github.com/driftdhq/driftd/internal/projects"
 	"github.com/driftdhq/driftd/internal/queue"
-	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/driftdhq/driftd/internal/runner"
 	"github.com/driftdhq/driftd/internal/secrets"
 	"github.com/driftdhq/driftd/internal/storage"
@@ -69,7 +69,7 @@ func newTestServerWithConfig(t *testing.T, r worker.Runner, stacks []string, sta
 		t.Fatalf("miniredis: %v", err)
 	}
 
-	repoDir := createTestRepo(t, stacks, versions)
+	projectDir := createTestRepo(t, stacks, versions)
 
 	cancelInflightFlag := cancelInflight
 
@@ -86,10 +86,10 @@ func newTestServerWithConfig(t *testing.T, r worker.Runner, stacks []string, sta
 			ScanMaxAge:  1 * time.Minute,
 			RenewEvery:  10 * time.Second,
 		},
-		Repos: []config.RepoConfig{
+		Projects: []config.ProjectConfig{
 			{
-				Name:                       "repo",
-				URL:                        repoDir,
+				Name:                       "project",
+				URL:                        projectDir,
 				CancelInflightOnNewTrigger: &cancelInflightFlag,
 			},
 		},
@@ -133,7 +133,7 @@ func newTestServerWithConfig(t *testing.T, r worker.Runner, stacks []string, sta
 	return srv, server, q, cleanup
 }
 
-func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, startWorker bool, setup func(store *secrets.RepoStore, intStore *secrets.IntegrationStore, repoDir string), mutate func(*config.Config)) (*Server, *httptest.Server, *queue.Queue, func()) {
+func newTestServerWithProjectStore(t *testing.T, r worker.Runner, stacks []string, startWorker bool, setup func(store *secrets.ProjectStore, intStore *secrets.IntegrationStore, projectDir string), mutate func(*config.Config)) (*Server, *httptest.Server, *queue.Queue, func()) {
 	t.Helper()
 
 	mr, err := miniredis.Run()
@@ -141,7 +141,7 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 		t.Fatalf("miniredis: %v", err)
 	}
 
-	repoDir := createTestRepo(t, stacks, nil)
+	projectDir := createTestRepo(t, stacks, nil)
 
 	cfg := &config.Config{
 		DataDir: t.TempDir(),
@@ -156,7 +156,7 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 			ScanMaxAge:  1 * time.Minute,
 			RenewEvery:  10 * time.Second,
 		},
-		Repos: nil,
+		Projects: nil,
 	}
 	if mutate != nil {
 		mutate(cfg)
@@ -179,12 +179,12 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 	if err != nil {
 		t.Fatalf("encryptor: %v", err)
 	}
-	repoStore := secrets.NewRepoStore(cfg.DataDir, encryptor)
+	projectStore := secrets.NewProjectStore(cfg.DataDir, encryptor)
 	intStore := secrets.NewIntegrationStore(cfg.DataDir)
 	if setup != nil {
-		setup(repoStore, intStore, repoDir)
+		setup(projectStore, intStore, projectDir)
 	}
-	repoProvider := repos.NewCombinedProvider(cfg, repoStore, intStore, cfg.DataDir)
+	projectProvider := projects.NewCombinedProvider(cfg, projectStore, intStore, cfg.DataDir)
 
 	srv, err := New(
 		cfg,
@@ -192,9 +192,9 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 		q,
 		templatesFS,
 		staticFS,
-		WithRepoStore(repoStore),
+		WithProjectStore(projectStore),
 		WithIntegrationStore(intStore),
-		WithRepoProvider(repoProvider),
+		WithProjectProvider(projectProvider),
 	)
 	if err != nil {
 		t.Fatalf("server: %v", err)
@@ -204,7 +204,7 @@ func newTestServerWithRepoStore(t *testing.T, r worker.Runner, stacks []string, 
 
 	var w *worker.Worker
 	if startWorker {
-		w = worker.New(q, r, 1, cfg, repoProvider)
+		w = worker.New(q, r, 1, cfg, projectProvider)
 		w.Start()
 	}
 
@@ -307,16 +307,16 @@ func createTestRepo(t *testing.T, stacks []string, versions *testVersions) strin
 		}
 	}
 	if len(stacks) == 0 {
-		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("empty repo"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("empty project"), 0644); err != nil {
 			t.Fatalf("write placeholder: %v", err)
 		}
 	}
 
-	repo, err := git.PlainInit(dir, false)
+	project, err := git.PlainInit(dir, false)
 	if err != nil {
 		t.Fatalf("git init: %v", err)
 	}
-	wt, err := repo.Worktree()
+	wt, err := project.Worktree()
 	if err != nil {
 		t.Fatalf("worktree: %v", err)
 	}

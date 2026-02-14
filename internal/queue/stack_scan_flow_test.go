@@ -48,10 +48,10 @@ func TestStackScanRetry(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		RepoName:   "repo",
-		RepoURL:    "file:///repo",
-		StackPath:  "envs/dev",
-		MaxRetries: 1,
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+		MaxRetries:  1,
 	}
 
 	if err := q.Enqueue(ctx, job); err != nil {
@@ -89,10 +89,10 @@ func TestStackScanRetryExhausted(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		RepoName:   "repo",
-		RepoURL:    "file:///repo",
-		StackPath:  "envs/dev",
-		MaxRetries: 1,
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+		MaxRetries:  1,
 	}
 
 	if err := q.Enqueue(ctx, job); err != nil {
@@ -125,32 +125,32 @@ func TestLockAcquisition(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	first, err := q.StartScan(ctx, "repo", "manual", "", "", 0)
+	first, err := q.StartScan(ctx, "project", "manual", "", "", 0)
 	if err != nil {
 		t.Fatalf("start scan: %v", err)
 	}
 
-	if _, err := q.StartScan(ctx, "repo", "manual", "", "", 0); err != ErrRepoLocked {
-		t.Fatalf("expected ErrRepoLocked, got %v", err)
+	if _, err := q.StartScan(ctx, "project", "manual", "", "", 0); err != ErrProjectLocked {
+		t.Fatalf("expected ErrProjectLocked, got %v", err)
 	}
 
-	locked, err := q.IsRepoLocked(ctx, "repo")
+	locked, err := q.IsProjectLocked(ctx, "project")
 	if err != nil {
 		t.Fatalf("is locked: %v", err)
 	}
 	if !locked {
-		t.Fatalf("expected repo to be locked")
+		t.Fatalf("expected project to be locked")
 	}
 
-	if err := q.CancelScan(ctx, first.ID, "repo", "cleanup"); err != nil {
+	if err := q.CancelScan(ctx, first.ID, "project", "cleanup"); err != nil {
 		t.Fatalf("cancel scan: %v", err)
 	}
 
-	locked, err = q.IsRepoLocked(ctx, "repo")
+	locked, err = q.IsProjectLocked(ctx, "project")
 	if err != nil {
 		t.Fatalf("is locked after cancel: %v", err)
 	}
 	if locked {
-		t.Fatalf("expected repo to be unlocked")
+		t.Fatalf("expected project to be unlocked")
 	}
 }

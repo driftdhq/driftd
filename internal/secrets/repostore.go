@@ -11,18 +11,18 @@ import (
 )
 
 const (
-	// ReposFileName is the filename for storing dynamic repo configurations.
-	ReposFileName = "repos.json"
+	// ProjectsFileName is the filename for storing dynamic project configurations.
+	ProjectsFileName = "projects.json"
 )
 
 var (
-	ErrRepoNotFound      = errors.New("repository not found")
-	ErrRepoAlreadyExists = errors.New("repository already exists")
+	ErrProjectNotFound      = errors.New("project not found")
+	ErrProjectAlreadyExists = errors.New("project already exists")
 )
 
-// RepoCredentials holds the sensitive credentials for a repository.
+// ProjectCredentials holds the sensitive credentials for a repository.
 // These are encrypted before storage.
-type RepoCredentials struct {
+type ProjectCredentials struct {
 	// For github_app auth
 	GitHubAppPrivateKey string `json:"github_app_private_key,omitempty"`
 
@@ -35,28 +35,28 @@ type RepoCredentials struct {
 	HTTPSUsername string `json:"https_username,omitempty"`
 }
 
-// RepoGitHubApp holds GitHub App configuration (non-sensitive parts).
-type RepoGitHubApp struct {
+// ProjectGitHubApp holds GitHub App configuration (non-sensitive parts).
+type ProjectGitHubApp struct {
 	AppID          int64 `json:"app_id"`
 	InstallationID int64 `json:"installation_id"`
 }
 
-// RepoGitConfig holds git authentication configuration.
-type RepoGitConfig struct {
-	Type      string         `json:"type"` // "https", "ssh", "github_app"
-	GitHubApp *RepoGitHubApp `json:"github_app,omitempty"`
+// ProjectGitConfig holds git authentication configuration.
+type ProjectGitConfig struct {
+	Type      string            `json:"type"` // "https", "ssh", "github_app"
+	GitHubApp *ProjectGitHubApp `json:"github_app,omitempty"`
 }
 
-// RepoEntry represents a repository configuration as stored in the repo store.
-type RepoEntry struct {
-	Name                       string        `json:"name"`
-	URL                        string        `json:"url"`
-	Branch                     string        `json:"branch,omitempty"`
-	IgnorePaths                []string      `json:"ignore_paths,omitempty"`
-	IntegrationID              string        `json:"integration_id,omitempty"`
-	Git                        RepoGitConfig `json:"git"`
-	Schedule                   string        `json:"schedule,omitempty"`
-	CancelInflightOnNewTrigger bool          `json:"cancel_inflight_on_new_trigger,omitempty"`
+// ProjectEntry represents a repository configuration as stored in the project store.
+type ProjectEntry struct {
+	Name                       string           `json:"name"`
+	URL                        string           `json:"url"`
+	Branch                     string           `json:"branch,omitempty"`
+	IgnorePaths                []string         `json:"ignore_paths,omitempty"`
+	IntegrationID              string           `json:"integration_id,omitempty"`
+	Git                        ProjectGitConfig `json:"git"`
+	Schedule                   string           `json:"schedule,omitempty"`
+	CancelInflightOnNewTrigger bool             `json:"cancel_inflight_on_new_trigger,omitempty"`
 
 	// EncryptedCredentials holds the encrypted credentials blob.
 	EncryptedCredentials string `json:"encrypted_credentials,omitempty"`
@@ -66,81 +66,81 @@ type RepoEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// repoStoreData is the on-disk format for the repo store.
-type repoStoreData struct {
-	Version int          `json:"version"`
-	Repos   []*RepoEntry `json:"repos"`
+// projectStoreData is the on-disk format for the project store.
+type projectStoreData struct {
+	Version  int             `json:"version"`
+	Projects []*ProjectEntry `json:"projects"`
 }
 
-// RepoStore manages encrypted repository configurations.
-type RepoStore struct {
+// ProjectStore manages encrypted repository configurations.
+type ProjectStore struct {
 	dataDir   string
 	encryptor *Encryptor
 	mu        sync.RWMutex
 
 	// In-memory cache
-	repos map[string]*RepoEntry
+	projects map[string]*ProjectEntry
 }
 
-// NewRepoStore creates a new RepoStore.
-func NewRepoStore(dataDir string, encryptor *Encryptor) *RepoStore {
-	return &RepoStore{
+// NewProjectStore creates a new ProjectStore.
+func NewProjectStore(dataDir string, encryptor *Encryptor) *ProjectStore {
+	return &ProjectStore{
 		dataDir:   dataDir,
 		encryptor: encryptor,
-		repos:     make(map[string]*RepoEntry),
+		projects:  make(map[string]*ProjectEntry),
 	}
 }
 
-// Load reads the repo store from disk into memory.
-func (rs *RepoStore) Load() error {
+// Load reads the project store from disk into memory.
+func (rs *ProjectStore) Load() error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
 	data, err := os.ReadFile(rs.filePath())
 	if os.IsNotExist(err) {
-		// No repos file yet, start empty
-		rs.repos = make(map[string]*RepoEntry)
+		// No projects file yet, start empty
+		rs.projects = make(map[string]*ProjectEntry)
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("failed to read repos file: %w", err)
+		return fmt.Errorf("failed to read projects file: %w", err)
 	}
 
-	var storeData repoStoreData
+	var storeData projectStoreData
 	if err := json.Unmarshal(data, &storeData); err != nil {
-		return fmt.Errorf("failed to parse repos file: %w", err)
+		return fmt.Errorf("failed to parse projects file: %w", err)
 	}
 
-	rs.repos = make(map[string]*RepoEntry, len(storeData.Repos))
-	for _, repo := range storeData.Repos {
-		rs.repos[repo.Name] = repo
+	rs.projects = make(map[string]*ProjectEntry, len(storeData.Projects))
+	for _, project := range storeData.Projects {
+		rs.projects[project.Name] = project
 	}
 
 	return nil
 }
 
-// Save writes the repo store to disk.
-func (rs *RepoStore) Save() error {
+// Save writes the project store to disk.
+func (rs *ProjectStore) Save() error {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
 	return rs.saveLocked()
 }
 
-func (rs *RepoStore) saveLocked() error {
-	repos := make([]*RepoEntry, 0, len(rs.repos))
-	for _, repo := range rs.repos {
-		repos = append(repos, repo)
+func (rs *ProjectStore) saveLocked() error {
+	projects := make([]*ProjectEntry, 0, len(rs.projects))
+	for _, project := range rs.projects {
+		projects = append(projects, project)
 	}
 
-	storeData := repoStoreData{
-		Version: 1,
-		Repos:   repos,
+	storeData := projectStoreData{
+		Version:  1,
+		Projects: projects,
 	}
 
 	data, err := json.MarshalIndent(storeData, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal repos: %w", err)
+		return fmt.Errorf("failed to marshal projects: %w", err)
 	}
 
 	// Ensure directory exists
@@ -151,69 +151,69 @@ func (rs *RepoStore) saveLocked() error {
 	// Write atomically via temp file
 	tmpPath := rs.filePath() + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write repos file: %w", err)
+		return fmt.Errorf("failed to write projects file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, rs.filePath()); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("failed to rename repos file: %w", err)
+		return fmt.Errorf("failed to rename projects file: %w", err)
 	}
 
 	return nil
 }
 
-// filePath returns the path to the repos file.
-func (rs *RepoStore) filePath() string {
-	return filepath.Join(rs.dataDir, ReposFileName)
+// filePath returns the path to the projects file.
+func (rs *ProjectStore) filePath() string {
+	return filepath.Join(rs.dataDir, ProjectsFileName)
 }
 
 // List returns all repository entries (without decrypted credentials).
-func (rs *RepoStore) List() []*RepoEntry {
+func (rs *ProjectStore) List() []*ProjectEntry {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	repos := make([]*RepoEntry, 0, len(rs.repos))
-	for _, repo := range rs.repos {
+	projects := make([]*ProjectEntry, 0, len(rs.projects))
+	for _, project := range rs.projects {
 		// Return copy without credentials
-		entry := *repo
+		entry := *project
 		entry.EncryptedCredentials = "" // Don't expose encrypted blob
-		repos = append(repos, &entry)
+		projects = append(projects, &entry)
 	}
-	return repos
+	return projects
 }
 
 // Get returns a repository entry by name (without decrypted credentials).
-func (rs *RepoStore) Get(name string) (*RepoEntry, error) {
+func (rs *ProjectStore) Get(name string) (*ProjectEntry, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	repo, ok := rs.repos[name]
+	project, ok := rs.projects[name]
 	if !ok {
-		return nil, ErrRepoNotFound
+		return nil, ErrProjectNotFound
 	}
 
 	// Return copy without credentials
-	entry := *repo
+	entry := *project
 	entry.EncryptedCredentials = ""
 	return &entry, nil
 }
 
 // GetWithCredentials returns a repository entry with decrypted credentials.
-func (rs *RepoStore) GetWithCredentials(name string) (*RepoEntry, *RepoCredentials, error) {
+func (rs *ProjectStore) GetWithCredentials(name string) (*ProjectEntry, *ProjectCredentials, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	repo, ok := rs.repos[name]
+	project, ok := rs.projects[name]
 	if !ok {
-		return nil, nil, ErrRepoNotFound
+		return nil, nil, ErrProjectNotFound
 	}
 
-	entry := *repo
+	entry := *project
 	entry.EncryptedCredentials = ""
 
-	var creds RepoCredentials
-	if repo.EncryptedCredentials != "" {
-		decrypted, err := rs.encryptor.Decrypt(repo.EncryptedCredentials)
+	var creds ProjectCredentials
+	if project.EncryptedCredentials != "" {
+		decrypted, err := rs.encryptor.Decrypt(project.EncryptedCredentials)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decrypt credentials: %w", err)
 		}
@@ -226,12 +226,12 @@ func (rs *RepoStore) GetWithCredentials(name string) (*RepoEntry, *RepoCredentia
 }
 
 // Add adds a new repository with encrypted credentials.
-func (rs *RepoStore) Add(entry *RepoEntry, creds *RepoCredentials) error {
+func (rs *ProjectStore) Add(entry *ProjectEntry, creds *ProjectCredentials) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	if _, exists := rs.repos[entry.Name]; exists {
-		return ErrRepoAlreadyExists
+	if _, exists := rs.projects[entry.Name]; exists {
+		return ErrProjectAlreadyExists
 	}
 
 	// Encrypt credentials
@@ -251,19 +251,19 @@ func (rs *RepoStore) Add(entry *RepoEntry, creds *RepoCredentials) error {
 	entry.CreatedAt = now
 	entry.UpdatedAt = now
 
-	rs.repos[entry.Name] = entry
+	rs.projects[entry.Name] = entry
 
 	return rs.saveLocked()
 }
 
 // Update updates an existing repository.
-func (rs *RepoStore) Update(name string, entry *RepoEntry, creds *RepoCredentials) error {
+func (rs *ProjectStore) Update(name string, entry *ProjectEntry, creds *ProjectCredentials) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	existing, ok := rs.repos[name]
+	existing, ok := rs.projects[name]
 	if !ok {
-		return ErrRepoNotFound
+		return ErrProjectNotFound
 	}
 
 	// Preserve created timestamp
@@ -287,31 +287,31 @@ func (rs *RepoStore) Update(name string, entry *RepoEntry, creds *RepoCredential
 
 	// Handle name change
 	if name != entry.Name {
-		delete(rs.repos, name)
+		delete(rs.projects, name)
 	}
-	rs.repos[entry.Name] = entry
+	rs.projects[entry.Name] = entry
 
 	return rs.saveLocked()
 }
 
 // Delete removes a repository by name.
-func (rs *RepoStore) Delete(name string) error {
+func (rs *ProjectStore) Delete(name string) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	if _, ok := rs.repos[name]; !ok {
-		return ErrRepoNotFound
+	if _, ok := rs.projects[name]; !ok {
+		return ErrProjectNotFound
 	}
 
-	delete(rs.repos, name)
+	delete(rs.projects, name)
 
 	return rs.saveLocked()
 }
 
 // Exists returns true if a repository with the given name exists.
-func (rs *RepoStore) Exists(name string) bool {
+func (rs *ProjectStore) Exists(name string) bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
-	_, ok := rs.repos[name]
+	_, ok := rs.projects[name]
 	return ok
 }

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-test('repo pagination and sorting', async ({ page }) => {
-  await page.goto('/repos/repo?per=25');
+test('project pagination and sorting', async ({ page }) => {
+  await page.goto('/projects/project?per=25');
 
   const rows = page.locator('.stack-row');
   await expect(rows).toHaveCount(25);

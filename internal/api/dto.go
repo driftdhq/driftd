@@ -3,16 +3,16 @@ package api
 import "github.com/driftdhq/driftd/internal/queue"
 
 type apiScan struct {
-	ID        string `json:"id"`
-	RepoName  string `json:"repo_name"`
-	Trigger   string `json:"trigger,omitempty"`
-	Commit    string `json:"commit,omitempty"`
-	Actor     string `json:"actor,omitempty"`
-	Status    string `json:"status"`
-	CreatedAt int64  `json:"created_at"`
-	StartedAt int64  `json:"started_at"`
-	EndedAt   int64  `json:"ended_at,omitempty"`
-	Error     string `json:"error,omitempty"`
+	ID          string `json:"id"`
+	ProjectName string `json:"project_name"`
+	Trigger     string `json:"trigger,omitempty"`
+	Commit      string `json:"commit,omitempty"`
+	Actor       string `json:"actor,omitempty"`
+	Status      string `json:"status"`
+	CreatedAt   int64  `json:"created_at"`
+	StartedAt   int64  `json:"started_at"`
+	EndedAt     int64  `json:"ended_at,omitempty"`
+	Error       string `json:"error,omitempty"`
 
 	CommitSHA string `json:"commit_sha,omitempty"`
 
@@ -33,7 +33,7 @@ type apiScan struct {
 type apiStackScan struct {
 	ID          string `json:"id"`
 	ScanID      string `json:"scan_id"`
-	RepoName    string `json:"repo_name"`
+	ProjectName string `json:"project_name"`
 	StackPath   string `json:"stack_path"`
 	Status      string `json:"status"`
 	Retries     int    `json:"retries"`
@@ -52,24 +52,24 @@ func toAPIScan(scan *queue.Scan) *apiScan {
 		return nil
 	}
 	return &apiScan{
-		ID:        scan.ID,
-		RepoName:  scan.RepoName,
-		Trigger:   scan.Trigger,
-		Commit:    scan.Commit,
-		Actor:     scan.Actor,
-		Status:    scan.Status,
-		CreatedAt: scan.CreatedAt.Unix(),
-		StartedAt: scan.StartedAt.Unix(),
-		EndedAt:   scan.EndedAt.Unix(),
-		Error:     scan.Error,
-		CommitSHA: scan.CommitSHA,
-		Total:     scan.Total,
-		Queued:    scan.Queued,
-		Running:   scan.Running,
-		Completed: scan.Completed,
-		Failed:    scan.Failed,
-		Drifted:   scan.Drifted,
-		Errored:   scan.Errored,
+		ID:                scan.ID,
+		ProjectName:       scan.ProjectName,
+		Trigger:           scan.Trigger,
+		Commit:            scan.Commit,
+		Actor:             scan.Actor,
+		Status:            scan.Status,
+		CreatedAt:         scan.CreatedAt.Unix(),
+		StartedAt:         scan.StartedAt.Unix(),
+		EndedAt:           scan.EndedAt.Unix(),
+		Error:             scan.Error,
+		CommitSHA:         scan.CommitSHA,
+		Total:             scan.Total,
+		Queued:            scan.Queued,
+		Running:           scan.Running,
+		Completed:         scan.Completed,
+		Failed:            scan.Failed,
+		Drifted:           scan.Drifted,
+		Errored:           scan.Errored,
 		TerraformVersion:  scan.TerraformVersion,
 		TerragruntVersion: scan.TerragruntVersion,
 		StackTFVersions:   scan.StackTFVersions,
@@ -84,7 +84,7 @@ func toAPIStackScan(scan *queue.StackScan) *apiStackScan {
 	return &apiStackScan{
 		ID:          scan.ID,
 		ScanID:      scan.ScanID,
-		RepoName:    scan.RepoName,
+		ProjectName: scan.ProjectName,
 		StackPath:   scan.StackPath,
 		Status:      scan.Status,
 		Retries:     scan.Retries,

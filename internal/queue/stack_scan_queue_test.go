@@ -11,10 +11,10 @@ func TestClaimAndMarkRunningPreventsDoubleClaim(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		RepoName:   "repo",
-		RepoURL:    "file:///repo",
-		StackPath:  "envs/dev",
-		MaxRetries: 0,
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+		MaxRetries:  0,
 	}
 
 	if err := q.Enqueue(ctx, job); err != nil {
@@ -39,12 +39,12 @@ func TestRecoverOrphanedStackScans(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		ID:        "scan-orphaned",
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
-		Status:    StatusPending,
-		CreatedAt: time.Now(),
+		ID:          "scan-orphaned",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+		Status:      StatusPending,
+		CreatedAt:   time.Now(),
 	}
 
 	if err := q.saveStackScan(ctx, job); err != nil {
@@ -74,9 +74,9 @@ func TestPendingSetClearedWhenClaimed(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -97,18 +97,18 @@ func TestEnqueueDeduplication(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	dup := &StackScan{
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, dup); err != ErrStackScanInflight {
 		t.Fatalf("expected ErrStackScanInflight, got %v", err)
@@ -120,9 +120,9 @@ func TestInflightClearedOnComplete(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -134,9 +134,9 @@ func TestInflightClearedOnComplete(t *testing.T) {
 	}
 
 	again := &StackScan{
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, again); err != nil {
 		t.Fatalf("expected enqueue after complete, got %v", err)
@@ -148,10 +148,10 @@ func TestInflightRetainedUntilFinalFailure(t *testing.T) {
 	ctx := context.Background()
 
 	job := &StackScan{
-		RepoName:   "repo",
-		RepoURL:    "file:///repo",
-		StackPath:  "envs/dev",
-		MaxRetries: 1,
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+		MaxRetries:  1,
 	}
 	if err := q.Enqueue(ctx, job); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -163,9 +163,9 @@ func TestInflightRetainedUntilFinalFailure(t *testing.T) {
 	}
 
 	dup := &StackScan{
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, dup); err != ErrStackScanInflight {
 		t.Fatalf("expected ErrStackScanInflight during retry, got %v", err)
@@ -177,9 +177,9 @@ func TestInflightRetainedUntilFinalFailure(t *testing.T) {
 	}
 
 	after := &StackScan{
-		RepoName:  "repo",
-		RepoURL:   "file:///repo",
-		StackPath: "envs/dev",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
 	}
 	if err := q.Enqueue(ctx, after); err != nil {
 		t.Fatalf("expected enqueue after final failure, got %v", err)

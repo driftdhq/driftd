@@ -23,8 +23,8 @@ func New(s *storage.Storage) *Runner {
 
 // RunParams contains all parameters needed to execute a plan.
 type RunParams struct {
-	RepoName      string
-	RepoURL       string
+	ProjectName   string
+	ProjectURL    string
 	StackPath     string
 	TFVersion     string
 	TGVersion     string
@@ -43,7 +43,7 @@ func (r *Runner) Run(ctx context.Context, params *RunParams) (*storage.RunResult
 		return result, nil
 	}
 
-	repoRoot, cleanup, err := r.prepareRepoRoot(ctx, params.RepoURL, params.WorkspacePath, params.Auth)
+	projectRoot, cleanup, err := r.prepareProjectRoot(ctx, params.ProjectURL, params.WorkspacePath, params.Auth)
 	if err != nil {
 		result.Error = err.Error()
 		return result, nil
@@ -52,13 +52,13 @@ func (r *Runner) Run(ctx context.Context, params *RunParams) (*storage.RunResult
 		defer cleanup()
 	}
 
-	workDir := filepath.Join(repoRoot, params.StackPath)
+	workDir := filepath.Join(projectRoot, params.StackPath)
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
 		result.Error = fmt.Sprintf("stack path not found: %s", params.StackPath)
 		return result, nil
 	}
 
-	output, err := planStack(ctx, workDir, repoRoot, params.StackPath, params.TFVersion, params.TGVersion, params.RunID)
+	output, err := planStack(ctx, workDir, projectRoot, params.StackPath, params.TFVersion, params.TGVersion, params.RunID)
 	result.PlanOutput = RedactPlanOutput(output)
 
 	if err != nil {
@@ -79,7 +79,7 @@ func (r *Runner) Run(ctx context.Context, params *RunParams) (*storage.RunResult
 		result.Drifted = result.Added > 0 || result.Changed > 0 || result.Destroyed > 0
 	}
 
-	if saveErr := r.storage.SaveResult(params.RepoName, params.StackPath, result); saveErr != nil {
+	if saveErr := r.storage.SaveResult(params.ProjectName, params.StackPath, result); saveErr != nil {
 		return result, fmt.Errorf("failed to save result: %w", saveErr)
 	}
 

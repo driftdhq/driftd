@@ -1,4 +1,4 @@
-package repos
+package projects
 
 import (
 	"fmt"
@@ -9,20 +9,20 @@ import (
 
 // Provider resolves repository configurations from static config and dynamic store.
 type Provider interface {
-	List() ([]config.RepoConfig, error)
-	Get(name string) (*config.RepoConfig, error)
+	List() ([]config.ProjectConfig, error)
+	Get(name string) (*config.ProjectConfig, error)
 }
 
-// CombinedProvider merges static config repos with dynamic repos.
+// CombinedProvider merges static config projects with dynamic projects.
 // Static config takes precedence over dynamic entries.
 type CombinedProvider struct {
 	cfg     *config.Config
-	store   *secrets.RepoStore
+	store   *secrets.ProjectStore
 	ints    *secrets.IntegrationStore
 	dataDir string
 }
 
-func NewCombinedProvider(cfg *config.Config, store *secrets.RepoStore, ints *secrets.IntegrationStore, dataDir string) *CombinedProvider {
+func NewCombinedProvider(cfg *config.Config, store *secrets.ProjectStore, ints *secrets.IntegrationStore, dataDir string) *CombinedProvider {
 	return &CombinedProvider{
 		cfg:     cfg,
 		store:   store,
@@ -31,17 +31,17 @@ func NewCombinedProvider(cfg *config.Config, store *secrets.RepoStore, ints *sec
 	}
 }
 
-func (p *CombinedProvider) List() ([]config.RepoConfig, error) {
-	repos := make([]config.RepoConfig, 0, len(p.cfg.Repos))
-	seen := make(map[string]struct{}, len(p.cfg.Repos))
+func (p *CombinedProvider) List() ([]config.ProjectConfig, error) {
+	projects := make([]config.ProjectConfig, 0, len(p.cfg.Projects))
+	seen := make(map[string]struct{}, len(p.cfg.Projects))
 
-	for _, repo := range p.cfg.Repos {
-		repos = append(repos, repo)
-		seen[repo.Name] = struct{}{}
+	for _, project := range p.cfg.Projects {
+		projects = append(projects, project)
+		seen[project.Name] = struct{}{}
 	}
 
 	if p.store == nil {
-		return repos, nil
+		return projects, nil
 	}
 
 	for _, entry := range p.store.List() {
@@ -56,22 +56,22 @@ func (p *CombinedProvider) List() ([]config.RepoConfig, error) {
 		if err != nil {
 			return nil, err
 		}
-		repoCfg, err := secrets.RepoConfigFromEntry(entryWithCreds, creds, integration, p.dataDir)
+		projectCfg, err := secrets.ProjectConfigFromEntry(entryWithCreds, creds, integration, p.dataDir)
 		if err != nil {
-			return nil, fmt.Errorf("failed to build repo config for %s: %w", entry.Name, err)
+			return nil, fmt.Errorf("failed to build project config for %s: %w", entry.Name, err)
 		}
-		repos = append(repos, *repoCfg)
+		projects = append(projects, *projectCfg)
 	}
 
-	return repos, nil
+	return projects, nil
 }
 
-func (p *CombinedProvider) Get(name string) (*config.RepoConfig, error) {
-	if repo := p.cfg.GetRepo(name); repo != nil {
-		return repo, nil
+func (p *CombinedProvider) Get(name string) (*config.ProjectConfig, error) {
+	if project := p.cfg.GetProject(name); project != nil {
+		return project, nil
 	}
 	if p.store == nil {
-		return nil, secrets.ErrRepoNotFound
+		return nil, secrets.ErrProjectNotFound
 	}
 	entry, creds, err := p.store.GetWithCredentials(name)
 	if err != nil {
@@ -81,7 +81,7 @@ func (p *CombinedProvider) Get(name string) (*config.RepoConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return secrets.RepoConfigFromEntry(entry, creds, integration, p.dataDir)
+	return secrets.ProjectConfigFromEntry(entry, creds, integration, p.dataDir)
 }
 
 func (p *CombinedProvider) lookupIntegration(id string) (*secrets.IntegrationEntry, error) {
