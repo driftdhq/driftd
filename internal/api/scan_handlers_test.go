@@ -118,6 +118,37 @@ func TestScanRepoInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestScanRepoDefaultsTriggerToManual(t *testing.T) {
+	runner := &fakeRunner{}
+	ts, _, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/scan", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if sr.Scan == nil {
+		t.Fatalf("expected scan in response")
+	}
+	if sr.Scan.Trigger != "manual" {
+		t.Fatalf("expected default trigger manual, got %q", sr.Scan.Trigger)
+	}
+
+	scan := getScan(t, ts, sr.Scan.ID)
+	if scan.Trigger != "manual" {
+		t.Fatalf("expected persisted trigger manual, got %q", scan.Trigger)
+	}
+}
+
 func TestCancelInflightOnNewTrigger(t *testing.T) {
 	runner := &fakeRunner{}
 	ts, q, cleanup := newTestServer(t, runner, []string{"envs/prod"}, false, nil, true)
@@ -310,6 +341,57 @@ func TestScanStackNotFound(t *testing.T) {
 
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestScanStackDefaultsTriggerToManual(t *testing.T) {
+	runner := &fakeRunner{
+		drifted: map[string]bool{
+			"dev": false,
+		},
+	}
+
+	ts, _, cleanup := newTestServer(t, runner, []string{"dev"}, false, nil, true)
+	defer cleanup()
+
+	resp, err := http.Post(ts.URL+"/api/repos/repo/stacks/dev", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("scan stack request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sr scanResp
+	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if sr.Scan == nil {
+		t.Fatalf("expected scan in response")
+	}
+	if sr.Scan.Trigger != "manual" {
+		t.Fatalf("expected default trigger manual, got %q", sr.Scan.Trigger)
+	}
+	if len(sr.Stacks) != 1 {
+		t.Fatalf("expected one stack scan id, got %v", sr.Stacks)
+	}
+
+	stackResp, err := http.Get(ts.URL + "/api/stacks/" + sr.Stacks[0])
+	if err != nil {
+		t.Fatalf("get stack scan: %v", err)
+	}
+	defer stackResp.Body.Close()
+	if stackResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /api/stacks/*, got %d", stackResp.StatusCode)
+	}
+
+	var stack apiStackScan
+	if err := json.NewDecoder(stackResp.Body).Decode(&stack); err != nil {
+		t.Fatalf("decode stack scan: %v", err)
+	}
+	if stack.Trigger != "manual" {
+		t.Fatalf("expected stack trigger manual, got %q", stack.Trigger)
 	}
 }
 

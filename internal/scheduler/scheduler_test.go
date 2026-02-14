@@ -260,3 +260,36 @@ func TestSchedulerEmptyScheduleSkipped(t *testing.T) {
 		t.Errorf("expected 1 cron entry (repo2 only), got %d", len(entries))
 	}
 }
+
+func TestScheduledScanJitterDeterministicAndBounded(t *testing.T) {
+	first := scheduledScanJitter("repo-a")
+	second := scheduledScanJitter("repo-a")
+
+	if first != second {
+		t.Fatalf("expected deterministic jitter, got %s and %s", first, second)
+	}
+	if first < 0 || first >= scheduledScanMaxJitter {
+		t.Fatalf("jitter out of range: %s", first)
+	}
+	if got := scheduledScanJitter(""); got != 0 {
+		t.Fatalf("expected no jitter for empty repo name, got %s", got)
+	}
+}
+
+func TestScheduledScanJitterVariesAcrossRepos(t *testing.T) {
+	repos := []string{
+		"repo-a",
+		"repo-b",
+		"repo-c",
+		"repo-d",
+		"repo-e",
+		"repo-f",
+	}
+	seen := make(map[time.Duration]struct{}, len(repos))
+	for _, repoName := range repos {
+		seen[scheduledScanJitter(repoName)] = struct{}{}
+	}
+	if len(seen) < 2 {
+		t.Fatalf("expected at least two distinct jitter buckets across repos, got %d", len(seen))
+	}
+}

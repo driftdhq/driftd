@@ -68,6 +68,14 @@ type scanRequest struct {
 	Actor   string `json:"actor,omitempty"`
 }
 
+func normalizeScanTrigger(trigger string) string {
+	trigger = strings.TrimSpace(trigger)
+	if trigger == "" {
+		return "manual"
+	}
+	return trigger
+}
+
 type scanResponse struct {
 	Stacks     []string   `json:"stacks,omitempty"`
 	Scan       *apiScan   `json:"scan,omitempty"`
@@ -132,7 +140,8 @@ func (s *Server) handleScanRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scan, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
+	trigger := normalizeScanTrigger(req.Trigger)
+	scan, enqResult, err := s.orchestrator.StartAndEnqueue(r.Context(), repoCfg, trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), repoName)
@@ -193,7 +202,8 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, req.Trigger, req.Commit, req.Actor)
+	trigger := normalizeScanTrigger(req.Trigger)
+	scan, stacks, err := s.startScanWithCancel(r.Context(), repoCfg, trigger, req.Commit, req.Actor)
 	if err != nil {
 		if err == queue.ErrRepoLocked {
 			activeScan, activeErr := s.queue.GetActiveScan(r.Context(), repoName)
@@ -217,7 +227,7 @@ func (s *Server) handleScanStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enqResult, enqueueErr := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, req.Trigger, req.Commit, req.Actor)
+	enqResult, enqueueErr := s.orchestrator.EnqueueStacks(r.Context(), scan, repoCfg, []string{stackPath}, trigger, req.Commit, req.Actor)
 	w.Header().Set("Content-Type", "application/json")
 	if enqueueErr != nil {
 		if enqueueErr == orchestrate.ErrNoStacksEnqueued {

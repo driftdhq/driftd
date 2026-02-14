@@ -2,8 +2,10 @@ package scheduler
 
 import (
 	"context"
+	"hash/fnv"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/driftdhq/driftd/internal/config"
 	"github.com/driftdhq/driftd/internal/orchestrate"
@@ -11,6 +13,8 @@ import (
 	"github.com/driftdhq/driftd/internal/repos"
 	"github.com/robfig/cron/v3"
 )
+
+const scheduledScanMaxJitter = 20 * time.Second
 
 type Scheduler struct {
 	cron         *cron.Cron
@@ -111,6 +115,12 @@ func (s *Scheduler) unscheduleRepo(name string) {
 }
 
 func (s *Scheduler) enqueueRepoScans(repoName string) {
+	if delay := scheduledScanJitter(repoName); delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		<-timer.C
+	}
+
 	ctx := context.Background()
 	repoCfg, err := s.provider.Get(repoName)
 	if err != nil || repoCfg == nil {
@@ -129,4 +139,14 @@ func (s *Scheduler) enqueueRepoScans(repoName string) {
 	}
 
 	log.Printf("Enqueued %d scheduled stacks for %s", len(result.StackIDs), repoName)
+}
+
+func scheduledScanJitter(repoName string) time.Duration {
+	if repoName == "" || scheduledScanMaxJitter <= 0 {
+		return 0
+	}
+
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(repoName))
+	return time.Duration(h.Sum64() % uint64(scheduledScanMaxJitter))
 }
