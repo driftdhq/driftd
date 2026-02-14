@@ -454,7 +454,33 @@ a:hover {
     gap: 0.75rem;
     align-items: center;
     justify-content: flex-end;
+    margin-bottom: 0;
+}
+
+.stack-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
     margin-bottom: 0.75rem;
+}
+
+.stack-progress-anchor {
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+}
+
+.stack-progress-anchor .progress-bar {
+    width: 220px;
+}
+
+.stack-progress-anchor .progress .meta {
+    color: var(--text-muted);
+    margin: 0;
+    min-width: 7ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 .stack-control {
@@ -496,7 +522,7 @@ a:hover {
 .stack-tree-header,
 .stack-row {
     display: grid;
-    grid-template-columns: minmax(300px, 2fr) 120px 90px;
+    grid-template-columns: minmax(300px, 2fr) minmax(170px, 1.2fr) 120px;
     gap: 0.75rem;
     align-items: center;
     padding: 0.8rem 1rem;
@@ -527,9 +553,16 @@ a:hover {
     background: rgba(77, 215, 255, 0.06);
 }
 
-.stack-cell.scan {
-    display: flex;
-    justify-content: flex-end;
+.stack-cell.scan-meta {
+    min-width: 0;
+}
+
+.stack-scan-pill {
+    display: inline-flex;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .stack-cell.stack-name {
@@ -654,6 +687,23 @@ a:hover {
     margin-bottom: 1.5rem;
     gap: 1rem;
     flex-wrap: wrap;
+}
+
+.project-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.project-title-group h1 {
+    margin: 0;
+}
+
+.project-commit-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .scan-summary {
@@ -858,9 +908,9 @@ a:hover {
         padding: 1.5rem 1rem 3rem;
     }
 
-    .scan-summary {
+    .stack-toolbar {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
     }
 
     .projects-list-header,
@@ -873,9 +923,21 @@ a:hover {
         display: none;
     }
 
+    .stack-controls {
+        justify-content: flex-start;
+    }
+
+    .stack-progress-anchor {
+        min-height: 0;
+    }
+
+    .stack-progress-anchor .progress-bar {
+        width: 160px;
+    }
+
     .stack-tree-header,
     .stack-row {
-        grid-template-columns: minmax(150px, 1fr) 90px 72px;
+        grid-template-columns: minmax(140px, 1fr) minmax(120px, 1fr) 84px;
     }
 
     .progress-bar {
@@ -895,7 +957,7 @@ a:hover {
 
     .stack-tree-header,
     .stack-row {
-        grid-template-columns: minmax(200px, 1fr) 110px 76px;
+        grid-template-columns: minmax(200px, 1fr) minmax(140px, 1fr) 96px;
     }
 }
 

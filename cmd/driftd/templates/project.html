@@ -6,7 +6,30 @@
 </nav>
 
 <div class="project-header-section">
-    <h1>{{.Name}}</h1>
+    <div class="project-title-group">
+        <h1>{{.Name}}</h1>
+        {{if and .Config .ActiveScan .ActiveScan.CommitSHA}}
+            {{$commitURL := commitURL .Config.URL .ActiveScan.CommitSHA}}
+            <span class="meta-pill project-commit-pill">
+                Commit
+                {{if $commitURL}}
+                    <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .ActiveScan.CommitSHA}}</a>
+                {{else}}
+                    {{printf "%.7s" .ActiveScan.CommitSHA}}
+                {{end}}
+            </span>
+        {{else if and .Config .LastScan .LastScan.CommitSHA}}
+            {{$commitURL := commitURL .Config.URL .LastScan.CommitSHA}}
+            <span class="meta-pill project-commit-pill">
+                Commit
+                {{if $commitURL}}
+                    <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .LastScan.CommitSHA}}</a>
+                {{else}}
+                    {{printf "%.7s" .LastScan.CommitSHA}}
+                {{end}}
+            </span>
+        {{end}}
+    </div>
     {{if .Config}}
     <form method="POST" action="/projects/{{.Name}}/scan" class="scan-form">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -15,75 +38,56 @@
     {{end}}
 </div>
 
-{{if .ActiveScan}}
-<div class="scan-summary active">
-    <div>
-        <strong>Scanning</strong>
-        {{if .ActiveScan.CommitSHA}}<span class="meta">commit {{printf "%.7s" .ActiveScan.CommitSHA}}</span>{{end}}
-    </div>
-    <div class="progress">
-        <div class="progress-bar">
-            {{$pct := 0}}
-            {{if gt .ActiveScan.Total 0}}
-                {{$pct = div (mul (add .ActiveScan.Completed .ActiveScan.Failed) 100) .ActiveScan.Total}}
-            {{end}}
-            <div class="progress-fill" style="width: {{$pct}}%"></div>
-        </div>
-        <span class="meta">{{add .ActiveScan.Completed .ActiveScan.Failed}} / {{.ActiveScan.Total}}</span>
-    </div>
-</div>
-{{else if .LastScan}}
-<div class="scan-summary">
-    <div>
-        <strong>Last scan</strong>
-        <span class="meta">{{timeAgo .LastScan.EndedAt}}</span>
-        {{if and .Config .LastScan.CommitSHA}}
-            {{$commitURL := commitURL .Config.URL .LastScan.CommitSHA}}
-            {{if $commitURL}}
-                <span class="meta">Commit <a href="{{$commitURL}}" target="_blank" rel="noreferrer">{{printf "%.7s" .LastScan.CommitSHA}}</a></span>
-            {{else}}
-                <span class="meta">Commit {{printf "%.7s" .LastScan.CommitSHA}}</span>
-            {{end}}
-        {{end}}
-    </div>
-</div>
-{{end}}
-
-
 {{if .Stacks}}
 <section class="stacks">
-    <form method="GET" action="/projects/{{.Name}}" class="stack-controls">
-        <label class="stack-control">
-            Sort
-            <select name="sort">
-                <option value="path" {{if eq .Sort "path"}}selected{{end}}>Path</option>
-                <option value="status" {{if eq .Sort "status"}}selected{{end}}>Status</option>
-                <option value="last_run" {{if eq .Sort "last_run"}}selected{{end}}>Scan</option>
-            </select>
-        </label>
-        <label class="stack-control">
-            Order
-            <select name="order">
-                <option value="asc" {{if eq .Order "asc"}}selected{{end}}>Asc</option>
-                <option value="desc" {{if eq .Order "desc"}}selected{{end}}>Desc</option>
-            </select>
-        </label>
-        <label class="stack-control">
-            Per page
-            <select name="per">
-                <option value="25" {{if eq .Pagination.PerPage 25}}selected{{end}}>25</option>
-                <option value="50" {{if eq .Pagination.PerPage 50}}selected{{end}}>50</option>
-                <option value="100" {{if eq .Pagination.PerPage 100}}selected{{end}}>100</option>
-                <option value="200" {{if eq .Pagination.PerPage 200}}selected{{end}}>200</option>
-            </select>
-        </label>
-        <button type="submit" class="btn btn-small">Apply</button>
-    </form>
+    <div class="stack-toolbar">
+        <div class="stack-progress-anchor{{if .ActiveScan}} is-active{{end}}">
+            {{if .ActiveScan}}
+            <div class="progress">
+                <div class="progress-bar">
+                    {{$pct := 0}}
+                    {{if gt .ActiveScan.Total 0}}
+                        {{$pct = div (mul (add .ActiveScan.Completed .ActiveScan.Failed) 100) .ActiveScan.Total}}
+                    {{end}}
+                    <div class="progress-fill" style="width: {{$pct}}%"></div>
+                </div>
+                <span class="meta">{{add .ActiveScan.Completed .ActiveScan.Failed}} / {{.ActiveScan.Total}}</span>
+            </div>
+            {{end}}
+        </div>
+        <form method="GET" action="/projects/{{.Name}}" class="stack-controls">
+            <label class="stack-control">
+                Sort
+                <select name="sort">
+                    <option value="path" {{if eq .Sort "path"}}selected{{end}}>Path</option>
+                    <option value="status" {{if eq .Sort "status"}}selected{{end}}>Status</option>
+                    <option value="last_run" {{if eq .Sort "last_run"}}selected{{end}}>Last Scan</option>
+                </select>
+            </label>
+            <label class="stack-control">
+                Order
+                <select name="order">
+                    <option value="asc" {{if eq .Order "asc"}}selected{{end}}>Asc</option>
+                    <option value="desc" {{if eq .Order "desc"}}selected{{end}}>Desc</option>
+                </select>
+            </label>
+            <label class="stack-control">
+                Per page
+                <select name="per">
+                    <option value="25" {{if eq .Pagination.PerPage 25}}selected{{end}}>25</option>
+                    <option value="50" {{if eq .Pagination.PerPage 50}}selected{{end}}>50</option>
+                    <option value="100" {{if eq .Pagination.PerPage 100}}selected{{end}}>100</option>
+                    <option value="200" {{if eq .Pagination.PerPage 200}}selected{{end}}>200</option>
+                </select>
+            </label>
+            <button type="submit" class="btn btn-small">Apply</button>
+        </form>
+    </div>
     <div class="stack-tree">
         <div class="stack-tree-header">
             <div class="stack-cell stack-name">Stack</div>
+            <div class="stack-cell scan-meta"><span class="sr-only">Last Scan</span></div>
             <div class="stack-cell status">Status</div>
-            <div class="stack-cell scan">Scan</div>
         </div>
         <div class="stack-tree-body">
             {{range .Stacks}}
@@ -91,16 +95,15 @@
                 <div class="stack-cell stack-name">
                     <a href="/projects/{{$.Name}}/stacks/{{.Path}}" class="stack-link">{{.Path}}</a>
                 </div>
+                <div class="stack-cell scan-meta">
+                    <span class="meta-pill stack-scan-pill" data-last-scan="{{if not .RunAt.IsZero}}Last scan {{timeAgo .RunAt}}{{end}}">
+                        {{if not .RunAt.IsZero}}Last scan {{timeAgo .RunAt}}{{else}}No scans yet{{end}}
+                    </span>
+                </div>
                 <div class="stack-cell status">
                     {{if .Error}}<span class="badge badge-error">Error</span>
                     {{else if .Drifted}}<span class="badge badge-drift">Drifted</span>
                     {{else}}<span class="badge badge-ok">Healthy</span>{{end}}
-                </div>
-                <div class="stack-cell scan">
-                    <form method="POST" action="/projects/{{$.Name}}/stacks/{{.Path}}" class="inline-form">
-                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                        <button type="submit" class="btn btn-small stack-scan-btn">Scan</button>
-                    </form>
                 </div>
             </div>
             {{end}}
@@ -144,21 +147,26 @@
             if (statusCell) {
                 statusCell.innerHTML = formatStatus(stack.status, stack.drifted, stack.error);
             }
-            const scanButton = row.querySelector(".stack-scan-btn");
-            if (scanButton) {
+            const scanPill = row.querySelector(".stack-scan-pill");
+            if (scanPill) {
                 if (stack.status === "running") {
-                    scanButton.disabled = true;
-                    scanButton.textContent = "Scanning";
+                    scanPill.textContent = "Scanning...";
                 } else {
-                    scanButton.disabled = false;
-                    scanButton.textContent = "Scan";
+                    const hasRunAt = Boolean(stack.run_at);
+                    if (hasRunAt) {
+                        scanPill.textContent = "Last scan just now";
+                        scanPill.setAttribute("data-last-scan", "Last scan just now");
+                    } else {
+                        const lastScan = scanPill.getAttribute("data-last-scan");
+                        scanPill.textContent = lastScan || "No scans yet";
+                    }
                 }
             }
         };
 
         const updateScanProgress = (scan) => {
             if (!scan) return;
-            const summary = document.querySelector(".scan-summary.active");
+            const summary = document.querySelector(".stack-progress-anchor.is-active");
             if (!summary) return;
             const progressFill = summary.querySelector(".progress-fill");
             const progressMeta = summary.querySelector(".progress .meta");
@@ -206,6 +214,9 @@
                     status: data.status,
                     progress_pct: data.progress_pct,
                 });
+                if (data.status === "completed" || data.status === "failed" || data.status === "canceled") {
+                    window.location.reload();
+                }
             }
         });
 
