@@ -96,6 +96,8 @@ helm install driftd ./helm/driftd \
 See `helm/driftd/README.md` for full chart documentation.
 For external OIDC with oauth2-proxy (Okta/Google/Azure AD), see:
 `helm/driftd/examples/oauth2-proxy/`.
+For a production baseline values file, see:
+`helm/driftd/examples/values-prod-example.yaml`.
 
 ### Quickstart (Minikube)
 

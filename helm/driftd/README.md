@@ -43,6 +43,10 @@ Example files for oauth2-proxy are provided in:
 
 - `helm/driftd/examples/oauth2-proxy/`
 
+Production baseline values example:
+
+- `helm/driftd/examples/values-prod-example.yaml`
+
 ## Required In Secure Mode
 
 When `config.insecure_dev_mode=false` (recommended), driftd requires:

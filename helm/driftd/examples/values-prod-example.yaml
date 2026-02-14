@@ -1,0 +1,112 @@
+# Production-oriented baseline values for driftd.
+# Replace placeholders and tune to your environment.
+
+image:
+  repository: ghcr.io/driftdhq/driftd
+  # Pin to a release/tag for production.
+  tag: v0.1.0
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+server:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  envFrom:
+    - secretRef:
+        name: driftd-runtime
+    - secretRef:
+        name: driftd-git-creds
+
+worker:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  envFrom:
+    - secretRef:
+        name: driftd-runtime
+    - secretRef:
+        name: driftd-git-creds
+    - secretRef:
+        name: driftd-cloud-provider
+
+storage:
+  data:
+    enabled: true
+    size: 100Gi
+    accessModes: ["ReadWriteMany"]
+    storageClassName: "REPLACE_WITH_RWX_STORAGE_CLASS"
+  cache:
+    enabled: true
+    size: 50Gi
+    accessModes: ["ReadWriteMany"]
+    storageClassName: "REPLACE_WITH_RWX_STORAGE_CLASS"
+
+config:
+  insecure_dev_mode: false
+  data_dir: /data
+  listen_addr: ":8080"
+
+  # Use external auth proxy headers (oauth2-proxy, etc.).
+  auth:
+    mode: external
+    external:
+      user_header: X-Auth-Request-User
+      email_header: X-Auth-Request-Email
+      groups_header: X-Auth-Request-Groups
+      groups_delimiter: ","
+      default_role: viewer
+      roles:
+        viewers:
+          - driftd-viewers
+        operators:
+          - driftd-operators
+        admins:
+          - driftd-admins
+
+  # API trust proxy headers for rate limiting/client IP when behind ingress.
+  api:
+    trust_proxy: true
+    rate_limit_per_minute: 120
+
+  # Configure external Redis for durability and managed operations.
+  redis:
+    addr: "redis-master.redis.svc.cluster.local:6379"
+    password: ""
+    db: 0
+
+  webhook:
+    enabled: true
+    github_secret: "REPLACE_WITH_WEBHOOK_SECRET"
+
+  worker:
+    concurrency: 8
+    lock_ttl: 45m
+    retry_once: true
+    scan_max_age: 8h
+    renew_every: 15s
+    stack_timeout: 45m
+
+  workspace:
+    retention: 8
+    cleanup_after_plan: true
+
+  # Define projects or manage via /settings.
+  projects: []
+
+# Disable in-cluster Redis for production external Redis.
+redis:
+  enabled: false
