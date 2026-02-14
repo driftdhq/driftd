@@ -3,10 +3,14 @@ package storage
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/driftdhq/driftd/internal/pathutil"
 )
 
 type Storage struct {
@@ -47,6 +51,12 @@ type StackStatus struct {
 	RunAt     time.Time
 }
 
+var (
+	ErrInvalidProjectName = errors.New("invalid project name")
+	ErrInvalidStackPath   = errors.New("invalid stack path")
+	projectNamePattern    = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+)
+
 func New(dataDir string) *Storage {
 	return &Storage{dataDir: dataDir}
 }
@@ -64,6 +74,13 @@ func safePath(path string) string {
 }
 
 func (s *Storage) SaveResult(projectName, stackPath string, result *RunResult) error {
+	if err := validateProjectName(projectName); err != nil {
+		return err
+	}
+	if err := validateStackPath(stackPath); err != nil {
+		return err
+	}
+
 	dir := s.stackDir(s.resultsDir(), projectName, stackPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -123,6 +140,13 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 }
 
 func (s *Storage) GetResult(projectName, stackPath string) (*RunResult, error) {
+	if err := validateProjectName(projectName); err != nil {
+		return nil, err
+	}
+	if err := validateStackPath(stackPath); err != nil {
+		return nil, err
+	}
+
 	// Prefer the new layout under <data_dir>/results, but support legacy reads
 	// from <data_dir>/<project>/<stack> for existing installations.
 	dir := s.stackDir(s.resultsDir(), projectName, stackPath)
@@ -202,6 +226,10 @@ func (s *Storage) ListRepos() ([]ProjectStatus, error) {
 }
 
 func (s *Storage) ListStacks(projectName string) ([]StackStatus, error) {
+	if err := validateProjectName(projectName); err != nil {
+		return nil, err
+	}
+
 	merged := map[string]StackStatus{}
 
 	// Load legacy first, then results/ overwrites.
@@ -217,6 +245,9 @@ func (s *Storage) ListStacks(projectName string) ([]StackStatus, error) {
 			}
 			stackPath, err := decodeSafePath(entry.Name())
 			if err != nil {
+				continue
+			}
+			if err := validateStackPath(stackPath); err != nil {
 				continue
 			}
 			result, err := s.GetResult(projectName, stackPath)
@@ -261,4 +292,18 @@ func isReservedProjectDir(name string) bool {
 	default:
 		return false
 	}
+}
+
+func validateProjectName(name string) error {
+	if name == "" || len(name) > 255 || !projectNamePattern.MatchString(name) {
+		return ErrInvalidProjectName
+	}
+	return nil
+}
+
+func validateStackPath(stackPath string) error {
+	if !pathutil.IsSafeStackPath(stackPath) {
+		return ErrInvalidStackPath
+	}
+	return nil
 }

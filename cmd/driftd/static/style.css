@@ -318,10 +318,6 @@ a:hover {
     text-decoration: none;
 }
 
-.project-row-link {
-    cursor: pointer;
-}
-
 .project-row:last-child {
     border-bottom: none;
 }
@@ -346,10 +342,16 @@ a:hover {
 }
 
 .project-name {
+    color: inherit;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-decoration: none;
     white-space: nowrap;
+}
+
+.project-name:hover {
+    text-decoration: underline;
 }
 
 .project-cell.commit a {

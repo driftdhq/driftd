@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -379,5 +380,32 @@ func TestListReposIgnoresFiles(t *testing.T) {
 	}
 	if projects[0].Name != "project" {
 		t.Errorf("expected project name 'project', got %q", projects[0].Name)
+	}
+}
+
+func TestSaveResultRejectsInvalidProjectName(t *testing.T) {
+	s := New(t.TempDir())
+
+	err := s.SaveResult("../project", "stack", &RunResult{RunAt: time.Now()})
+	if !errors.Is(err, ErrInvalidProjectName) {
+		t.Fatalf("expected ErrInvalidProjectName, got %v", err)
+	}
+}
+
+func TestGetResultRejectsInvalidStackPath(t *testing.T) {
+	s := New(t.TempDir())
+
+	_, err := s.GetResult("project", "../../etc/passwd")
+	if !errors.Is(err, ErrInvalidStackPath) {
+		t.Fatalf("expected ErrInvalidStackPath, got %v", err)
+	}
+}
+
+func TestListStacksRejectsInvalidProjectName(t *testing.T) {
+	s := New(t.TempDir())
+
+	_, err := s.ListStacks("../../../tmp")
+	if !errors.Is(err, ErrInvalidProjectName) {
+		t.Fatalf("expected ErrInvalidProjectName, got %v", err)
 	}
 }
