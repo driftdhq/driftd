@@ -44,6 +44,9 @@ type WorkerConfig struct {
 	RenewEvery  time.Duration `yaml:"renew_every"`
 	// StackTimeout caps how long a single stack plan is allowed to run in a worker.
 	StackTimeout time.Duration `yaml:"stack_timeout"`
+	// BlockExternalDataSource blocks scans when local stack config uses Terraform data "external".
+	// This is a defense-in-depth control to reduce arbitrary command execution risk during plan.
+	BlockExternalDataSource bool `yaml:"block_external_data_source"`
 }
 
 type WorkspaceConfig struct {

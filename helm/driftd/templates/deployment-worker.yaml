@@ -30,7 +30,7 @@ spec:
 {{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
       containers:
         - name: driftd
-          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          image: "{{ include "driftd.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
 {{- toYaml .Values.worker.securityContext | nindent 12 }}

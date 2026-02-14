@@ -31,6 +31,8 @@ type RunParams struct {
 	RunID         string
 	Auth          transport.AuthMethod
 	WorkspacePath string
+	// BlockExternalDataSource blocks stacks that use Terraform data "external".
+	BlockExternalDataSource bool
 }
 
 func (r *Runner) Run(ctx context.Context, params *RunParams) (*storage.RunResult, error) {
@@ -55,6 +57,10 @@ func (r *Runner) Run(ctx context.Context, params *RunParams) (*storage.RunResult
 	workDir := filepath.Join(projectRoot, params.StackPath)
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
 		result.Error = fmt.Sprintf("stack path not found: %s", params.StackPath)
+		return result, nil
+	}
+	if err := enforceExternalDataSourcePolicy(workDir, params.BlockExternalDataSource); err != nil {
+		result.Error = err.Error()
 		return result, nil
 	}
 

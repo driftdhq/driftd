@@ -27,6 +27,7 @@ type runCall struct {
 	tfVersion     string
 	tgVersion     string
 	workspacePath string
+	blockExternal bool
 }
 
 func newMockRunner() *mockRunner {
@@ -44,6 +45,7 @@ func (m *mockRunner) Run(ctx context.Context, params *runner.RunParams) (*storag
 		tfVersion:     params.TFVersion,
 		tgVersion:     params.TGVersion,
 		workspacePath: params.WorkspacePath,
+		blockExternal: params.BlockExternalDataSource,
 	})
 	m.mu.Unlock()
 
@@ -409,6 +411,9 @@ func TestWorkerWithConfig(t *testing.T) {
 	r := newMockRunner()
 
 	cfg := &config.Config{
+		Worker: config.WorkerConfig{
+			BlockExternalDataSource: true,
+		},
 		Projects: []config.ProjectConfig{
 			{
 				Name: "project",
@@ -449,6 +454,14 @@ func TestWorkerWithConfig(t *testing.T) {
 	}
 	if got.Status != queue.StatusCompleted {
 		t.Errorf("job status: got %s, want completed", got.Status)
+	}
+
+	calls := r.getCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if !calls[0].blockExternal {
+		t.Fatalf("expected worker to pass block_external_data_source=true to runner")
 	}
 }
 

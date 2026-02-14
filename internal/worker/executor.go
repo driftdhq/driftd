@@ -9,13 +9,14 @@ import (
 
 func (w *Worker) executePlan(ctx context.Context, sc *ScanContext) (*storage.RunResult, error) {
 	return w.runner.Run(ctx, &runner.RunParams{
-		ProjectName:   sc.ProjectName,
-		ProjectURL:    sc.ProjectURL,
-		StackPath:     sc.StackPath,
-		TFVersion:     sc.TFVersion,
-		TGVersion:     sc.TGVersion,
-		RunID:         sc.ScanID,
-		Auth:          sc.Auth,
-		WorkspacePath: sc.WorkspacePath,
+		ProjectName:             sc.ProjectName,
+		ProjectURL:              sc.ProjectURL,
+		StackPath:               sc.StackPath,
+		TFVersion:               sc.TFVersion,
+		TGVersion:               sc.TGVersion,
+		RunID:                   sc.ScanID,
+		Auth:                    sc.Auth,
+		WorkspacePath:           sc.WorkspacePath,
+		BlockExternalDataSource: w.cfg != nil && w.cfg.Worker.BlockExternalDataSource,
 	})
 }

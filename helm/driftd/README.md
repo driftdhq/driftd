@@ -20,6 +20,7 @@ helm install driftd ./helm/driftd \
 Key values in `values.yaml`:
 
 - `image.repository`, `image.tag`, `image.pullPolicy`
+- `image.digest` (takes precedence over tag for immutable deploys)
 - `image.pullSecrets` for private registries
 - `service.type`, `service.port`
 - `serviceAccount.*` (including IRSA/workload identity annotations)
@@ -29,6 +30,7 @@ Key values in `values.yaml`:
 - `config`: the Driftd `config.yaml` rendered into a ConfigMap
 
 If `image.tag` is empty, the chart uses `Chart.appVersion`.
+If `image.digest` is set, the chart uses `<repository>@<digest>` and ignores `image.tag`.
 
 IRSA / workload identity example:
 
@@ -87,6 +89,8 @@ config:
   data_dir: /data
   redis:
     addr: "redis:6379"
+  worker:
+    block_external_data_source: true
   projects:
     - name: infra
       url: git@github.com:myorg/infra.git

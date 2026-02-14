@@ -136,8 +136,6 @@ git push origin v0.1.0
 This publishes:
 
 - `ghcr.io/driftdhq/driftd:v0.1.0`
-- `ghcr.io/driftdhq/driftd:v0.1`
-- `ghcr.io/driftdhq/driftd:v0`
 - `ghcr.io/driftdhq/driftd:sha-<commit>`
 
 ### From Source
@@ -186,6 +184,7 @@ worker:
   lock_ttl: 30m       # project scan lock timeout
   retry_once: true    # retry failed stack scans once
   scan_max_age: 6h    # max scan duration before forced failure
+  block_external_data_source: false # set true to block Terraform data "external"
 
 workspace:
   retention: 5            # workspace snapshots to keep per project
@@ -470,7 +469,8 @@ Shared providers across stacks, cached binaries, reduced downloads.
 ## Security Model
 
 - **Read-only by design** — driftd never applies changes.
-- **Plan output can include secrets** — treat stored plans as sensitive data. Use filesystem permissions and storage encryption.
+- **Terraform `data "external"` can execute commands during plan** — enable `worker.block_external_data_source: true` to block local uses, and apply strict egress + least-privilege cloud roles.
+- **Plan output redaction is best-effort** — treat stored plans as sensitive data. Use filesystem permissions and storage encryption.
 - **Restrict API and UI access** — VPN, reverse proxy, or built-in auth.
 - **Webhooks should always be authenticated** — HMAC or shared token.
 

@@ -34,10 +34,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=tag
-            type=semver,pattern=v{{major}}.{{minor}}
-            type=semver,pattern=v{{major}}
             type=sha,prefix=sha-
 
       - name: Build and push image

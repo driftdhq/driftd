@@ -46,6 +46,17 @@ func TestLoadValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("block_external_data_source_flag", func(t *testing.T) {
+		path := writeTempConfig(t, "worker:\n  block_external_data_source: true\n")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.Worker.BlockExternalDataSource {
+			t.Fatalf("expected worker.block_external_data_source=true")
+		}
+	})
+
 	t.Run("cancel_inflight_defaults_true", func(t *testing.T) {
 		path := writeTempConfig(t, "projects:\n  - name: project\n    url: https://example.com/project.git\n")
 		cfg, err := Load(path)
