@@ -137,6 +137,7 @@ This publishes:
 
 - `ghcr.io/driftdhq/driftd:v0.1.0`
 - `ghcr.io/driftdhq/driftd:sha-<commit>`
+- `ghcr.io/driftdhq/driftd:latest`
 
 ### From Source
 
