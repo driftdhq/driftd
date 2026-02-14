@@ -1,8 +1,8 @@
 apiVersion: v2
 name: driftd
 description: Terraform/Terragrunt drift detection server
-version: 0.1.2
-appVersion: "v0.1.2"
+version: 0.1.3
+appVersion: "v0.1.3"
 
 dependencies:
   - name: redis

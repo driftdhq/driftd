@@ -4,9 +4,9 @@
 image:
   repository: ghcr.io/driftdhq/driftd
   # Pin to a release/tag for production.
-  tag: v0.1.2
+  tag: v0.1.3
   # Optional immutable pin. If set, digest is used instead of tag.
-  digest: sha256:749070e2d09fe342e1f35b4c2ee7eec60928261a07aa00d0b604202d135ee0bd
+  digest: sha256:d314e186dc6b1970149fbf09ec70e2c3736d621bc2a0220c726e44065e6534a4
   pullPolicy: IfNotPresent
   pullSecrets:
     # - name: ghcr-credentials
