@@ -293,7 +293,7 @@ a:hover {
 .projects-list-header,
 .project-row {
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) minmax(130px, 1.3fr) 90px 90px 140px 140px;
+    grid-template-columns: minmax(220px, 2fr) minmax(130px, 1.3fr) 90px 90px 140px;
     gap: 0.75rem;
     align-items: center;
     padding: 0.8rem 1rem;
@@ -496,7 +496,7 @@ a:hover {
 .stack-tree-header,
 .stack-row {
     display: grid;
-    grid-template-columns: minmax(300px, 2fr) 120px 120px 80px;
+    grid-template-columns: minmax(300px, 2fr) 120px 90px;
     gap: 0.75rem;
     align-items: center;
     padding: 0.8rem 1rem;
@@ -525,6 +525,11 @@ a:hover {
 
 .stack-row:hover {
     background: rgba(77, 215, 255, 0.06);
+}
+
+.stack-cell.scan {
+    display: flex;
+    justify-content: flex-end;
 }
 
 .stack-cell.stack-name {
@@ -864,9 +869,13 @@ a:hover {
     }
 
     .project-cell.healthy,
-    .project-cell.commit,
-    .project-cell.last-run {
+    .project-cell.commit {
         display: none;
+    }
+
+    .stack-tree-header,
+    .stack-row {
+        grid-template-columns: minmax(150px, 1fr) 90px 72px;
     }
 
     .progress-bar {
@@ -877,7 +886,7 @@ a:hover {
 @media (max-width: 900px) {
     .projects-list-header,
     .project-row {
-        grid-template-columns: minmax(200px, 1fr) minmax(120px, 1fr) 85px 85px 120px;
+        grid-template-columns: minmax(200px, 1fr) minmax(120px, 1fr) 85px 85px;
     }
 
     .project-cell.commit {
@@ -886,12 +895,7 @@ a:hover {
 
     .stack-tree-header,
     .stack-row {
-        grid-template-columns: minmax(200px, 1fr) 110px;
-    }
-
-    .stack-cell.run,
-    .stack-cell.actions {
-        display: none;
+        grid-template-columns: minmax(200px, 1fr) 110px 76px;
     }
 }
 

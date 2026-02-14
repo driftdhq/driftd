@@ -34,7 +34,6 @@
         <div class="project-cell status">Scan</div>
         <div class="project-cell healthy">Healthy</div>
         <div class="project-cell drifted">Drifted</div>
-        <div class="project-cell last-run">Last Run</div>
         <div class="project-cell commit">Commit</div>
     </div>
     {{range .ConfigRepos}}
@@ -55,9 +54,6 @@
         </div>
         <div class="project-cell healthy"><span class="healthy-count">{{$project.HealthyStacks}}</span></div>
         <div class="project-cell drifted"><span class="drifted-count">{{$project.DriftedStacks}}</span></div>
-        <div class="project-cell last-run">
-            {{if not $project.LastRun.IsZero}}{{timeAgo $project.LastRun}}{{else}}-{{end}}
-        </div>
         <div class="project-cell commit">
             {{if $project.CommitSHA}}
                 {{$projectCfg := index $.ConfigByName .Name}}

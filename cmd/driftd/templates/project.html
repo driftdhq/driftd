@@ -58,7 +58,7 @@
             <select name="sort">
                 <option value="path" {{if eq .Sort "path"}}selected{{end}}>Path</option>
                 <option value="status" {{if eq .Sort "status"}}selected{{end}}>Status</option>
-                <option value="last_run" {{if eq .Sort "last_run"}}selected{{end}}>Last Run</option>
+                <option value="last_run" {{if eq .Sort "last_run"}}selected{{end}}>Scan</option>
             </select>
         </label>
         <label class="stack-control">
@@ -83,8 +83,7 @@
         <div class="stack-tree-header">
             <div class="stack-cell stack-name">Stack</div>
             <div class="stack-cell status">Status</div>
-            <div class="stack-cell run">Last Run</div>
-            <div class="stack-cell actions"></div>
+            <div class="stack-cell scan">Scan</div>
         </div>
         <div class="stack-tree-body">
             {{range .Stacks}}
@@ -97,11 +96,10 @@
                     {{else if .Drifted}}<span class="badge badge-drift">Drifted</span>
                     {{else}}<span class="badge badge-ok">Healthy</span>{{end}}
                 </div>
-                <div class="stack-cell run">{{timeAgo .RunAt}}</div>
-                <div class="stack-cell actions">
+                <div class="stack-cell scan">
                     <form method="POST" action="/projects/{{$.Name}}/stacks/{{.Path}}" class="inline-form">
                         <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                        <button type="submit" class="btn btn-small">Scan</button>
+                        <button type="submit" class="btn btn-small stack-scan-btn">Scan</button>
                     </form>
                 </div>
             </div>
@@ -146,12 +144,14 @@
             if (statusCell) {
                 statusCell.innerHTML = formatStatus(stack.status, stack.drifted, stack.error);
             }
-            const runCell = row.querySelector(".stack-cell.run");
-            if (runCell) {
+            const scanButton = row.querySelector(".stack-scan-btn");
+            if (scanButton) {
                 if (stack.status === "running") {
-                    runCell.textContent = "running...";
-                } else if (stack.run_at) {
-                    runCell.textContent = "just now";
+                    scanButton.disabled = true;
+                    scanButton.textContent = "Scanning";
+                } else {
+                    scanButton.disabled = false;
+                    scanButton.textContent = "Scan";
                 }
             }
         };
