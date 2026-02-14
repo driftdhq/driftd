@@ -32,6 +32,20 @@ func TestValidateServeSecurity(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 	})
+
+	t.Run("accepts external auth mode without internal auth", func(t *testing.T) {
+		cfg := &config.Config{
+			Auth: config.AuthConfig{
+				Mode: "external",
+				External: config.ExternalAuthConfig{
+					UserHeader: "X-Auth-Request-User",
+				},
+			},
+		}
+		if err := validateServeSecurity(cfg); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
 }
 
 func TestValidateEncryptionKeyPolicy(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -252,6 +253,12 @@ func validateServeSecurity(cfg *config.Config) error {
 		return fmt.Errorf("config is nil")
 	}
 	if cfg.InsecureDevMode {
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Auth.Mode), "external") {
+		if strings.TrimSpace(cfg.Auth.External.UserHeader) == "" && strings.TrimSpace(cfg.Auth.External.EmailHeader) == "" {
+			return fmt.Errorf("auth.mode=external requires auth.external.user_header or auth.external.email_header")
+		}
 		return nil
 	}
 

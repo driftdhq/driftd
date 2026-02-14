@@ -169,23 +169,23 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	r.Group(func(r chi.Router) {
-		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
+		if s.useExternalAuth() || s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
 			r.Use(s.uiAuthMiddleware)
 		}
 		r.Use(s.csrfMiddleware)
 		r.Get("/", s.handleIndex)
 		r.Get("/projects/{project}", s.handleRepo)
-		r.Post("/projects/{project}/scan", s.handleScanProjectUI)
+		r.With(s.uiWriteAuthMiddleware).Post("/projects/{project}/scan", s.handleScanProjectUI)
 		r.Get("/projects/{project}/stacks/*", s.handleStack)
-		r.Post("/projects/{project}/stacks/*", s.handleScanStackUI)
-		r.Get("/settings", s.handleSettings)
-		r.Get("/settings/projects", s.handleSettings)
+		r.With(s.uiWriteAuthMiddleware).Post("/projects/{project}/stacks/*", s.handleScanStackUI)
+		r.With(s.uiSettingsAuthMiddleware).Get("/settings", s.handleSettings)
+		r.With(s.uiSettingsAuthMiddleware).Get("/settings/projects", s.handleSettings)
 	})
 
 	// SSE endpoints use UI auth (cookie/basic-auth) since EventSource
 	// doesn't support custom headers required by API token auth.
 	r.Group(func(r chi.Router) {
-		if s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
+		if s.useExternalAuth() || s.cfg.UIAuth.Username != "" || s.cfg.UIAuth.Password != "" {
 			r.Use(s.uiAuthMiddleware)
 		}
 		r.Get("/api/projects/{project}/events", s.handleProjectEvents)

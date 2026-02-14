@@ -93,6 +93,8 @@ helm install driftd ./helm/driftd \
 ```
 
 See `helm/driftd/README.md` for full chart documentation.
+For external OIDC with oauth2-proxy (Okta/Google/Azure AD), see:
+`helm/driftd/examples/oauth2-proxy/`.
 
 ### From Source
 
@@ -240,6 +242,18 @@ When `webhook.enabled` is true, you must provide `github_secret` or `token` for 
 <details>
 <summary><b>Authentication & Security</b></summary>
 
+### Auth Mode
+
+`auth.mode` controls how requests are authenticated:
+
+```yaml
+auth:
+  mode: internal # internal | external
+```
+
+When `insecure_dev_mode: false`, you must also set `DRIFTD_ENCRYPTION_KEY`
+for both `serve` and `worker` processes.
+
 ### UI Basic Auth
 
 ```yaml
@@ -257,7 +271,44 @@ api_auth:
   # Or use a shared token header
   # token: "shared-api-token"
   # token_header: "X-API-Token"
+  # Optional separate write token for mutating API endpoints
+  # write_token: "shared-api-write-token"
+  # write_token_header: "X-API-Write-Token"
 ```
+
+### External OIDC/Auth-Proxy Mode
+
+When running behind oauth2-proxy (or another trusted auth proxy), switch to external mode:
+
+```yaml
+auth:
+  mode: external
+  external:
+    user_header: X-Auth-Request-User
+    email_header: X-Auth-Request-Email
+    groups_header: X-Auth-Request-Groups
+    groups_delimiter: ","
+    default_role: viewer
+    roles:
+      viewers:
+        - platform-viewers
+      operators:
+        - platform-operators
+      admins:
+        - platform-admins
+```
+
+Role behavior:
+
+- `viewer`: read-only UI/API access.
+- `operator`: viewer + can trigger scans.
+- `admin`: operator + settings/API admin access.
+
+Security notes:
+
+- External mode trusts proxy headers. Do **not** expose driftd directly to the internet.
+- Restrict direct access to driftd pods/service (ClusterIP + network policy).
+- Keep `/api/webhooks/github` protected with `webhook.github_secret` or webhook token auth.
 
 ### Rate Limiting
 

@@ -27,6 +27,43 @@ Key values in `values.yaml`:
 - `storage.data` and `storage.cache` PVC settings
 - `config`: the Driftd `config.yaml` rendered into a ConfigMap
 
+## Auth Modes
+
+driftd supports two auth modes via `config.auth.mode`:
+
+- `internal` (default): use `config.ui_auth` / `config.api_auth` credentials.
+- `external`: trust identity/group headers from an upstream auth proxy (for example oauth2-proxy).
+
+When using `external`, configure role mapping under `config.auth.external.roles`:
+
+- `viewers`: read-only access
+- `operators`: can trigger scans
+- `admins`: full settings/API admin access
+
+Example files for oauth2-proxy are provided in:
+
+- `helm/driftd/examples/oauth2-proxy/`
+
+## Required In Secure Mode
+
+When `config.insecure_dev_mode=false` (recommended), driftd requires:
+
+- authentication configured (`config.auth.mode=internal` with credentials, or `config.auth.mode=external` with trusted proxy headers)
+- `DRIFTD_ENCRYPTION_KEY` available in both server and worker pods
+
+Example secret wiring:
+
+```yaml
+server:
+  envFrom:
+    - secretRef:
+        name: driftd-runtime
+worker:
+  envFrom:
+    - secretRef:
+        name: driftd-runtime
+```
+
 ## Example Values
 
 ```yaml

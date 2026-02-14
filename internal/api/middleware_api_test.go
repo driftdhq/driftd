@@ -200,3 +200,120 @@ func TestSecurityHeadersApplied(t *testing.T) {
 		t.Fatalf("expected Content-Security-Policy header")
 	}
 }
+
+func TestExternalAuthRoleMapping(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Auth.Mode = "external"
+		cfg.Auth.External.DefaultRole = "viewer"
+		cfg.Auth.External.Roles.Operators = []string{"platform-operators"}
+		cfg.Auth.External.Roles.Admins = []string{"platform-admins"}
+	})
+	defer cleanup()
+
+	listReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/projects/project/stacks", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	listReq.Header.Set("X-Auth-Request-User", "alice")
+	listResp, err := http.DefaultClient.Do(listReq)
+	if err != nil {
+		t.Fatalf("viewer list request failed: %v", err)
+	}
+	listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for viewer read, got %d", listResp.StatusCode)
+	}
+
+	viewerScanReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/projects/project/scan", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	viewerScanReq.Header.Set("X-Auth-Request-User", "alice")
+	viewerScanReq.Header.Set("Content-Type", "application/json")
+	viewerScanResp, err := http.DefaultClient.Do(viewerScanReq)
+	if err != nil {
+		t.Fatalf("viewer scan request failed: %v", err)
+	}
+	viewerScanResp.Body.Close()
+	if viewerScanResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer scan write, got %d", viewerScanResp.StatusCode)
+	}
+
+	operatorScanReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/projects/project/scan", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	operatorScanReq.Header.Set("X-Auth-Request-User", "bob")
+	operatorScanReq.Header.Set("X-Auth-Request-Groups", "platform-operators")
+	operatorScanReq.Header.Set("Content-Type", "application/json")
+	operatorScanResp, err := http.DefaultClient.Do(operatorScanReq)
+	if err != nil {
+		t.Fatalf("operator scan request failed: %v", err)
+	}
+	operatorScanResp.Body.Close()
+	if operatorScanResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for operator scan write, got %d", operatorScanResp.StatusCode)
+	}
+
+	operatorSettingsReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/projects", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	operatorSettingsReq.Header.Set("X-Auth-Request-User", "bob")
+	operatorSettingsReq.Header.Set("X-Auth-Request-Groups", "platform-operators")
+	operatorSettingsResp, err := http.DefaultClient.Do(operatorSettingsReq)
+	if err != nil {
+		t.Fatalf("operator settings request failed: %v", err)
+	}
+	operatorSettingsResp.Body.Close()
+	if operatorSettingsResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for operator settings read, got %d", operatorSettingsResp.StatusCode)
+	}
+
+	adminSettingsReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/settings/projects", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	adminSettingsReq.Header.Set("X-Auth-Request-User", "carol")
+	adminSettingsReq.Header.Set("X-Auth-Request-Groups", "platform-admins")
+	adminSettingsResp, err := http.DefaultClient.Do(adminSettingsReq)
+	if err != nil {
+		t.Fatalf("admin settings request failed: %v", err)
+	}
+	adminSettingsResp.Body.Close()
+	if adminSettingsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for admin settings read, got %d", adminSettingsResp.StatusCode)
+	}
+}
+
+func TestExternalAuthRequiresIdentityHeaders(t *testing.T) {
+	runner := &fakeRunner{}
+	_, ts, _, cleanup := newTestServerWithConfig(t, runner, []string{"envs/prod"}, false, nil, true, func(cfg *config.Config) {
+		cfg.Auth.Mode = "external"
+		cfg.Auth.External.DefaultRole = "viewer"
+	})
+	defer cleanup()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/projects/project/stacks", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without external identity headers, got %d", resp.StatusCode)
+	}
+
+	healthResp, err := http.Get(ts.URL + "/api/health")
+	if err != nil {
+		t.Fatalf("health request failed: %v", err)
+	}
+	healthResp.Body.Close()
+	if healthResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on /api/health in external mode, got %d", healthResp.StatusCode)
+	}
+}

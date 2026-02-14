@@ -13,11 +13,11 @@ test('scan updates via SSE without reload', async ({ page }) => {
   await expect(scanButton).toBeVisible();
   await scanButton.click();
 
-  const progressMeta = page.locator('.scan-summary.active .progress .meta');
+  const progressMeta = page.locator('.stack-progress-anchor.is-active .progress .meta, .scan-summary.active .progress .meta');
   await expect(progressMeta).toBeVisible();
 
   await page.waitForFunction(() => {
-    const el = document.querySelector('.scan-summary.active .progress .meta');
+    const el = document.querySelector('.stack-progress-anchor.is-active .progress .meta, .scan-summary.active .progress .meta');
     if (!el) return false;
     const text = el.textContent || '';
     return /\d+\s*\/\s*\d+/.test(text);

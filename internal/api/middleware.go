@@ -20,7 +20,19 @@ const (
 	csrfCookieName            = "driftd_csrf"
 )
 
+type authRole int
+
+const (
+	roleNone authRole = iota
+	roleViewer
+	roleOperator
+	roleAdmin
+)
+
 func (s *Server) uiAuthMiddleware(next http.Handler) http.Handler {
+	if s.useExternalAuth() {
+		return s.externalRoleMiddleware(roleViewer)(next)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
 		if !ok ||
@@ -34,7 +46,139 @@ func (s *Server) uiAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) uiWriteAuthMiddleware(next http.Handler) http.Handler {
+	if !s.useExternalAuth() {
+		return next
+	}
+	return s.externalRoleMiddleware(roleOperator)(next)
+}
+
+func (s *Server) uiSettingsAuthMiddleware(next http.Handler) http.Handler {
+	if !s.useExternalAuth() {
+		return next
+	}
+	return s.externalRoleMiddleware(roleAdmin)(next)
+}
+
+func (s *Server) useExternalAuth() bool {
+	if s == nil || s.cfg == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(s.cfg.Auth.Mode), "external")
+}
+
+func (s *Server) parseExternalDefaultRole() authRole {
+	switch strings.ToLower(strings.TrimSpace(s.cfg.Auth.External.DefaultRole)) {
+	case "none":
+		return roleNone
+	case "operator":
+		return roleOperator
+	case "admin":
+		return roleAdmin
+	case "viewer":
+		fallthrough
+	default:
+		return roleViewer
+	}
+}
+
+func (s *Server) parseExternalGroups(raw string) map[string]struct{} {
+	groups := map[string]struct{}{}
+	delimiter := s.cfg.Auth.External.GroupsDelimiter
+	if delimiter == "" {
+		delimiter = ","
+	}
+	for _, part := range strings.Split(raw, delimiter) {
+		group := strings.ToLower(strings.TrimSpace(part))
+		if group == "" {
+			continue
+		}
+		groups[group] = struct{}{}
+	}
+	return groups
+}
+
+func roleMatchesAny(groups map[string]struct{}, candidates []string) bool {
+	for _, candidate := range candidates {
+		normalized := strings.ToLower(strings.TrimSpace(candidate))
+		if normalized == "" {
+			continue
+		}
+		if normalized == "*" {
+			return true
+		}
+		if _, ok := groups[normalized]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func maxRole(a, b authRole) authRole {
+	if b > a {
+		return b
+	}
+	return a
+}
+
+func (s *Server) externalRoleFromRequest(r *http.Request) (authRole, bool) {
+	userHeader := strings.TrimSpace(s.cfg.Auth.External.UserHeader)
+	if userHeader == "" {
+		userHeader = "X-Auth-Request-User"
+	}
+	emailHeader := strings.TrimSpace(s.cfg.Auth.External.EmailHeader)
+	if emailHeader == "" {
+		emailHeader = "X-Auth-Request-Email"
+	}
+	groupsHeader := strings.TrimSpace(s.cfg.Auth.External.GroupsHeader)
+	if groupsHeader == "" {
+		groupsHeader = "X-Auth-Request-Groups"
+	}
+
+	subject := strings.TrimSpace(r.Header.Get(userHeader))
+	if subject == "" {
+		subject = strings.TrimSpace(r.Header.Get(emailHeader))
+	}
+	if subject == "" {
+		return roleNone, false
+	}
+
+	role := s.parseExternalDefaultRole()
+	groups := s.parseExternalGroups(r.Header.Get(groupsHeader))
+	if roleMatchesAny(groups, s.cfg.Auth.External.Roles.Viewers) {
+		role = maxRole(role, roleViewer)
+	}
+	if roleMatchesAny(groups, s.cfg.Auth.External.Roles.Operators) {
+		role = maxRole(role, roleOperator)
+	}
+	if roleMatchesAny(groups, s.cfg.Auth.External.Roles.Admins) {
+		role = maxRole(role, roleAdmin)
+	}
+
+	return role, true
+}
+
+func (s *Server) externalRoleMiddleware(required authRole) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role, ok := s.externalRoleFromRequest(r)
+			if !ok {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			if role < required {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func (s *Server) apiAuthEnabled() bool {
+	if s.useExternalAuth() {
+		return true
+	}
 	return s.cfg.APIAuth.Token != "" ||
 		s.cfg.APIAuth.WriteToken != "" ||
 		s.cfg.APIAuth.Username != "" ||
@@ -45,6 +189,15 @@ func (s *Server) apiAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Webhook.Enabled && strings.HasPrefix(r.URL.Path, "/api/webhooks/") {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if s.useExternalAuth() {
+			// Keep health checks simple for probes and local diagnostics.
+			if r.URL.Path == "/api/health" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			s.externalRoleMiddleware(roleViewer)(next).ServeHTTP(w, r)
 			return
 		}
 
@@ -75,6 +228,11 @@ func (s *Server) apiAuthMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) settingsAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.useExternalAuth() {
+			s.externalRoleMiddleware(roleAdmin)(next).ServeHTTP(w, r)
+			return
+		}
+
 		if s.apiAuthEnabled() {
 			s.apiAuthMiddleware(next).ServeHTTP(w, r)
 			return
@@ -95,6 +253,9 @@ func (s *Server) settingsAuthMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) apiWriteAuthEnabled() bool {
+	if s.useExternalAuth() {
+		return true
+	}
 	return s.cfg.APIAuth.WriteToken != ""
 }
 
@@ -102,6 +263,15 @@ func (s *Server) apiWriteAuthEnabled() bool {
 // write requests require write token auth (or API basic auth).
 func (s *Server) apiWriteAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.useExternalAuth() {
+			required := roleOperator
+			if strings.HasPrefix(r.URL.Path, "/api/settings/") {
+				required = roleAdmin
+			}
+			s.externalRoleMiddleware(required)(next).ServeHTTP(w, r)
+			return
+		}
+
 		if !s.apiWriteAuthEnabled() {
 			next.ServeHTTP(w, r)
 			return

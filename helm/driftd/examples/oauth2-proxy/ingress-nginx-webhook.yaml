@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: driftd-webhook
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  tls:
+    - hosts:
+        - driftd-webhook.example.com
+      secretName: driftd-webhook-tls
+  rules:
+    - host: driftd-webhook.example.com
+      http:
+        paths:
+          - path: /api/webhooks/github
+            pathType: Prefix
+            backend:
+              service:
+                name: driftd
+                port:
+                  number: 8080

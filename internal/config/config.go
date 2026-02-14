@@ -26,6 +26,7 @@ type Config struct {
 	Webhook         WebhookConfig   `yaml:"webhook"`
 	UIAuth          UIAuthConfig    `yaml:"ui_auth"`
 	APIAuth         APIAuthConfig   `yaml:"api_auth"`
+	Auth            AuthConfig      `yaml:"auth"`
 	API             APIConfig       `yaml:"api"`
 }
 
@@ -70,6 +71,31 @@ type APIAuthConfig struct {
 	TokenHeader      string `yaml:"token_header"`
 	WriteToken       string `yaml:"write_token"`
 	WriteTokenHeader string `yaml:"write_token_header"`
+}
+
+type AuthConfig struct {
+	// Mode controls authentication strategy:
+	// - "internal": driftd enforces ui_auth/api_auth credentials.
+	// - "external": driftd trusts identity headers from an upstream auth proxy (e.g. oauth2-proxy).
+	Mode     string             `yaml:"mode"`
+	External ExternalAuthConfig `yaml:"external"`
+}
+
+type ExternalAuthConfig struct {
+	UserHeader      string `yaml:"user_header"`
+	EmailHeader     string `yaml:"email_header"`
+	GroupsHeader    string `yaml:"groups_header"`
+	GroupsDelimiter string `yaml:"groups_delimiter"`
+	// DefaultRole applies to any authenticated user from the external proxy.
+	// Allowed values: "none", "viewer", "operator", "admin".
+	DefaultRole string                  `yaml:"default_role"`
+	Roles       ExternalAuthRolesConfig `yaml:"roles"`
+}
+
+type ExternalAuthRolesConfig struct {
+	Viewers   []string `yaml:"viewers"`
+	Operators []string `yaml:"operators"`
+	Admins    []string `yaml:"admins"`
 }
 
 type APIConfig struct {
@@ -248,6 +274,36 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.Webhook.TokenHeader == "" {
 		cfg.Webhook.TokenHeader = "X-Webhook-Token"
+	}
+	if cfg.Auth.Mode == "" {
+		cfg.Auth.Mode = "internal"
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Auth.Mode)) {
+	case "internal", "external":
+		cfg.Auth.Mode = strings.ToLower(strings.TrimSpace(cfg.Auth.Mode))
+	default:
+		return nil, fmt.Errorf("auth.mode must be one of: internal, external")
+	}
+	if cfg.Auth.External.UserHeader == "" {
+		cfg.Auth.External.UserHeader = "X-Auth-Request-User"
+	}
+	if cfg.Auth.External.EmailHeader == "" {
+		cfg.Auth.External.EmailHeader = "X-Auth-Request-Email"
+	}
+	if cfg.Auth.External.GroupsHeader == "" {
+		cfg.Auth.External.GroupsHeader = "X-Auth-Request-Groups"
+	}
+	if cfg.Auth.External.GroupsDelimiter == "" {
+		cfg.Auth.External.GroupsDelimiter = ","
+	}
+	if cfg.Auth.External.DefaultRole == "" {
+		cfg.Auth.External.DefaultRole = "viewer"
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Auth.External.DefaultRole)) {
+	case "none", "viewer", "operator", "admin":
+		cfg.Auth.External.DefaultRole = strings.ToLower(strings.TrimSpace(cfg.Auth.External.DefaultRole))
+	default:
+		return nil, fmt.Errorf("auth.external.default_role must be one of: none, viewer, operator, admin")
 	}
 	if !cfg.Webhook.Enabled && (cfg.Webhook.GitHubSecret != "" || cfg.Webhook.Token != "") {
 		cfg.Webhook.Enabled = true

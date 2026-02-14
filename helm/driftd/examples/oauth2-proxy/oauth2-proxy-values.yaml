@@ -1,0 +1,23 @@
+config:
+  # Populate from a secret manager for production.
+  existingSecret: oauth2-proxy
+  configFile: |-
+    provider = "oidc"
+    oidc_issuer_url = "https://YOUR_OKTA_DOMAIN/oauth2/default"
+    redirect_url = "https://driftd.example.com/oauth2/callback"
+    email_domains = [ "*" ]
+    upstreams = [ "static://202" ]
+    set_xauthrequest = true
+    pass_user_headers = true
+    skip_provider_button = true
+    cookie_secure = true
+    cookie_samesite = "lax"
+    reverse_proxy = true
+    scope = "openid profile email groups"
+
+service:
+  type: ClusterIP
+  portNumber: 4180
+
+ingress:
+  enabled: false

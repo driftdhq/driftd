@@ -1,0 +1,32 @@
+config:
+  insecure_dev_mode: false
+  auth:
+    mode: external
+    external:
+      user_header: X-Auth-Request-User
+      email_header: X-Auth-Request-Email
+      groups_header: X-Auth-Request-Groups
+      groups_delimiter: ","
+      default_role: viewer
+      roles:
+        viewers:
+          - driftd-viewers
+        operators:
+          - driftd-operators
+        admins:
+          - driftd-admins
+
+  # Keep webhook auth enabled even if ingress bypasses OIDC for this path.
+  webhook:
+    enabled: true
+    github_secret: REPLACE_ME
+
+server:
+  envFrom:
+    - secretRef:
+        name: driftd-runtime
+
+worker:
+  envFrom:
+    - secretRef:
+        name: driftd-runtime

@@ -78,6 +78,28 @@ storage:
 config:
   data_dir: /data
   listen_addr: ":8080"
+  auth:
+    mode: internal
+    external:
+      user_header: X-Auth-Request-User
+      email_header: X-Auth-Request-Email
+      groups_header: X-Auth-Request-Groups
+      groups_delimiter: ","
+      default_role: viewer
+      roles:
+        viewers: []
+        operators: []
+        admins: []
+  ui_auth:
+    username: ""
+    password: ""
+  api_auth:
+    username: ""
+    password: ""
+    token: ""
+    token_header: X-API-Token
+    write_token: ""
+    write_token_header: X-API-Write-Token
   redis:
     addr: "driftd-redis-master:6379"
     password: ""
