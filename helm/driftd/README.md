@@ -12,7 +12,7 @@ This chart deploys the Driftd server and worker components.
 ```bash
 helm install driftd ./helm/driftd \
   --set image.repository=ghcr.io/driftdhq/driftd \
-  --set image.tag=v0.1.0
+  --set image.tag=v0.1.1
 ```
 
 ## Values
