@@ -1,7 +1,9 @@
 image:
   repository: ghcr.io/driftdhq/driftd
-  tag: latest
+  # Defaults to Chart.appVersion when empty.
+  tag: ""
   pullPolicy: IfNotPresent
+  pullSecrets: []
 
 service:
   type: ClusterIP
@@ -12,9 +14,52 @@ metrics:
   path: /metrics
   port: 8080
 
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
 server:
   replicas: 1
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 20
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -32,7 +77,37 @@ server:
 
 worker:
   replicas: 2
-  resources: {}
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  livenessProbe:
+    enabled: true
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - "grep -aq driftd /proc/1/cmdline"
+    initialDelaySeconds: 20
+    periodSeconds: 30
+    timeoutSeconds: 3
+    failureThreshold: 3
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -118,6 +193,7 @@ config:
 redis:
   enabled: true
   architecture: standalone
+  # Dev default only. Enable auth for any shared/prod cluster.
   auth:
     enabled: false
   image:
@@ -127,4 +203,5 @@ redis:
     digest: sha256:412da89feed59b1a45b0c1fd9d07cdb2e2283cf4db2e5a1604762ad03d53af6d  # Redis 8.4.0
   master:
     persistence:
+      # Dev default only. Enable persistence for production durability.
       enabled: false

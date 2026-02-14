@@ -9,3 +9,11 @@
 {{- include "driftd.name" . | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "driftd.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- default (include "driftd.fullname" .) .Values.serviceAccount.name -}}
+{{- else -}}
+{{- default "default" .Values.serviceAccount.name -}}
+{{- end -}}
+{{- end -}}

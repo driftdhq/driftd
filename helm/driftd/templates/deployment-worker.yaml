@@ -20,11 +20,25 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: worker
     spec:
+      serviceAccountName: {{ include "driftd.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+{{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+{{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
       containers:
         - name: driftd
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+{{- toYaml .Values.worker.securityContext | nindent 12 }}
           args: ["worker", "-config", "/etc/driftd/config.yaml"]
+          {{- if .Values.worker.livenessProbe.enabled }}
+          livenessProbe:
+{{- omit .Values.worker.livenessProbe "enabled" | toYaml | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /etc/driftd

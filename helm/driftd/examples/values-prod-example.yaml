@@ -6,10 +6,21 @@ image:
   # Pin to a release/tag for production.
   tag: v0.1.0
   pullPolicy: IfNotPresent
+  pullSecrets:
+    # - name: ghcr-credentials
 
 service:
   type: ClusterIP
   port: 8080
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # EKS IRSA example:
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/driftd-readonly
+  automountServiceAccountToken: true
 
 server:
   replicas: 1

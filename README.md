@@ -90,14 +90,17 @@ Redis can be deployed in-cluster via the Helm chart (default) or provided extern
 ```bash
 helm install driftd ./helm/driftd \
   --set image.repository=ghcr.io/driftdhq/driftd \
-  --set image.tag=latest
+  --set image.tag=v0.1.0
 ```
+
+If your GHCR package is private, create a registry pull secret and set `image.pullSecrets`.
 
 See `helm/driftd/README.md` for full chart documentation.
 For external OIDC with oauth2-proxy (Okta/Google/Azure AD), see:
 `helm/driftd/examples/oauth2-proxy/`.
 For a production baseline values file, see:
 `helm/driftd/examples/values-prod-example.yaml`.
+For IRSA/workload identity, set `serviceAccount.annotations` in Helm values.
 
 ### Quickstart (Minikube)
 
@@ -110,7 +113,7 @@ kubectl create secret generic driftd-runtime \
 
 helm upgrade --install driftd ./helm/driftd \
   --set image.repository=ghcr.io/driftdhq/driftd \
-  --set image.tag=latest \
+  --set image.tag=v0.1.0 \
   --set storage.data.storageClassName=standard \
   --set storage.cache.storageClassName=standard \
   --set config.insecure_dev_mode=true
@@ -120,6 +123,22 @@ kubectl port-forward svc/driftd 8080:8080
 
 For secure local mode, set `config.insecure_dev_mode=false` and configure
 `ui_auth` and/or `api_auth`.
+
+### Image Releases (GHCR)
+
+Image publishing is automated with GitHub Actions on tags that match `v*`.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This publishes:
+
+- `ghcr.io/driftdhq/driftd:v0.1.0`
+- `ghcr.io/driftdhq/driftd:v0.1`
+- `ghcr.io/driftdhq/driftd:v0`
+- `ghcr.io/driftdhq/driftd:sha-<commit>`
 
 ### From Source
 

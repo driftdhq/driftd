@@ -12,7 +12,7 @@ This chart deploys the Driftd server and worker components.
 ```bash
 helm install driftd ./helm/driftd \
   --set image.repository=ghcr.io/driftdhq/driftd \
-  --set image.tag=latest
+  --set image.tag=v0.1.0
 ```
 
 ## Values
@@ -20,11 +20,24 @@ helm install driftd ./helm/driftd \
 Key values in `values.yaml`:
 
 - `image.repository`, `image.tag`, `image.pullPolicy`
+- `image.pullSecrets` for private registries
 - `service.type`, `service.port`
-- `server.replicas`, `server.resources`, `server.envFrom`
-- `worker.replicas`, `worker.resources`, `worker.envFrom`
+- `serviceAccount.*` (including IRSA/workload identity annotations)
+- `server.replicas`, `server.resources`, `server.envFrom`, `server.readinessProbe`, `server.livenessProbe`
+- `worker.replicas`, `worker.resources`, `worker.envFrom`, `worker.livenessProbe`
 - `storage.data` and `storage.cache` PVC settings
 - `config`: the Driftd `config.yaml` rendered into a ConfigMap
+
+If `image.tag` is empty, the chart uses `Chart.appVersion`.
+
+IRSA / workload identity example:
+
+```yaml
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/driftd-readonly
+```
 
 ## Auth Modes
 
@@ -99,6 +112,13 @@ worker:
 ## Redis
 
 This chart installs Bitnami Redis by default (`redis.enabled=true`).
+
+Default Redis settings in `values.yaml` are development-oriented:
+
+- `redis.auth.enabled=false`
+- `redis.master.persistence.enabled=false`
+
+For production, enable Redis auth and persistence or use external managed Redis.
 
 To use external Redis instead:
 
