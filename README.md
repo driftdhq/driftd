@@ -90,7 +90,7 @@ Redis can be deployed in-cluster via the Helm chart (default) or provided extern
 ```bash
 helm install driftd ./helm/driftd \
   --set image.repository=ghcr.io/driftdhq/driftd \
-  --set image.tag=v0.1.1
+  --set image.tag=v0.1.2
 ```
 
 If your GHCR package is private, create a registry pull secret and set `image.pullSecrets`.
@@ -113,7 +113,7 @@ kubectl create secret generic driftd-runtime \
 
 helm upgrade --install driftd ./helm/driftd \
   --set image.repository=ghcr.io/driftdhq/driftd \
-  --set image.tag=v0.1.1 \
+  --set image.tag=v0.1.2 \
   --set storage.data.storageClassName=standard \
   --set storage.cache.storageClassName=standard \
   --set config.insecure_dev_mode=true
@@ -129,13 +129,13 @@ For secure local mode, set `config.insecure_dev_mode=false` and configure
 Image publishing is automated with GitHub Actions on tags that match `v*`.
 
 ```bash
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 This publishes:
 
-- `ghcr.io/driftdhq/driftd:v0.1.1`
+- `ghcr.io/driftdhq/driftd:v0.1.2`
 - `ghcr.io/driftdhq/driftd:sha-<commit>`
 - `ghcr.io/driftdhq/driftd:latest`
 
