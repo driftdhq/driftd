@@ -7,6 +7,13 @@
 </p>
 
 <p align="center">
+    <a href="https://github.com/driftdhq/driftd/actions/workflows/ci.yml"><img src="https://github.com/driftdhq/driftd/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/driftdhq/driftd/actions/workflows/tests.yml"><img src="https://github.com/driftdhq/driftd/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+    <a href="https://goreportcard.com/report/github.com/driftdhq/driftd"><img src="https://goreportcard.com/badge/github.com/driftdhq/driftd" alt="Go Report Card"></a>
+    <a href="https://github.com/driftdhq/driftd/releases/latest"><img src="https://img.shields.io/github/v/release/driftdhq/driftd" alt="Release"></a>
+</p>
+
+<p align="center">
   <a href="#how-it-works">How It Works</a> &bull;
   <a href="#deployment">Deployment</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
