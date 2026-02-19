@@ -16,6 +16,7 @@
   <a href="#how-it-works">How It Works</a> &bull;
   <a href="#deployment">Deployment</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
+  <a href="#ui-preview">UI Preview</a> &bull;
   <a href="#api">API</a>
 </p>
 
@@ -393,6 +394,33 @@ driftd uses [tfswitch](https://tfswitch.warrensbox.com/) and [tgswitch](https://
 - (optional) `DRIFTD_DEFAULT_TERRAFORM_VERSION` / `DRIFTD_DEFAULT_TERRAGRUNT_VERSION` env vars (as a global default)
 
 If a stack has no version file and no default env var is set, driftd uses `terraform`/`terragrunt` from `PATH` (if present).
+
+</details>
+
+---
+
+## UI Preview
+
+![Project Overview](docs/screenshots/project-overview.png)
+
+<details>
+<summary><b>See detailed screenshots</b></summary>
+
+### Drifted Project
+
+![Project Detail (Drifted)](docs/screenshots/project-detail-view-drifted.png)
+
+### Drifted Stack Plan Output
+
+![Stack Detail (Drifted)](docs/screenshots/stack-detail-view-drifted.png)
+
+### Healthy Project
+
+![Project Detail (Healthy)](docs/screenshots/project-detail-view-healthy.png)
+
+### Healthy Stack Plan Output
+
+![Stack Detail (Healthy)](docs/screenshots/stack-detail-view-healthy.png)
 
 </details>
 
