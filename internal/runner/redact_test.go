@@ -124,6 +124,27 @@ Plan: 0 to add, 1 to change, 0 to destroy.`,
 			input:  `  database_url = "postgres://myuser:myp4ss@db.host.com:5432/mydb"`,
 			expect: `  database_url = "postgres://myuser:REDACTED@db.host.com:5432/mydb"`,
 		},
+		{
+			name:   "jwt token redacted",
+			input:  `  id_token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc1234567890defghijklmnop`,
+			expect: `  id_token = REDACTED`,
+		},
+		{
+			name:   "bearer token redacted",
+			input:  `Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789.ABCDEF`,
+			expect: `Authorization: Bearer REDACTED`,
+		},
+		{
+			name: "pem private key redacted",
+			input: `private_key = <<EOF
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASC...
+-----END PRIVATE KEY-----
+EOF`,
+			expect: `private_key = <<EOF
+REDACTED_PRIVATE_KEY
+EOF`,
+		},
 	}
 
 	for _, tt := range tests {

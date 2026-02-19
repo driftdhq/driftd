@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,10 +12,12 @@ import (
 	"time"
 
 	"github.com/driftdhq/driftd/internal/pathutil"
+	"github.com/driftdhq/driftd/internal/secrets"
 )
 
 type Storage struct {
-	dataDir string
+	dataDir       string
+	planEncryptor *secrets.Encryptor
 }
 
 type Store interface {
@@ -57,8 +60,13 @@ var (
 	projectNamePattern    = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
+const encryptedPlanPrefix = "enc:v1:"
+
 func New(dataDir string) *Storage {
-	return &Storage{dataDir: dataDir}
+	return &Storage{
+		dataDir:       dataDir,
+		planEncryptor: loadPlanEncryptorFromEnv(),
+	}
 }
 
 func (s *Storage) resultsDir() string {
@@ -96,7 +104,11 @@ func (s *Storage) SaveResult(projectName, stackPath string, result *RunResult) e
 	}
 
 	planPath := filepath.Join(dir, "plan.txt")
-	if err := writeFileAtomic(planPath, []byte(result.PlanOutput), 0600); err != nil {
+	planOutput, err := s.encodePlanOutput(result.PlanOutput)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(planPath, []byte(planOutput), 0600); err != nil {
 		return err
 	}
 
@@ -171,7 +183,7 @@ func (s *Storage) GetResult(projectName, stackPath string) (*RunResult, error) {
 	planRelPath := filepath.Join(stackRelDir, "plan.txt")
 	planData, err := readFileUnder(baseDir, planRelPath)
 	if err == nil {
-		result.PlanOutput = string(planData)
+		result.PlanOutput = s.decodePlanOutput(string(planData))
 	}
 
 	return &result, nil
@@ -303,6 +315,47 @@ func validateStackPath(stackPath string) error {
 		return ErrInvalidStackPath
 	}
 	return nil
+}
+
+func loadPlanEncryptorFromEnv() *secrets.Encryptor {
+	encoded := strings.TrimSpace(os.Getenv(secrets.EnvEncryptionKey))
+	if encoded == "" {
+		return nil
+	}
+	key, err := secrets.DecodeKey(encoded)
+	if err != nil {
+		return nil
+	}
+	enc, err := secrets.NewEncryptor(key)
+	if err != nil {
+		return nil
+	}
+	return enc
+}
+
+func (s *Storage) encodePlanOutput(plaintext string) (string, error) {
+	if s.planEncryptor == nil {
+		return plaintext, nil
+	}
+	ciphertext, err := s.planEncryptor.EncryptString(plaintext)
+	if err != nil {
+		return "", fmt.Errorf("encrypt plan output: %w", err)
+	}
+	return encryptedPlanPrefix + ciphertext, nil
+}
+
+func (s *Storage) decodePlanOutput(raw string) string {
+	if !strings.HasPrefix(raw, encryptedPlanPrefix) {
+		return raw
+	}
+	if s.planEncryptor == nil {
+		return ""
+	}
+	plaintext, err := s.planEncryptor.DecryptString(strings.TrimPrefix(raw, encryptedPlanPrefix))
+	if err != nil {
+		return ""
+	}
+	return plaintext
 }
 
 func readFileUnder(baseDir, fileName string) ([]byte, error) {

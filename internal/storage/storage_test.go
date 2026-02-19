@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/driftdhq/driftd/internal/secrets"
 )
 
 func TestSaveAndGetResult(t *testing.T) {
@@ -48,6 +50,74 @@ func TestSaveAndGetResult(t *testing.T) {
 	}
 	if !got.RunAt.Equal(result.RunAt) {
 		t.Errorf("run at: got %v, want %v", got.RunAt, result.RunAt)
+	}
+}
+
+func TestSaveAndGetResultEncryptedPlanOutput(t *testing.T) {
+	dir := t.TempDir()
+	key, err := secrets.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	t.Setenv(secrets.EnvEncryptionKey, secrets.EncodeKey(key))
+
+	s := New(dir)
+	result := &RunResult{
+		Drifted:    true,
+		PlanOutput: "Plan: 1 to add, 0 to change, 0 to destroy",
+		RunAt:      time.Now().Truncate(time.Second),
+	}
+	if err := s.SaveResult("project", "stack", result); err != nil {
+		t.Fatalf("save result: %v", err)
+	}
+
+	planPath := filepath.Join(s.stackDir(s.resultsDir(), "project", "stack"), "plan.txt")
+	raw, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatalf("read plan file: %v", err)
+	}
+	if !strings.HasPrefix(string(raw), encryptedPlanPrefix) {
+		t.Fatalf("expected encrypted plan prefix, got %q", string(raw))
+	}
+	if strings.Contains(string(raw), result.PlanOutput) {
+		t.Fatalf("expected encrypted at-rest plan output")
+	}
+
+	got, err := s.GetResult("project", "stack")
+	if err != nil {
+		t.Fatalf("get result: %v", err)
+	}
+	if got.PlanOutput != result.PlanOutput {
+		t.Fatalf("plan output mismatch: got %q want %q", got.PlanOutput, result.PlanOutput)
+	}
+}
+
+func TestGetResultEncryptedPlanWithoutKeyReturnsEmptyPlan(t *testing.T) {
+	dir := t.TempDir()
+	key, err := secrets.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	t.Setenv(secrets.EnvEncryptionKey, secrets.EncodeKey(key))
+
+	sEncrypted := New(dir)
+	result := &RunResult{
+		Drifted:    true,
+		PlanOutput: "sensitive plan output",
+		RunAt:      time.Now(),
+	}
+	if err := sEncrypted.SaveResult("project", "stack", result); err != nil {
+		t.Fatalf("save result: %v", err)
+	}
+
+	t.Setenv(secrets.EnvEncryptionKey, "")
+	sWithoutKey := New(dir)
+	got, err := sWithoutKey.GetResult("project", "stack")
+	if err != nil {
+		t.Fatalf("get result: %v", err)
+	}
+	if got.PlanOutput != "" {
+		t.Fatalf("expected empty plan output without key, got %q", got.PlanOutput)
 	}
 }
 
