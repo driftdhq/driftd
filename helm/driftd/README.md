@@ -23,6 +23,8 @@ Key values in `values.yaml`:
 - `image.digest` (takes precedence over tag for immutable deploys)
 - `image.pullSecrets` for private registries
 - `service.type`, `service.port`
+- `networkPolicy.*` (optional, user-defined policies; disabled by default)
+- `podDisruptionBudget.*` (optional, user-defined budgets; disabled by default)
 - `serviceAccount.*` (including IRSA/workload identity annotations)
 - `server.replicas`, `server.resources`, `server.envFrom`, `server.readinessProbe`, `server.livenessProbe`
 - `worker.replicas`, `worker.resources`, `worker.envFrom`, `worker.livenessProbe`
@@ -31,6 +33,42 @@ Key values in `values.yaml`:
 
 If `image.tag` is empty, the chart uses `Chart.appVersion`.
 If `image.digest` is set, the chart uses `<repository>@<digest>` and ignores `image.tag`.
+
+## Optional NetworkPolicy / PDB
+
+This chart does not create `NetworkPolicy` or `PodDisruptionBudget` resources by default.
+
+If you want them, enable and define them via values:
+
+```yaml
+networkPolicy:
+  enabled: true
+  policies:
+    - name: worker-egress
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: driftd
+          app.kubernetes.io/instance: driftd
+          app.kubernetes.io/component: worker
+      policyTypes: ["Egress"]
+      egress:
+        - to:
+            - namespaceSelector: {}
+          ports:
+            - protocol: TCP
+              port: 6379
+
+podDisruptionBudget:
+  enabled: true
+  budgets:
+    - name: server
+      minAvailable: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: driftd
+          app.kubernetes.io/instance: driftd
+          app.kubernetes.io/component: server
+```
 
 IRSA / workload identity example:
 
@@ -121,6 +159,9 @@ Default Redis settings in `values.yaml` are development-oriented:
 
 - `redis.auth.enabled=false`
 - `redis.master.persistence.enabled=false`
+- `redis.networkPolicy.enabled=false`
+- `redis.master.pdb.create=false`
+- `redis.replica.pdb.create=false`
 
 For production, enable Redis auth and persistence or use external managed Redis.
 

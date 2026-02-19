@@ -1,0 +1,33 @@
+{{- if and .Values.podDisruptionBudget.enabled (gt (len .Values.podDisruptionBudget.budgets) 0) }}
+{{- range $i, $budget := .Values.podDisruptionBudget.budgets }}
+{{- $budgetName := default (printf "pdb-%d" $i) $budget.name }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-%s" (include "driftd.fullname" $) $budgetName | trunc 63 | trimSuffix "-" }}
+  labels:
+    app.kubernetes.io/name: {{ include "driftd.name" $ }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+  {{- with $budget.annotations }}
+  annotations:
+{{ toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if hasKey $budget "maxUnavailable" }}
+  maxUnavailable: {{ $budget.maxUnavailable }}
+  {{- else if hasKey $budget "minAvailable" }}
+  minAvailable: {{ $budget.minAvailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+  {{- if $budget.selector }}
+{{ toYaml $budget.selector | nindent 4 }}
+  {{- else }}
+    matchLabels:
+      app.kubernetes.io/name: {{ include "driftd.name" $ }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}

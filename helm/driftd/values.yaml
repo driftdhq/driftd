@@ -16,6 +16,38 @@ metrics:
   path: /metrics
   port: 8080
 
+# Optional, user-supplied Kubernetes NetworkPolicy resources.
+# Disabled by default.
+networkPolicy:
+  enabled: false
+  policies: []
+  # - name: server-ingress
+  #   podSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: driftd
+  #       app.kubernetes.io/instance: driftd
+  #       app.kubernetes.io/component: server
+  #   policyTypes: ["Ingress"]
+  #   ingress:
+  #     - from:
+  #         - namespaceSelector: {}
+  #       ports:
+  #         - protocol: TCP
+  #           port: 8080
+
+# Optional, user-supplied PodDisruptionBudget resources.
+# Disabled by default.
+podDisruptionBudget:
+  enabled: false
+  budgets: []
+  # - name: server
+  #   minAvailable: 1
+  #   selector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: driftd
+  #       app.kubernetes.io/instance: driftd
+  #       app.kubernetes.io/component: server
+
 serviceAccount:
   create: true
   name: ""
@@ -198,6 +230,8 @@ config:
 redis:
   enabled: true
   architecture: standalone
+  networkPolicy:
+    enabled: false
   # Dev default only. Enable auth for any shared/prod cluster.
   auth:
     enabled: false
@@ -207,6 +241,11 @@ redis:
     tag: latest
     digest: sha256:412da89feed59b1a45b0c1fd9d07cdb2e2283cf4db2e5a1604762ad03d53af6d  # Redis 8.4.0
   master:
+    pdb:
+      create: false
     persistence:
       # Dev default only. Enable persistence for production durability.
       enabled: false
+  replica:
+    pdb:
+      create: false

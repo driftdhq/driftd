@@ -121,6 +121,49 @@ config:
   # Define projects or manage via /settings.
   projects: []
 
+# Optional network policies (disabled by default in chart values).
+# networkPolicy:
+#   enabled: true
+#   policies:
+#     - name: server-ingress
+#       podSelector:
+#         matchLabels:
+#           app.kubernetes.io/name: driftd
+#           app.kubernetes.io/instance: driftd
+#           app.kubernetes.io/component: server
+#       policyTypes: ["Ingress", "Egress"]
+#       ingress:
+#         - from:
+#             - namespaceSelector: {}
+#           ports:
+#             - protocol: TCP
+#               port: 8080
+#       egress:
+#         - to:
+#             - namespaceSelector: {}
+#           ports:
+#             - protocol: TCP
+#               port: 6379
+#
+# Optional PodDisruptionBudgets (disabled by default in chart values).
+# podDisruptionBudget:
+#   enabled: true
+#   budgets:
+#     - name: server
+#       minAvailable: 1
+#       selector:
+#         matchLabels:
+#           app.kubernetes.io/name: driftd
+#           app.kubernetes.io/instance: driftd
+#           app.kubernetes.io/component: server
+#     - name: worker
+#       minAvailable: 1
+#       selector:
+#         matchLabels:
+#           app.kubernetes.io/name: driftd
+#           app.kubernetes.io/instance: driftd
+#           app.kubernetes.io/component: worker
+
 # Disable in-cluster Redis for production external Redis.
 redis:
   enabled: false
