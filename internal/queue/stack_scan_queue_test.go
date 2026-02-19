@@ -115,6 +115,43 @@ func TestEnqueueDeduplication(t *testing.T) {
 	}
 }
 
+func TestEnqueueAtomicCleanupOnScriptError(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	// Force WRONGTYPE during enqueue script by making pending key a string.
+	if err := q.client.Set(ctx, keyStackScanPending, "not-a-set", 0).Err(); err != nil {
+		t.Fatalf("seed wrongtype pending key: %v", err)
+	}
+
+	job := &StackScan{
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+	}
+	if err := q.Enqueue(ctx, job); err == nil {
+		t.Fatalf("expected enqueue error due to wrongtype key")
+	}
+
+	if exists, err := q.client.Exists(ctx, inflightKey(job.ProjectName, job.StackPath)).Result(); err != nil {
+		t.Fatalf("check inflight key: %v", err)
+	} else if exists != 0 {
+		t.Fatalf("expected inflight key cleanup, got exists=%d", exists)
+	}
+
+	if exists, err := q.client.Exists(ctx, keyStackScanPrefix+job.ID).Result(); err != nil {
+		t.Fatalf("check stack scan key: %v", err)
+	} else if exists != 0 {
+		t.Fatalf("expected stack scan key cleanup, got exists=%d", exists)
+	}
+
+	if depth, err := q.QueueDepth(ctx); err != nil {
+		t.Fatalf("queue depth: %v", err)
+	} else if depth != 0 {
+		t.Fatalf("expected queue depth 0 after failed enqueue, got %d", depth)
+	}
+}
+
 func TestInflightClearedOnComplete(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()

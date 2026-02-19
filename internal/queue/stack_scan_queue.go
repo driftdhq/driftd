@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,39 @@ type StackScan struct {
 // ErrAlreadyClaimed is returned when another worker has already claimed the stack scan.
 var ErrAlreadyClaimed = errors.New("stack scan already claimed")
 
+var enqueueStackScanScript = redis.NewScript(`
+if redis.call('SETNX', KEYS[1], ARGV[1]) == 0 then
+  return 0
+end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+
+local ok, err = pcall(function()
+  redis.call('SET', KEYS[2], ARGV[3], 'EX', ARGV[2])
+  redis.call('SADD', KEYS[3], ARGV[1])
+  redis.call('ZADD', KEYS[4], ARGV[4], ARGV[1])
+  redis.call('SADD', KEYS[5], ARGV[1])
+  if ARGV[5] ~= '' then
+    redis.call('SADD', KEYS[6], ARGV[1])
+  end
+  redis.call('LPUSH', KEYS[7], ARGV[1])
+end)
+
+if not ok then
+  redis.pcall('DEL', KEYS[1])
+  redis.pcall('DEL', KEYS[2])
+  redis.pcall('SREM', KEYS[3], ARGV[1])
+  redis.pcall('ZREM', KEYS[4], ARGV[1])
+  redis.pcall('SREM', KEYS[5], ARGV[1])
+  if ARGV[5] ~= '' then
+    redis.pcall('SREM', KEYS[6], ARGV[1])
+  end
+  redis.pcall('LREM', KEYS[7], 0, ARGV[1])
+  return redis.error_reply(err)
+end
+
+return 1
+`)
+
 func (q *Queue) CancelStackScan(ctx context.Context, stackScan *StackScan, reason string) error {
 	stackScan.Status = StatusCanceled
 	stackScan.CompletedAt = time.Now()
@@ -59,40 +93,13 @@ func (q *Queue) Enqueue(ctx context.Context, stackScan *StackScan) error {
 		stackScan.ID = fmt.Sprintf("%s:%s:%d:%d", stackScan.ProjectName, stackScan.StackPath, stackScan.CreatedAt.UnixNano(), rand.Int31())
 	}
 
-	inflight := inflightKey(stackScan.ProjectName, stackScan.StackPath)
-	claimed, err := q.client.SetNX(ctx, inflight, stackScan.ID, stackScanRetention).Result()
+	enqueued, err := q.enqueueStackScanAtomic(ctx, stackScan)
 	if err != nil {
-		return fmt.Errorf("failed to mark stack scan inflight: %w", err)
+		return err
 	}
-	if !claimed {
+	if !enqueued {
 		return ErrStackScanInflight
 	}
-
-	stackScanKey := keyStackScanPrefix + stackScan.ID
-	stackScanData, err := json.Marshal(stackScan)
-	if err != nil {
-		q.client.Del(ctx, inflight)
-		return fmt.Errorf("failed to marshal stack scan: %w", err)
-	}
-
-	pipe := q.client.Pipeline()
-	pipe.Set(ctx, stackScanKey, stackScanData, stackScanRetention)
-	pipe.SAdd(ctx, keyProjectStackScans+stackScan.ProjectName, stackScan.ID)
-	pipe.ZAdd(ctx, keyProjectStackScansOrdered+stackScan.ProjectName, redis.Z{
-		Score:  float64(stackScan.CreatedAt.Unix()),
-		Member: stackScan.ID,
-	})
-	pipe.SAdd(ctx, keyStackScanPending, stackScan.ID)
-	if stackScan.ScanID != "" {
-		pipe.SAdd(ctx, keyScanStackScans+stackScan.ScanID, stackScan.ID)
-	}
-	pipe.LPush(ctx, keyQueue, stackScan.ID)
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		q.client.Del(ctx, inflight)
-		return fmt.Errorf("failed to enqueue stack scan: %w", err)
-	}
-
 	return nil
 }
 
@@ -103,9 +110,8 @@ type EnqueueBatchResult struct {
 	Errors   []string     // per-stack error messages
 }
 
-// EnqueueBatch enqueues multiple stack scans using pipelined Redis commands.
-// Inflight checks are batched into a single pipeline, and all enqueue operations
-// are batched into a second pipeline — 2 roundtrips total regardless of stack count.
+// EnqueueBatch enqueues multiple stack scans using atomic per-stack Redis scripts.
+// Each stack enqueue is lock+write atomic, so partial enqueue cleanup races are avoided.
 func (q *Queue) EnqueueBatch(ctx context.Context, stacks []*StackScan) (*EnqueueBatchResult, error) {
 	if len(stacks) == 0 {
 		return &EnqueueBatchResult{}, nil
@@ -120,84 +126,70 @@ func (q *Queue) EnqueueBatch(ctx context.Context, stacks []*StackScan) (*Enqueue
 		}
 	}
 
-	// Phase 1: pipeline all inflight SetNX checks
-	inflightPipe := q.client.Pipeline()
-	inflightCmds := make([]*redis.BoolCmd, len(stacks))
-	inflightKeys := make([]string, len(stacks))
-	for i, ss := range stacks {
-		key := inflightKey(ss.ProjectName, ss.StackPath)
-		inflightKeys[i] = key
-		inflightCmds[i] = inflightPipe.SetNX(ctx, key, ss.ID, stackScanRetention)
-	}
-	if _, err := inflightPipe.Exec(ctx); err != nil {
-		return nil, fmt.Errorf("failed to check inflight status: %w", err)
-	}
-
-	// Separate claimed vs inflight
 	result := &EnqueueBatchResult{}
-	var claimed []*StackScan
-	var claimedKeys []string
-	for i, cmd := range inflightCmds {
-		acquired, err := cmd.Result()
+	for _, ss := range stacks {
+		enqueued, err := q.enqueueStackScanAtomic(ctx, ss)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", stacks[i].StackPath, err))
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", ss.StackPath, err))
 			continue
 		}
-		if !acquired {
+		if !enqueued {
 			result.Skipped++
 			continue
 		}
-		claimed = append(claimed, stacks[i])
-		claimedKeys = append(claimedKeys, inflightKeys[i])
-	}
-
-	if len(claimed) == 0 {
-		return result, nil
-	}
-
-	// Phase 2: marshal and pipeline all enqueue operations
-	enqueuePipe := q.client.Pipeline()
-	var failedKeys []string
-	for _, ss := range claimed {
-		data, err := json.Marshal(ss)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: marshal: %v", ss.StackPath, err))
-			failedKeys = append(failedKeys, inflightKey(ss.ProjectName, ss.StackPath))
-			continue
-		}
-		enqueuePipe.Set(ctx, keyStackScanPrefix+ss.ID, data, stackScanRetention)
-		enqueuePipe.SAdd(ctx, keyProjectStackScans+ss.ProjectName, ss.ID)
-		enqueuePipe.ZAdd(ctx, keyProjectStackScansOrdered+ss.ProjectName, redis.Z{
-			Score:  float64(ss.CreatedAt.Unix()),
-			Member: ss.ID,
-		})
-		enqueuePipe.SAdd(ctx, keyStackScanPending, ss.ID)
-		if ss.ScanID != "" {
-			enqueuePipe.SAdd(ctx, keyScanStackScans+ss.ScanID, ss.ID)
-		}
-		enqueuePipe.LPush(ctx, keyQueue, ss.ID)
 		result.Enqueued = append(result.Enqueued, ss)
 	}
-
-	if len(failedKeys) > 0 {
-		cleanup := q.client.Pipeline()
-		for _, key := range failedKeys {
-			cleanup.Del(ctx, key)
-		}
-		_, _ = cleanup.Exec(ctx)
-	}
-
-	if _, err := enqueuePipe.Exec(ctx); err != nil {
-		// Rollback inflight markers for stacks that failed
-		rollback := q.client.Pipeline()
-		for _, key := range claimedKeys {
-			rollback.Del(ctx, key)
-		}
-		_, _ = rollback.Exec(ctx)
-		return nil, fmt.Errorf("failed to enqueue batch: %w", err)
-	}
-
 	return result, nil
+}
+
+func (q *Queue) enqueueStackScanAtomic(ctx context.Context, stackScan *StackScan) (bool, error) {
+	stackScanData, err := json.Marshal(stackScan)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal stack scan: %w", err)
+	}
+
+	inflight := inflightKey(stackScan.ProjectName, stackScan.StackPath)
+	stackScanKey := keyStackScanPrefix + stackScan.ID
+	projectSetKey := keyProjectStackScans + stackScan.ProjectName
+	projectZSetKey := keyProjectStackScansOrdered + stackScan.ProjectName
+	pendingSetKey := keyStackScanPending
+	scanSetKey := keyScanStackScans + stackScan.ScanID
+
+	retentionSeconds := int64(stackScanRetention / time.Second)
+	if retentionSeconds <= 0 {
+		retentionSeconds = 1
+	}
+
+	result, err := enqueueStackScanScript.Run(
+		ctx,
+		q.client,
+		[]string{
+			inflight,
+			stackScanKey,
+			projectSetKey,
+			projectZSetKey,
+			pendingSetKey,
+			scanSetKey,
+			keyQueue,
+		},
+		stackScan.ID,
+		strconv.FormatInt(retentionSeconds, 10),
+		string(stackScanData),
+		strconv.FormatInt(stackScan.CreatedAt.Unix(), 10),
+		stackScan.ScanID,
+	).Int64()
+	if err != nil {
+		return false, fmt.Errorf("failed to enqueue stack scan: %w", err)
+	}
+
+	switch result {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, fmt.Errorf("unexpected enqueue result: %d", result)
+	}
 }
 
 // Dequeue blocks until a stack scan is available, then returns it.
