@@ -27,6 +27,7 @@ type runCall struct {
 	tfVersion     string
 	tgVersion     string
 	workspacePath string
+	cloneDepth    int
 	blockExternal bool
 }
 
@@ -45,6 +46,7 @@ func (m *mockRunner) Run(ctx context.Context, params *runner.RunParams) (*storag
 		tfVersion:     params.TFVersion,
 		tgVersion:     params.TGVersion,
 		workspacePath: params.WorkspacePath,
+		cloneDepth:    params.CloneDepth,
 		blockExternal: params.BlockExternalDataSource,
 	})
 	m.mu.Unlock()
@@ -412,6 +414,7 @@ func TestWorkerWithConfig(t *testing.T) {
 
 	cfg := &config.Config{
 		Worker: config.WorkerConfig{
+			CloneDepth:              7,
 			BlockExternalDataSource: true,
 		},
 		Projects: []config.ProjectConfig{
@@ -462,6 +465,9 @@ func TestWorkerWithConfig(t *testing.T) {
 	}
 	if !calls[0].blockExternal {
 		t.Fatalf("expected worker to pass block_external_data_source=true to runner")
+	}
+	if calls[0].cloneDepth != 7 {
+		t.Fatalf("expected worker to pass clone_depth=7 to runner, got %d", calls[0].cloneDepth)
 	}
 }
 

@@ -218,6 +218,7 @@ config:
     lock_ttl: 30m
     retry_once: true
     scan_max_age: 6h
+    clone_depth: 1
     renew_every: 10s
     # Block stacks that declare Terraform data "external" in local stack files.
     # Helps reduce arbitrary command execution risk during `terraform plan`.

@@ -28,6 +28,7 @@ Key values in `values.yaml`:
 - `serviceAccount.*` (including IRSA/workload identity annotations)
 - `server.replicas`, `server.resources`, `server.envFrom`, `server.readinessProbe`, `server.livenessProbe`
 - `worker.replicas`, `worker.resources`, `worker.envFrom`, `worker.livenessProbe`
+- `config.worker.clone_depth` (git clone depth for standalone scans; default `1`)
 - `storage.data` and `storage.cache` PVC settings
 - `config`: the Driftd `config.yaml` rendered into a ConfigMap
 

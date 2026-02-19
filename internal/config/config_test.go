@@ -22,6 +22,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Worker.RenewEvery > cfg.Worker.LockTTL/2 {
 		t.Fatalf("expected renew_every <= lock_ttl/2")
 	}
+	if cfg.Worker.CloneDepth != 1 {
+		t.Fatalf("expected clone_depth default 1, got %d", cfg.Worker.CloneDepth)
+	}
 }
 
 func TestLoadValidation(t *testing.T) {
@@ -54,6 +57,24 @@ func TestLoadValidation(t *testing.T) {
 		}
 		if !cfg.Worker.BlockExternalDataSource {
 			t.Fatalf("expected worker.block_external_data_source=true")
+		}
+	})
+
+	t.Run("clone_depth_configured", func(t *testing.T) {
+		path := writeTempConfig(t, "worker:\n  clone_depth: 5\n")
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Worker.CloneDepth != 5 {
+			t.Fatalf("expected worker.clone_depth=5, got %d", cfg.Worker.CloneDepth)
+		}
+	})
+
+	t.Run("clone_depth_invalid", func(t *testing.T) {
+		path := writeTempConfig(t, "worker:\n  clone_depth: -1\n")
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected error for invalid clone_depth")
 		}
 	})
 

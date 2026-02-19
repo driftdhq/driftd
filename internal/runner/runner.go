@@ -31,6 +31,7 @@ type RunParams struct {
 	RunID         string
 	Auth          transport.AuthMethod
 	WorkspacePath string
+	CloneDepth    int
 	// BlockExternalDataSource blocks stacks that use Terraform data "external".
 	BlockExternalDataSource bool
 }
@@ -45,7 +46,7 @@ func (r *Runner) Run(ctx context.Context, params *RunParams) (*storage.RunResult
 		return result, nil
 	}
 
-	projectRoot, cleanup, err := r.prepareProjectRoot(ctx, params.ProjectURL, params.WorkspacePath, params.Auth)
+	projectRoot, cleanup, err := r.prepareProjectRoot(ctx, params.ProjectURL, params.WorkspacePath, params.Auth, params.CloneDepth)
 	if err != nil {
 		result.Error = err.Error()
 		return result, nil

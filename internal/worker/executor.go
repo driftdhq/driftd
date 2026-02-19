@@ -8,6 +8,13 @@ import (
 )
 
 func (w *Worker) executePlan(ctx context.Context, sc *ScanContext) (*storage.RunResult, error) {
+	cloneDepth := 1
+	blockExternalDataSource := false
+	if w.cfg != nil {
+		cloneDepth = w.cfg.Worker.CloneDepth
+		blockExternalDataSource = w.cfg.Worker.BlockExternalDataSource
+	}
+
 	return w.runner.Run(ctx, &runner.RunParams{
 		ProjectName:             sc.ProjectName,
 		ProjectURL:              sc.ProjectURL,
@@ -17,6 +24,7 @@ func (w *Worker) executePlan(ctx context.Context, sc *ScanContext) (*storage.Run
 		RunID:                   sc.ScanID,
 		Auth:                    sc.Auth,
 		WorkspacePath:           sc.WorkspacePath,
-		BlockExternalDataSource: w.cfg != nil && w.cfg.Worker.BlockExternalDataSource,
+		CloneDepth:              cloneDepth,
+		BlockExternalDataSource: blockExternalDataSource,
 	})
 }

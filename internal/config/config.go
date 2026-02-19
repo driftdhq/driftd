@@ -41,7 +41,10 @@ type WorkerConfig struct {
 	LockTTL     time.Duration `yaml:"lock_ttl"`
 	RetryOnce   bool          `yaml:"retry_once"`
 	ScanMaxAge  time.Duration `yaml:"scan_max_age"`
-	RenewEvery  time.Duration `yaml:"renew_every"`
+	// CloneDepth controls git clone history depth for standalone stack scans.
+	// Set to 1 for shallow clone (default). Must be >= 1.
+	CloneDepth int           `yaml:"clone_depth"`
+	RenewEvery time.Duration `yaml:"renew_every"`
 	// StackTimeout caps how long a single stack plan is allowed to run in a worker.
 	StackTimeout time.Duration `yaml:"stack_timeout"`
 	// BlockExternalDataSource blocks scans when local stack config uses Terraform data "external".
@@ -203,6 +206,7 @@ func Load(path string) (*Config, error) {
 			LockTTL:      30 * time.Minute,
 			RetryOnce:    true,
 			ScanMaxAge:   6 * time.Hour,
+			CloneDepth:   1,
 			RenewEvery:   0,
 			StackTimeout: 30 * time.Minute,
 		},
@@ -258,6 +262,12 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.Worker.ScanMaxAge == 0 {
 		cfg.Worker.ScanMaxAge = 6 * time.Hour
+	}
+	if cfg.Worker.CloneDepth == 0 {
+		cfg.Worker.CloneDepth = 1
+	}
+	if cfg.Worker.CloneDepth < 1 {
+		return nil, fmt.Errorf("worker.clone_depth must be >= 1")
 	}
 	if cfg.Worker.RenewEvery == 0 {
 		cfg.Worker.RenewEvery = cfg.Worker.LockTTL / 3

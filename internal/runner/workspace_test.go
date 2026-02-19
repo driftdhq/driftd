@@ -16,7 +16,7 @@ func TestPrepareProjectRoot_SharedWorkspace(t *testing.T) {
 	os.WriteFile(filepath.Join(workspace, "envs/prod/main.tf"), []byte("# prod"), 0644)
 
 	r := &Runner{}
-	root, cleanup, err := r.prepareProjectRoot(context.Background(), "", workspace, nil)
+	root, cleanup, err := r.prepareProjectRoot(context.Background(), "", workspace, nil, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestPrepareProjectRoot_NoWorkspace_ClonesFresh(t *testing.T) {
 	// Without a workspace or valid project URL, the clone should fail.
 	// This verifies the clone path is taken (not the shared workspace path).
 	r := &Runner{}
-	_, cleanup, err := r.prepareProjectRoot(context.Background(), "file:///nonexistent", "", nil)
+	_, cleanup, err := r.prepareProjectRoot(context.Background(), "file:///nonexistent", "", nil, 1)
 	if err == nil {
 		if cleanup != nil {
 			cleanup()
@@ -68,7 +68,7 @@ func TestPrepareProjectRoot_SharedWorkspace_NoTempDirCreated(t *testing.T) {
 		}
 	}
 
-	root, cleanup, err := r.prepareProjectRoot(context.Background(), "", workspace, nil)
+	root, cleanup, err := r.prepareProjectRoot(context.Background(), "", workspace, nil, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -190,5 +190,23 @@ func TestRunWithSharedWorkspace_UnsafeStackPath(t *testing.T) {
 	}
 	if result.Error != "invalid stack path" {
 		t.Fatalf("expected invalid-stack-path error, got: %q", result.Error)
+	}
+}
+
+func TestNormalizeCloneDepth(t *testing.T) {
+	tests := []struct {
+		in   int
+		want int
+	}{
+		{in: -1, want: 1},
+		{in: 0, want: 1},
+		{in: 1, want: 1},
+		{in: 5, want: 5},
+	}
+
+	for _, tt := range tests {
+		if got := normalizeCloneDepth(tt.in); got != tt.want {
+			t.Fatalf("normalizeCloneDepth(%d) = %d, want %d", tt.in, got, tt.want)
+		}
 	}
 }

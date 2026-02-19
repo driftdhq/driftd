@@ -110,6 +110,7 @@ config:
     lock_ttl: 45m
     retry_once: true
     scan_max_age: 8h
+    clone_depth: 1
     renew_every: 15s
     stack_timeout: 45m
     block_external_data_source: true
