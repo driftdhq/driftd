@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,39 +50,111 @@ func TestParsePlanSummary(t *testing.T) {
 	}
 }
 
-func TestPlanOnlyWrapperBlocksApply(t *testing.T) {
+func TestPlanOnlyProxyBlocksApply(t *testing.T) {
 	dir := t.TempDir()
 	realBin := filepath.Join(dir, "terraform")
 	if err := os.WriteFile(realBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("write fake terraform: %v", err)
 	}
 
-	wrapper, err := ensurePlanOnlyWrapper(dir, realBin)
-	if err != nil {
-		t.Fatalf("ensure wrapper: %v", err)
+	wrapperPath := filepath.Join(dir, "terraform.planonly")
+	if err := os.WriteFile(planOnlyTargetPath(wrapperPath), []byte(realBin+"\n"), 0644); err != nil {
+		t.Fatalf("write target file: %v", err)
 	}
 
-	cmd := execCommand(wrapper, "apply")
-	if err := cmd.Run(); err == nil {
-		t.Fatalf("expected apply to be blocked")
+	stdoutFile := filepath.Join(dir, "stdout.txt")
+	stderrFile := filepath.Join(dir, "stderr.txt")
+	stdout, err := os.OpenFile(stdoutFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		t.Fatalf("open stdout file: %v", err)
+	}
+	defer stdout.Close()
+	stderr, err := os.OpenFile(stderrFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		t.Fatalf("open stderr file: %v", err)
+	}
+	defer stderr.Close()
+
+	code := runPlanOnlyProxy(wrapperPath, []string{"apply"}, stdout, stderr)
+	if code != 2 {
+		t.Fatalf("expected exit code 2, got %d", code)
+	}
+	content, err := os.ReadFile(stderrFile)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if !strings.Contains(string(content), "terraform subcommand disabled: apply") {
+		t.Fatalf("expected disabled subcommand message, got: %s", string(content))
 	}
 }
 
-func TestPlanOnlyWrapperAllowsPlan(t *testing.T) {
+func TestPlanOnlyProxyAllowsPlanAndForwardsArgs(t *testing.T) {
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "terraform")
+	argsFile := filepath.Join(dir, "args.txt")
+	fakeTerraform := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argsFile)
+	if err := os.WriteFile(realBin, []byte(fakeTerraform), 0755); err != nil {
+		t.Fatalf("write fake terraform: %v", err)
+	}
+
+	wrapperPath := filepath.Join(dir, "terraform.planonly")
+	if err := os.WriteFile(planOnlyTargetPath(wrapperPath), []byte(realBin+"\n"), 0644); err != nil {
+		t.Fatalf("write target file: %v", err)
+	}
+
+	stdout, err := os.OpenFile(filepath.Join(dir, "stdout.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		t.Fatalf("open stdout file: %v", err)
+	}
+	defer stdout.Close()
+	stderr, err := os.OpenFile(filepath.Join(dir, "stderr.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		t.Fatalf("open stderr file: %v", err)
+	}
+	defer stderr.Close()
+
+	code := runPlanOnlyProxy(wrapperPath, []string{"-chdir=foo", "plan", "-input=false"}, stdout, stderr)
+	if code != 0 {
+		t.Fatalf("expected plan to succeed, got exit code %d", code)
+	}
+
+	content, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read forwarded args: %v", err)
+	}
+	got := strings.Split(strings.TrimSpace(string(content)), "\n")
+	want := []string{"-chdir=foo", "plan", "-input=false"}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected arg count: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("arg %d mismatch: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestEnsurePlanOnlyWrapperCreatesLinkAndTarget(t *testing.T) {
 	dir := t.TempDir()
 	realBin := filepath.Join(dir, "terraform")
 	if err := os.WriteFile(realBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("write fake terraform: %v", err)
 	}
 
-	wrapper, err := ensurePlanOnlyWrapper(dir, realBin)
+	wrapperPath, err := ensurePlanOnlyWrapper(dir, realBin)
 	if err != nil {
 		t.Fatalf("ensure wrapper: %v", err)
 	}
+	if !planOnlyWrapperValid(wrapperPath, realBin) {
+		t.Fatalf("expected valid wrapper at %s", wrapperPath)
+	}
 
-	cmd := execCommand(wrapper, "plan")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("expected plan to succeed, got %v", err)
+	target, err := readPlanOnlyTarget(wrapperPath)
+	if err != nil {
+		t.Fatalf("read wrapper target: %v", err)
+	}
+	if target != realBin {
+		t.Fatalf("target mismatch: got %q want %q", target, realBin)
 	}
 }
 

@@ -32,6 +32,10 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 func main() {
+	if handled, code := runner.MaybeRunPlanOnlyProxy(os.Args[0], os.Args[1:]); handled {
+		os.Exit(code)
+	}
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
