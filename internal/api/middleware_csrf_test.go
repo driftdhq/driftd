@@ -44,28 +44,39 @@ func TestShouldBypassCSRFCheck(t *testing.T) {
 		insecureDev  bool
 		forwarded    string
 		withTLS      bool
+		remoteAddr   string
 		expectBypass bool
 	}{
 		{
 			name:         "bypass on insecure dev over plain http",
 			insecureDev:  true,
+			remoteAddr:   "127.0.0.1:1234",
 			expectBypass: true,
 		},
 		{
 			name:         "do not bypass on insecure dev with forwarded https",
 			insecureDev:  true,
 			forwarded:    "https",
+			remoteAddr:   "127.0.0.1:1234",
 			expectBypass: false,
 		},
 		{
 			name:         "do not bypass on insecure dev with tls",
 			insecureDev:  true,
 			withTLS:      true,
+			remoteAddr:   "127.0.0.1:1234",
+			expectBypass: false,
+		},
+		{
+			name:         "do not bypass on insecure dev for non-localhost request",
+			insecureDev:  true,
+			remoteAddr:   "203.0.113.10:4321",
 			expectBypass: false,
 		},
 		{
 			name:         "do not bypass outside insecure dev mode",
 			insecureDev:  false,
+			remoteAddr:   "127.0.0.1:1234",
 			expectBypass: false,
 		},
 	}
@@ -75,6 +86,9 @@ func TestShouldBypassCSRFCheck(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "http://example.com", nil)
 			if tt.forwarded != "" {
 				req.Header.Set("X-Forwarded-Proto", tt.forwarded)
+			}
+			if tt.remoteAddr != "" {
+				req.RemoteAddr = tt.remoteAddr
 			}
 			if tt.withTLS {
 				req.TLS = &tls.ConnectionState{}
@@ -95,6 +109,7 @@ func TestCSRFMiddlewareBypassesTokenCheckForInsecureDevHTTP(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "http://example.com", strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = "127.0.0.1:9999"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -116,5 +131,22 @@ func TestCSRFMiddlewareEnforcesTokenCheckOutsideBypass(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected middleware to reject missing csrf token, got %d", rec.Code)
+	}
+}
+
+func TestCSRFMiddlewareDoesNotBypassForNonLocalRequest(t *testing.T) {
+	srv := &Server{cfg: &config.Config{InsecureDevMode: true}}
+	h := srv.csrfMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.com", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = "198.51.100.8:7777"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected csrf rejection for non-local request, got %d", rec.Code)
 	}
 }

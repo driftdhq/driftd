@@ -379,7 +379,11 @@ func (s *Server) ensureCSRFToken(w http.ResponseWriter, r *http.Request) string 
 }
 
 func (s *Server) shouldBypassCSRFCheck(r *http.Request) bool {
-	return s != nil && s.cfg != nil && s.cfg.InsecureDevMode && !isHTTPSRequest(r)
+	return s != nil &&
+		s.cfg != nil &&
+		s.cfg.InsecureDevMode &&
+		!isHTTPSRequest(r) &&
+		isLocalhostRequest(r)
 }
 
 func isHTTPSRequest(r *http.Request) bool {
@@ -390,6 +394,14 @@ func isHTTPSRequest(r *http.Request) bool {
 		return true
 	}
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+func isLocalhostRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	ip := peerIPFromRemoteAddr(r.RemoteAddr)
+	return ip != nil && ip.IsLoopback()
 }
 
 func csrfTokenFromContext(ctx context.Context) string {
