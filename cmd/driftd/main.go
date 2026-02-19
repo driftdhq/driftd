@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -30,6 +31,8 @@ var templatesFS embed.FS
 
 //go:embed static/*
 var staticFS embed.FS
+
+const envAllowInsecureDevNonLocal = "DRIFTD_ALLOW_INSECURE_DEV_NONLOCAL"
 
 func main() {
 	if handled, code := runner.MaybeRunPlanOnlyProxy(os.Args[0], os.Args[1:]); handled {
@@ -81,6 +84,9 @@ func runServe(args []string) {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
+	}
+	if err := validateInsecureDevModeBind(cfg); err != nil {
+		log.Fatalf("invalid insecure dev mode configuration: %v", err)
 	}
 	if err := validateServeSecurity(cfg); err != nil {
 		log.Fatalf("invalid security configuration: %v", err)
@@ -288,4 +294,56 @@ func validateEncryptionKeyPolicy(cfg *config.Config) error {
 		return fmt.Errorf("%s must be set when insecure_dev_mode=false", secrets.EnvEncryptionKey)
 	}
 	return nil
+}
+
+func validateInsecureDevModeBind(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if !cfg.InsecureDevMode {
+		return nil
+	}
+	if allowsInsecureDevNonLocal() {
+		return nil
+	}
+	if !isLoopbackListenAddr(cfg.ListenAddr) {
+		return fmt.Errorf(
+			"insecure_dev_mode=true requires a localhost listen_addr (got %q). "+
+				"Use 127.0.0.1:<port> or [::1]:<port>, or set %s=true to override intentionally",
+			cfg.ListenAddr,
+			envAllowInsecureDevNonLocal,
+		)
+	}
+	return nil
+}
+
+func allowsInsecureDevNonLocal() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(envAllowInsecureDevNonLocal)))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func isLoopbackListenAddr(listenAddr string) bool {
+	listenAddr = strings.TrimSpace(listenAddr)
+	if listenAddr == "" {
+		return false
+	}
+
+	host := ""
+	if strings.HasPrefix(listenAddr, ":") {
+		host = ""
+	} else if h, _, err := net.SplitHostPort(listenAddr); err == nil {
+		host = h
+	} else if strings.Contains(err.Error(), "missing port in address") {
+		host = listenAddr
+	}
+
+	host = strings.Trim(host, "[]")
+	if i := strings.Index(host, "%"); i >= 0 {
+		host = host[:i]
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
