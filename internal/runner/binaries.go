@@ -193,7 +193,7 @@ func ensurePlanOnlyWrapper(workDir, tfBin string) (string, error) {
 	_ = os.Remove(wrapperPath)
 	if err := os.Symlink(selfBin, wrapperPath); err != nil {
 		if linkErr := os.Link(selfBin, wrapperPath); linkErr != nil {
-			return "", fmt.Errorf("create plan-only wrapper link: %w", err)
+			return "", fmt.Errorf("create plan-only wrapper link: %w", linkErr)
 		}
 	}
 

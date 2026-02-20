@@ -218,6 +218,7 @@ config:
     lock_ttl: 30m
     retry_once: true
     scan_max_age: 6h
+    # Git clone depth for standalone scans. Valid range: 1-1000.
     clone_depth: 1
     renew_every: 10s
     # Block stacks that declare Terraform data "external" in local stack files.

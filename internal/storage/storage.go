@@ -16,8 +16,9 @@ import (
 )
 
 type Storage struct {
-	dataDir       string
-	planEncryptor *secrets.Encryptor
+	dataDir              string
+	planEncryptor        *secrets.Encryptor
+	planEncryptorInitErr error
 }
 
 type Store interface {
@@ -63,9 +64,11 @@ var (
 const encryptedPlanPrefix = "enc:v1:"
 
 func New(dataDir string) *Storage {
+	planEncryptor, planEncryptorInitErr := loadPlanEncryptorFromEnv()
 	return &Storage{
-		dataDir:       dataDir,
-		planEncryptor: loadPlanEncryptorFromEnv(),
+		dataDir:              dataDir,
+		planEncryptor:        planEncryptor,
+		planEncryptorInitErr: planEncryptorInitErr,
 	}
 }
 
@@ -317,23 +320,26 @@ func validateStackPath(stackPath string) error {
 	return nil
 }
 
-func loadPlanEncryptorFromEnv() *secrets.Encryptor {
+func loadPlanEncryptorFromEnv() (*secrets.Encryptor, error) {
 	encoded := strings.TrimSpace(os.Getenv(secrets.EnvEncryptionKey))
 	if encoded == "" {
-		return nil
+		return nil, nil
 	}
 	key, err := secrets.DecodeKey(encoded)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("decode %s: %w", secrets.EnvEncryptionKey, err)
 	}
 	enc, err := secrets.NewEncryptor(key)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("initialize %s encryptor: %w", secrets.EnvEncryptionKey, err)
 	}
-	return enc
+	return enc, nil
 }
 
 func (s *Storage) encodePlanOutput(plaintext string) (string, error) {
+	if s.planEncryptorInitErr != nil {
+		return "", fmt.Errorf("plan encryption unavailable: %w", s.planEncryptorInitErr)
+	}
 	if s.planEncryptor == nil {
 		return plaintext, nil
 	}

@@ -50,6 +50,7 @@ func TestValidateServeSecurity(t *testing.T) {
 
 func TestValidateEncryptionKeyPolicy(t *testing.T) {
 	t.Run("allows insecure dev mode", func(t *testing.T) {
+		t.Setenv(secrets.EnvEncryptionKey, "")
 		cfg := &config.Config{InsecureDevMode: true}
 		if err := validateEncryptionKeyPolicy(cfg); err != nil {
 			t.Fatalf("expected nil error, got %v", err)
@@ -69,6 +70,22 @@ func TestValidateEncryptionKeyPolicy(t *testing.T) {
 		cfg := &config.Config{}
 		if err := validateEncryptionKeyPolicy(cfg); err != nil {
 			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("rejects malformed env key in secure mode", func(t *testing.T) {
+		t.Setenv(secrets.EnvEncryptionKey, "not-a-valid-key")
+		cfg := &config.Config{}
+		if err := validateEncryptionKeyPolicy(cfg); err == nil {
+			t.Fatalf("expected error for malformed %s", secrets.EnvEncryptionKey)
+		}
+	})
+
+	t.Run("rejects malformed env key in insecure mode", func(t *testing.T) {
+		t.Setenv(secrets.EnvEncryptionKey, "not-a-valid-key")
+		cfg := &config.Config{InsecureDevMode: true}
+		if err := validateEncryptionKeyPolicy(cfg); err == nil {
+			t.Fatalf("expected error for malformed %s", secrets.EnvEncryptionKey)
 		}
 	})
 }
@@ -104,6 +121,16 @@ func TestValidateInsecureDevModeBind(t *testing.T) {
 		}
 	})
 
+	t.Run("allows insecure mode on ipv6 loopback", func(t *testing.T) {
+		cfg := &config.Config{
+			InsecureDevMode: true,
+			ListenAddr:      "[::1]:8080",
+		}
+		if err := validateInsecureDevModeBind(cfg); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
 	t.Run("rejects insecure mode on wildcard bind", func(t *testing.T) {
 		cfg := &config.Config{
 			InsecureDevMode: true,
@@ -121,6 +148,16 @@ func TestValidateInsecureDevModeBind(t *testing.T) {
 		}
 		if err := validateInsecureDevModeBind(cfg); err == nil {
 			t.Fatal("expected error for non-local listen addr")
+		}
+	})
+
+	t.Run("rejects insecure mode on empty listen addr", func(t *testing.T) {
+		cfg := &config.Config{
+			InsecureDevMode: true,
+			ListenAddr:      "",
+		}
+		if err := validateInsecureDevModeBind(cfg); err == nil {
+			t.Fatal("expected error for empty listen addr")
 		}
 	})
 

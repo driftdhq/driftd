@@ -78,6 +78,13 @@ func TestLoadValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("clone_depth_too_large", func(t *testing.T) {
+		path := writeTempConfig(t, "worker:\n  clone_depth: 1001\n")
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected error for too-large clone_depth")
+		}
+	})
+
 	t.Run("cancel_inflight_defaults_true", func(t *testing.T) {
 		path := writeTempConfig(t, "projects:\n  - name: project\n    url: https://example.com/project.git\n")
 		cfg, err := Load(path)

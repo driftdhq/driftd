@@ -42,7 +42,7 @@ type WorkerConfig struct {
 	RetryOnce   bool          `yaml:"retry_once"`
 	ScanMaxAge  time.Duration `yaml:"scan_max_age"`
 	// CloneDepth controls git clone history depth for standalone stack scans.
-	// Set to 1 for shallow clone (default). Must be >= 1.
+	// Set to 1 for shallow clone (default). Must be in [1, 1000].
 	CloneDepth int           `yaml:"clone_depth"`
 	RenewEvery time.Duration `yaml:"renew_every"`
 	// StackTimeout caps how long a single stack plan is allowed to run in a worker.
@@ -115,6 +115,7 @@ type APIConfig struct {
 const (
 	minLockTTL    = 2 * time.Minute
 	minRenewEvery = 10 * time.Second
+	maxCloneDepth = 1000
 )
 
 var projectNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -268,6 +269,9 @@ func applyDefaults(cfg *Config) (*Config, error) {
 	}
 	if cfg.Worker.CloneDepth < 1 {
 		return nil, fmt.Errorf("worker.clone_depth must be >= 1")
+	}
+	if cfg.Worker.CloneDepth > maxCloneDepth {
+		return nil, fmt.Errorf("worker.clone_depth must be <= %d", maxCloneDepth)
 	}
 	if cfg.Worker.RenewEvery == 0 {
 		cfg.Worker.RenewEvery = cfg.Worker.LockTTL / 3

@@ -121,6 +121,25 @@ func TestGetResultEncryptedPlanWithoutKeyReturnsEmptyPlan(t *testing.T) {
 	}
 }
 
+func TestSaveResultWithMalformedEncryptionKeyFails(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(secrets.EnvEncryptionKey, "not-a-valid-key")
+
+	s := New(dir)
+	result := &RunResult{
+		Drifted:    true,
+		PlanOutput: "sensitive plan output",
+		RunAt:      time.Now(),
+	}
+	err := s.SaveResult("project", "stack", result)
+	if err == nil {
+		t.Fatalf("expected save to fail with malformed %s", secrets.EnvEncryptionKey)
+	}
+	if !strings.Contains(err.Error(), "plan encryption unavailable") {
+		t.Fatalf("expected plan encryption error, got %v", err)
+	}
+}
+
 func TestGetResultNotFound(t *testing.T) {
 	dir := t.TempDir()
 	s := New(dir)

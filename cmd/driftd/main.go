@@ -287,11 +287,19 @@ func validateEncryptionKeyPolicy(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	if cfg.InsecureDevMode {
-		return nil
-	}
-	if os.Getenv(secrets.EnvEncryptionKey) == "" {
+	encoded := strings.TrimSpace(os.Getenv(secrets.EnvEncryptionKey))
+	if encoded == "" {
+		if cfg.InsecureDevMode {
+			return nil
+		}
 		return fmt.Errorf("%s must be set when insecure_dev_mode=false", secrets.EnvEncryptionKey)
+	}
+	key, err := secrets.DecodeKey(encoded)
+	if err != nil {
+		return fmt.Errorf("invalid %s: %w", secrets.EnvEncryptionKey, err)
+	}
+	if _, err := secrets.NewEncryptor(key); err != nil {
+		return fmt.Errorf("invalid %s: %w", secrets.EnvEncryptionKey, err)
 	}
 	return nil
 }

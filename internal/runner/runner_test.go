@@ -158,6 +158,63 @@ func TestEnsurePlanOnlyWrapperCreatesLinkAndTarget(t *testing.T) {
 	}
 }
 
+func TestIsBlockedTerraformSubcommand(t *testing.T) {
+	tests := []struct {
+		name       string
+		subcommand string
+		blocked    bool
+	}{
+		{name: "apply", subcommand: "apply", blocked: true},
+		{name: "destroy", subcommand: "destroy", blocked: true},
+		{name: "import", subcommand: "import", blocked: true},
+		{name: "taint", subcommand: "taint", blocked: true},
+		{name: "untaint", subcommand: "untaint", blocked: true},
+		{name: "state", subcommand: "state", blocked: true},
+		{name: "console", subcommand: "console", blocked: true},
+		{name: "login", subcommand: "login", blocked: true},
+		{name: "logout", subcommand: "logout", blocked: true},
+		{name: "plan", subcommand: "plan", blocked: false},
+		{name: "show", subcommand: "show", blocked: false},
+		{name: "empty", subcommand: "", blocked: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBlockedTerraformSubcommand(tt.subcommand); got != tt.blocked {
+				t.Fatalf("isBlockedTerraformSubcommand(%q) = %v, want %v", tt.subcommand, got, tt.blocked)
+			}
+		})
+	}
+}
+
+func TestMaybeRunPlanOnlyProxy(t *testing.T) {
+	handled, code := MaybeRunPlanOnlyProxy("/tmp/terraform", []string{"plan"})
+	if handled {
+		t.Fatalf("expected non-wrapper argv0 to be ignored")
+	}
+	if code != 0 {
+		t.Fatalf("expected code 0 for ignored argv0, got %d", code)
+	}
+
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "terraform")
+	if err := os.WriteFile(realBin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake terraform: %v", err)
+	}
+	wrapperPath := filepath.Join(dir, "terraform.planonly")
+	if err := os.WriteFile(planOnlyTargetPath(wrapperPath), []byte(realBin+"\n"), 0644); err != nil {
+		t.Fatalf("write target file: %v", err)
+	}
+
+	handled, code = MaybeRunPlanOnlyProxy(wrapperPath, []string{"plan"})
+	if !handled {
+		t.Fatalf("expected wrapper argv0 to be handled")
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+}
+
 func TestDetectToolTerraform(t *testing.T) {
 	dir := t.TempDir()
 	if got := detectTool(dir); got != "terraform" {

@@ -74,6 +74,12 @@ func TestShouldBypassCSRFCheck(t *testing.T) {
 			expectBypass: false,
 		},
 		{
+			name:         "bypass on insecure dev for ipv6 loopback",
+			insecureDev:  true,
+			remoteAddr:   "[::1]:1234",
+			expectBypass: true,
+		},
+		{
 			name:         "do not bypass outside insecure dev mode",
 			insecureDev:  false,
 			remoteAddr:   "127.0.0.1:1234",

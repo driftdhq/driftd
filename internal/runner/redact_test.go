@@ -130,6 +130,11 @@ Plan: 0 to add, 1 to change, 0 to destroy.`,
 			expect: `  id_token = REDACTED`,
 		},
 		{
+			name:   "unquoted secret redacted",
+			input:  `  secret = abcdefghijklmnop1234567890`,
+			expect: `  secret = REDACTED`,
+		},
+		{
 			name:   "bearer token redacted",
 			input:  `Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789.ABCDEF`,
 			expect: `Authorization: Bearer REDACTED`,
