@@ -206,6 +206,63 @@ func TestCancelScan(t *testing.T) {
 	}
 }
 
+func TestCanceledScanRemainsCanceledAfterStackResult(t *testing.T) {
+	tests := []struct {
+		name        string
+		applyResult func(ctx context.Context, q *Queue, stackScan *StackScan) error
+	}{
+		{
+			name: "stack failure",
+			applyResult: func(ctx context.Context, q *Queue, stackScan *StackScan) error {
+				return q.Fail(ctx, stackScan, "canceled mid-run")
+			},
+		},
+		{
+			name: "stack completion",
+			applyResult: func(ctx context.Context, q *Queue, stackScan *StackScan) error {
+				return q.Complete(ctx, stackScan, false)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			scan, err := q.StartScan(ctx, "project", "manual", "", "", 1)
+			if err != nil {
+				t.Fatalf("start scan: %v", err)
+			}
+
+			job := &StackScan{
+				ScanID:      scan.ID,
+				ProjectName: "project",
+				ProjectURL:  "file:///project",
+				StackPath:   "envs/dev",
+				MaxRetries:  0,
+			}
+			if err := q.Enqueue(ctx, job); err != nil {
+				t.Fatalf("enqueue: %v", err)
+			}
+
+			deq := dequeueStackScan(t, q)
+			if err := q.CancelScan(ctx, scan.ID, "project", "user canceled"); err != nil {
+				t.Fatalf("cancel scan: %v", err)
+			}
+
+			if err := tt.applyResult(ctx, q, deq); err != nil {
+				t.Fatalf("apply stack result: %v", err)
+			}
+
+			state := getScan(t, q, scan.ID)
+			if state.Status != ScanStatusCanceled {
+				t.Fatalf("expected canceled status to remain terminal, got %s", state.Status)
+			}
+		})
+	}
+}
+
 func TestGetLastScan(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()

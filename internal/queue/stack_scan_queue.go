@@ -226,7 +226,7 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error
 
 // claimAndMarkRunning atomically claims a stack scan via SetNX, then marks it running.
 // Returns ErrAlreadyClaimed if another worker already claimed it.
-func (q *Queue) claimAndMarkRunning(ctx context.Context, stackScan *StackScan, workerID string) error {
+func (q *Queue) claimAndMarkRunning(ctx context.Context, stackScan *StackScan, workerID string) (err error) {
 	if stackScan.Status != StatusPending {
 		return ErrAlreadyClaimed
 	}
@@ -239,25 +239,32 @@ func (q *Queue) claimAndMarkRunning(ctx context.Context, stackScan *StackScan, w
 	if !claimed {
 		return ErrAlreadyClaimed
 	}
+	cleanupClaim := true
+	defer func() {
+		if cleanupClaim && err != nil {
+			_ = q.client.Del(ctx, claimKey).Err()
+		}
+	}()
 
 	stackScan.Status = StatusRunning
 	stackScan.StartedAt = time.Now()
 	stackScan.WorkerID = workerID
-	if err := q.saveStackScan(ctx, stackScan); err != nil {
+	if err = q.saveStackScan(ctx, stackScan); err != nil {
 		return err
 	}
 	_ = q.client.SRem(ctx, keyStackScanPending, stackScan.ID).Err()
-	if err := q.client.ZAdd(ctx, keyRunningStackScans, redis.Z{
+	if err = q.client.ZAdd(ctx, keyRunningStackScans, redis.Z{
 		Score:  float64(stackScan.StartedAt.Unix()),
 		Member: stackScan.ID,
 	}).Err(); err != nil {
 		return err
 	}
 	if stackScan.ScanID != "" {
-		if err := q.markScanStackScanRunning(ctx, stackScan.ScanID); err != nil {
+		if err = q.markScanStackScanRunning(ctx, stackScan.ScanID); err != nil {
 			return err
 		}
 	}
+	cleanupClaim = false
 	return nil
 }
 

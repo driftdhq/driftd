@@ -34,6 +34,40 @@ func TestClaimAndMarkRunningPreventsDoubleClaim(t *testing.T) {
 	}
 }
 
+func TestClaimAndMarkRunningCleansUpClaimOnScanTransitionError(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	job := &StackScan{
+		ScanID:      "missing-scan",
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+		MaxRetries:  0,
+	}
+
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	scan, err := q.GetStackScan(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get scan: %v", err)
+	}
+
+	if err := q.claimAndMarkRunning(ctx, scan, "worker-1"); err == nil {
+		t.Fatalf("expected claimAndMarkRunning to fail when scan transition update cannot be applied")
+	}
+
+	exists, err := q.client.Exists(ctx, keyClaimPrefix+scan.ID).Result()
+	if err != nil {
+		t.Fatalf("check claim key: %v", err)
+	}
+	if exists != 0 {
+		t.Fatalf("expected claim key cleanup on transition failure, got exists=%d", exists)
+	}
+}
+
 func TestRecoverOrphanedStackScans(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()

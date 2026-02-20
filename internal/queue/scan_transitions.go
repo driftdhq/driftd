@@ -43,7 +43,7 @@ local drifted = tonumber(redis.call('HGET', key, 'drifted') or '0')
 local status = redis.call('HGET', key, 'status') or 'running'
 local ended = 0
 
-if (total == 0) or (comp + fail >= total) then
+if status == 'running' and ((total == 0) or (comp + fail >= total)) then
   status = 'completed'
   if fail > 0 then status = 'failed' end
   redis.call('HSET', key, 'status', status, 'ended_at', ended_at)
