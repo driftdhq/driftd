@@ -15,6 +15,34 @@ import (
 
 const keyClaimPrefix = "driftd:claim:"
 
+// dequeueClaimScript atomically reads a stack scan, checks its status is "pending",
+// and attempts to SET NX EX the claim key. If the claim fails or the status isn't
+// pending, the ID is pushed back to the queue. Returns:
+//
+//	 1 = claimed successfully
+//	 0 = re-pushed to queue (claim failed or not pending)
+//	-1 = scan data missing (caller should skip)
+var dequeueClaimScript = redis.NewScript(`
+local scan_data = redis.call('GET', KEYS[1])
+if not scan_data then
+  return -1
+end
+
+local scan = cjson.decode(scan_data)
+if scan['status'] ~= 'pending' then
+  redis.call('LPUSH', KEYS[3], ARGV[1])
+  return 0
+end
+
+local claimed = redis.call('SET', KEYS[2], ARGV[2], 'NX', 'EX', ARGV[3])
+if not claimed then
+  redis.call('LPUSH', KEYS[3], ARGV[1])
+  return 0
+end
+
+return 1
+`)
+
 type StackScan struct {
 	ID          string    `json:"id"`
 	ScanID      string    `json:"scan_id"`
@@ -193,7 +221,9 @@ func (q *Queue) enqueueStackScanAtomic(ctx context.Context, stackScan *StackScan
 }
 
 // Dequeue blocks until a stack scan is available, then returns it.
-// The stack scan status is atomically claimed and updated to "running".
+// The stack scan is atomically claimed via a Lua script that guarantees the item
+// is pushed back to the queue if the claim fails, preventing items from being
+// stranded in the pending set.
 func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error) {
 	for {
 		result, err := q.client.BRPop(ctx, time.Second, keyQueue).Result()
@@ -208,20 +238,73 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string) (*StackScan, error
 		}
 
 		stackScanID := result[1]
-		stackScan, err := q.GetStackScan(ctx, stackScanID)
+		stackScanKey := keyStackScanPrefix + stackScanID
+		claimKey := keyClaimPrefix + stackScanID
+
+		// Use a background context for the claim script and safety pushes so
+		// that a canceled dequeue context cannot strand items outside the queue.
+		claimCtx := context.Background()
+
+		claimResult, err := dequeueClaimScript.Run(
+			claimCtx,
+			q.client,
+			[]string{stackScanKey, claimKey, keyQueue},
+			stackScanID,
+			workerID,
+			strconv.Itoa(30*60), // 30 minutes in seconds
+		).Int64()
 		if err != nil {
+			// Lua script error — push ID back so it isn't lost.
+			_ = q.client.LPush(claimCtx, keyQueue, stackScanID).Err()
 			continue
 		}
 
-		if err := q.claimAndMarkRunning(ctx, stackScan, workerID); err != nil {
-			if errors.Is(err, ErrAlreadyClaimed) {
+		switch claimResult {
+		case -1: // scan data missing
+			continue
+		case 0: // re-pushed by Lua (claim failed or not pending)
+			continue
+		case 1: // claimed
+			stackScan, err := q.GetStackScan(claimCtx, stackScanID)
+			if err != nil {
+				_ = q.client.Del(claimCtx, claimKey).Err()
 				continue
 			}
-			return nil, err
+			if err := q.markRunningAfterClaim(claimCtx, stackScan, workerID); err != nil {
+				_ = q.client.Del(claimCtx, claimKey).Err()
+				_ = q.client.LPush(claimCtx, keyQueue, stackScanID).Err()
+				continue
+			}
+			return stackScan, nil
+		default:
+			continue
 		}
-
-		return stackScan, nil
 	}
+}
+
+// markRunningAfterClaim transitions a stack scan to running after the claim key
+// has already been set by the Lua script. This is the second half of the
+// claim-and-mark-running operation.
+func (q *Queue) markRunningAfterClaim(ctx context.Context, stackScan *StackScan, workerID string) error {
+	stackScan.Status = StatusRunning
+	stackScan.StartedAt = time.Now()
+	stackScan.WorkerID = workerID
+	if err := q.saveStackScan(ctx, stackScan); err != nil {
+		return err
+	}
+	_ = q.client.SRem(ctx, keyStackScanPending, stackScan.ID).Err()
+	if err := q.client.ZAdd(ctx, keyRunningStackScans, redis.Z{
+		Score:  float64(stackScan.StartedAt.Unix()),
+		Member: stackScan.ID,
+	}).Err(); err != nil {
+		return err
+	}
+	if stackScan.ScanID != "" {
+		if err := q.markScanStackScanRunning(ctx, stackScan.ScanID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // claimAndMarkRunning atomically claims a stack scan via SetNX, then marks it running.

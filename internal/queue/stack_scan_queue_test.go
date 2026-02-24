@@ -186,6 +186,75 @@ func TestEnqueueAtomicCleanupOnScriptError(t *testing.T) {
 	}
 }
 
+func TestDequeueRequeuesOnClaimFailure(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	job := &StackScan{
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+		MaxRetries:  0,
+	}
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// Pre-claim with another worker so the Lua script will re-push the ID.
+	claimKey := keyClaimPrefix + job.ID
+	if err := q.client.Set(ctx, claimKey, "other-worker", 30*time.Minute).Err(); err != nil {
+		t.Fatalf("pre-claim: %v", err)
+	}
+
+	// Dequeue should time out because the only item keeps getting re-pushed
+	// and re-rejected. After timeout, the item must still be in the queue.
+	deqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := q.Dequeue(deqCtx, "worker-2")
+	if err == nil {
+		t.Fatal("expected dequeue to fail (timeout), got nil")
+	}
+
+	depth, err := q.QueueDepth(ctx)
+	if err != nil {
+		t.Fatalf("queue depth: %v", err)
+	}
+	if depth != 1 {
+		t.Fatalf("expected queue depth 1 after claim failure, got %d", depth)
+	}
+}
+
+func TestDequeueRequeuesOnMissingScan(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	// Push a nonexistent ID directly into the queue.
+	if err := q.client.LPush(ctx, keyQueue, "nonexistent-id").Err(); err != nil {
+		t.Fatalf("lpush bad id: %v", err)
+	}
+
+	// Enqueue a real job behind it.
+	job := &StackScan{
+		ProjectName: "project",
+		ProjectURL:  "file:///project",
+		StackPath:   "envs/dev",
+	}
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// Dequeue should skip the bad ID and return the real job.
+	deqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	got, err := q.Dequeue(deqCtx, "worker-1")
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	if got.ID != job.ID {
+		t.Fatalf("expected job %s, got %s", job.ID, got.ID)
+	}
+}
+
 func TestInflightClearedOnComplete(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()

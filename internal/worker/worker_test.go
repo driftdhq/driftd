@@ -85,6 +85,26 @@ func newTestQueue(t *testing.T) *queue.Queue {
 	return q
 }
 
+func TestWorkerPrewarmCalledBeforeProcessing(t *testing.T) {
+	q := newTestQueue(t)
+	r := newMockRunner()
+	w := New(q, r, 1, nil, nil)
+
+	var prewarmCalled bool
+	w.prewarm = func(ctx context.Context) error {
+		prewarmCalled = true
+		return nil
+	}
+
+	w.Start()
+	time.Sleep(50 * time.Millisecond)
+	w.Stop()
+
+	if !prewarmCalled {
+		t.Fatal("expected prewarm to be called during Start()")
+	}
+}
+
 func TestWorkerStartStop(t *testing.T) {
 	q := newTestQueue(t)
 	r := newMockRunner()

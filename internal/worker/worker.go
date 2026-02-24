@@ -15,6 +15,8 @@ import (
 	"github.com/driftdhq/driftd/internal/storage"
 )
 
+const recoveryInterval = 10 * time.Second
+
 type Worker struct {
 	id          string
 	queue       *queue.Queue
@@ -25,6 +27,7 @@ type Worker struct {
 	cancel      context.CancelFunc
 	cfg         *config.Config
 	provider    projects.Provider
+	prewarm     func(ctx context.Context) error
 }
 
 type Runner interface {
@@ -46,11 +49,18 @@ func New(q *queue.Queue, r Runner, concurrency int, cfg *config.Config, provider
 		cancel:      cancel,
 		cfg:         cfg,
 		provider:    provider,
+		prewarm:     runner.EnsureDefaultBinaries,
 	}
 }
 
 func (w *Worker) Start() {
 	log.Printf("Starting worker %s with concurrency %d", w.id, w.concurrency)
+
+	if w.prewarm != nil {
+		if err := w.prewarm(w.ctx); err != nil {
+			log.Printf("Warning: prewarm binaries failed: %v", err)
+		}
+	}
 
 	// Single recovery goroutine instead of per-worker recovery
 	w.wg.Add(1)
@@ -76,7 +86,7 @@ func (w *Worker) recoveryLoop() {
 		return
 	}
 
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(recoveryInterval)
 	defer ticker.Stop()
 
 	for {
